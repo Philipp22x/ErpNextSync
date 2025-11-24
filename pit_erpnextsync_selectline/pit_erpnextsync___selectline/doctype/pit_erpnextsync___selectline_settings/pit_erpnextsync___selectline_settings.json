@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-11-10 20:53:14.934063",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "scheduler_tab",
+  "frequency",
+  "tab_2_tab",
+  "section_break_blzb",
+  "table_mapping",
+  "restore_default"
+ ],
+ "fields": [
+  {
+   "fieldname": "scheduler_tab",
+   "fieldtype": "Tab Break",
+   "label": "Scheduler"
+  },
+  {
+   "fieldname": "tab_2_tab",
+   "fieldtype": "Tab Break",
+   "label": "Table Mapping"
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "label": "Frequency",
+   "options": "Hourly\nDaily\nWeekly\nMonthly"
+  },
+  {
+   "fieldname": "section_break_blzb",
+   "fieldtype": "Section Break",
+   "label": "Customer"
+  },
+  {
+   "fieldname": "table_mapping",
+   "fieldtype": "Table",
+   "label": "Table Mapping",
+   "options": "Selectline Table Mapping"
+  },
+  {
+   "fieldname": "restore_default",
+   "fieldtype": "Button",
+   "label": "Restore Default"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-11-24 11:11:12.853251",
+ "modified_by": "Administrator",
+ "module": "PIT ERPNextSync - SelectLine",
+ "name": "Pit ERPNextSync - SelectLine Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

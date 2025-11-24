@@ -1,0 +1,78 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2025-11-09 20:07:31.054222",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enable",
+  "selecline_db_instance",
+  "selectline_id",
+  "mapping_table"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enable",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enable"
+  },
+  {
+   "fieldname": "selecline_db_instance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Selecline DB Instance",
+   "options": "Selectline DB Instance",
+   "reqd": 1
+  },
+  {
+   "description": "&lt;tablename&gt;:&lt;primary_id&gt;",
+   "fieldname": "selectline_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Selectline ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "mapping_table",
+   "fieldtype": "Table",
+   "label": "Mapping",
+   "options": "Selectline Mapping Entry",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-11-24 15:49:00.907843",
+ "modified_by": "Administrator",
+ "module": "PIT ERPNextSync - SelectLine",
+ "name": "Selectline Mapping",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

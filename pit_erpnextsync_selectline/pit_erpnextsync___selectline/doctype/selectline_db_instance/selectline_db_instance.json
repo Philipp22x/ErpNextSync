@@ -63,6 +63,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval: !doc.__islocal\n",
    "fieldname": "test_connection",
    "fieldtype": "Button",
    "label": "Test Connection"
@@ -106,7 +107,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-06 13:45:59.659775",
+ "modified": "2025-11-07 10:42:53.819932",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",

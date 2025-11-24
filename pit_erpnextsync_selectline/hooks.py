@@ -83,7 +83,7 @@ required_apps = ["pit_erpnext"]
 # ------------
 
 # before_install = "pit_erpnextsync_selectline.install.before_install"
-# after_install = "pit_erpnextsync_selectline.install.after_install"
+after_install = "pit_erpnextsync_selectline.install.after_install"
 
 # Uninstallation
 # ------------
