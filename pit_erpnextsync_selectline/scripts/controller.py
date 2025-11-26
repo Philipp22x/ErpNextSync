@@ -1,9 +1,11 @@
-
+import os
+import json
 import pymssql
-import pprint
+from pprint import pprint
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils import now
 
 from pit_erpnext.scripts.logger import make_log
 
@@ -122,6 +124,18 @@ def fetch_data(instance: str, sql: str) -> list:
             pass
 
 
+### OBJECTS (DOCS) ##################################################################################
+
+def create_object(obj_data: dict, mapping: list) -> None:
+    pass
+
+def update_object() -> None:
+    pass
+
+def delete_object() -> None:
+    pass
+
+
 ### MAPPING ##################################################################################
 
 # check if mapping exists
@@ -172,15 +186,18 @@ def create_mapping(db_instance: str, selectline_id: str, mapping: list[dict[str,
         new_mapping: Document = frappe.get_doc({
             "doctype": "Selectline Mapping",
             "selecline_db_instance": db_instance,
-            "selectline_id": selectline_id
+            "selectline_id": selectline_id,
+            "last_update": now()
         })
 
         for row in mapping:
             new_mapping.append("mapping_table", {
-                "mapping_doctype": row["mapping_doctype"],
-                "docname": row["docname"],
-                "fieldname": row["fieldname"],
-                "selectline_column": row["selectline_column"]
+                "mapping_doctype": row.get("mapping_doctype") or "",
+                "docname": row.get("docname") or "",
+                "fieldname": row.get("fieldname") or "",
+                "selectline_column": row.get("selectline_column") or "",
+                "child_table_doctype": row.get("child_table_doctype") or "",
+                "child_table_name": row.get("child_table_name") or ""
             })
 
         new_mapping.insert(ignore_permissions=True)
@@ -252,13 +269,21 @@ def get_settings_doc() -> Document | None:
 
 # get default table mapping
 def get_default_table_mapping() -> list:
+    
+    APP_PATH = frappe.get_app_path(APP_NAME)
+    FILE_PATH = os.path.join(APP_PATH, "data", "default_mapping.json")
 
-    return [
-        {"type": "Item", "table_name": "ART", "primary_key": "ART_ID"},
-        {"type": "Item Price Buying", "table_name": "ARKALK", "primary_key": "ARKALK_ID"},
-        {"type": "Item Price Selling", "table_name": "ARPREIS", "primary_key": "ARPREIS_ID"},
-        {"type": "Customer", "table_name": "", "primary_key": ""}
-    ]
+    try:
+        with open(FILE_PATH, "r", encoding="utf-8") as f:
+            default_table_mapping: dict = json.load(f)
+    
+    except Exception as e:
+        make_log(f"Could not get default mapping table data: {e}", "ERROR", APP_NAME)
+        return []
+
+    return default_table_mapping
+    
+
 
 
 ### TESTS ##################################################################################

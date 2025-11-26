@@ -1,3 +1,5 @@
+import json
+
 import frappe
 from frappe.model.document import Document
 
@@ -30,9 +32,10 @@ def install_default_table_mapping() -> None:
         
         for row in default_mapping:
             settings_doc.append("table_mapping", {
-                "type": row["type"],
-                "table_name": row["table_name"],
-                "primary_key": row["primary_key"]
+                "type": row.get("type") or "",
+                "table_name": row.get("table_name") or "",
+                "primary_key": row.get("primary_key") or "",
+                "mapping": json.dumps(row.get("mapping"), indent=4) or ""
             })
 
         settings_doc.save()

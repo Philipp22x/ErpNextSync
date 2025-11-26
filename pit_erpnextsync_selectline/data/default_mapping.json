@@ -1,0 +1,64 @@
+[
+    {
+        "type": "Item",
+        "table_name": "ART",
+        "primary_key": "ART_ID",
+        "mapping": [
+            {
+                "mapping_doctype": "Item",
+                "fieldname": "item_code",
+                "selectline_column": "Artikelnummer"
+            },
+            {
+                "mapping_doctype": "Item",
+                "fieldname": "item_name",
+                "selectline_column": "Bezeichnung"
+            },
+            {
+                "mapping_doctype": "Item",
+                "fieldname": "description",
+                "selectline_column": "Zusatz"
+            },
+            {
+                "mapping_doctype": "Item",
+                "fieldname": "custom_matchcode",
+                "selectline_column": "Matchcode"
+            },
+            {
+                "mapping_doctype": "Item",
+                "fieldname": "weight_per_unit",
+                "selectline_column": "Gewicht"
+            },
+            {
+                "mapping_doctype": "Item",
+                "fieldname": "is_stock_item",
+                "selectline_column": "Lagerartikel"
+            },
+            {
+                "mapping_doctype": "Item Group",
+                "fieldname": "name",
+                "selectline_column": "Artikelgruppe"
+            },
+            {
+                "mapping_doctype": "UOM",
+                "fieldname": "name",
+                "selectline_column": "Mengeneinheit"
+            }
+        ]
+    },
+    {
+        "type": "Item Price Buying",
+        "table_name": "ARKALK",
+        "primary_key": "ARKALK_ID"
+    },
+    {
+        "type": "Item Price Selling",
+        "table_name": "ARPREIS",
+        "primary_key": "ARPREIS_ID"
+    },
+    {
+        "type": "Customer",
+        "table_name": "",
+        "primary_key": ""
+    }
+]

@@ -9,7 +9,8 @@
   "enable",
   "selecline_db_instance",
   "selectline_id",
-  "mapping_table"
+  "mapping_table",
+  "last_update"
  ],
  "fields": [
   {
@@ -40,17 +41,22 @@
    "unique": 1
   },
   {
+   "fieldname": "last_update",
+   "fieldtype": "Datetime",
+   "label": "Last Update",
+   "read_only": 1
+  },
+  {
    "fieldname": "mapping_table",
    "fieldtype": "Table",
    "label": "Mapping",
-   "options": "Selectline Mapping Entry",
-   "reqd": 1
+   "options": "Selectline Mapping Entry"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-24 15:49:00.907843",
+ "modified": "2025-11-25 14:28:12.454936",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline Mapping",
