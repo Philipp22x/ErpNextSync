@@ -7,8 +7,34 @@ frappe.ui.form.on("Selectline DB Instance", {
 	},
     test_connection(frm) {
         connection_test(frm);
+    },
+    import_json_file(frm) {
+        import_json_file(frm);
     }
 });
+
+
+// import json mapping file
+function import_json_file(frm){
+
+    if(!frm.doc.mapping_json_file){
+        frappe.msgprint(__("No file attached"))
+        return;
+    }
+
+    frappe.call({
+        method: "pit_erpnextsync_selectline.scripts.controller.load_table_mapping",
+        args:{
+            "instance": frm.doc.name
+        },
+        callback: function(r){
+            if(r.message == "success"){
+                frappe.msgprint(__("Mapping loaded successfully"))
+                frm.reload_doc();
+            }
+        }
+    });
+}
 
 
 // calls test for db connection

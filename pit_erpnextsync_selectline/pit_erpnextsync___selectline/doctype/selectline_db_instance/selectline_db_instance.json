@@ -20,7 +20,15 @@
   "column_break_fgdy",
   "port",
   "column_break_szea",
-  "column_break_ahli"
+  "column_break_ahli",
+  "table_mapping_section",
+  "table_mapping",
+  "section_break_pdio",
+  "mapping_json_file",
+  "import_json_file",
+  "column_break_qisn",
+  "column_break_ijue",
+  "column_break_vfub"
  ],
  "fields": [
   {
@@ -102,12 +110,48 @@
   {
    "fieldname": "column_break_ahli",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "table_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Table Mapping"
+  },
+  {
+   "fieldname": "table_mapping",
+   "fieldtype": "Table",
+   "options": "Selectline Table Mapping"
+  },
+  {
+   "fieldname": "section_break_pdio",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_qisn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "import_json_file",
+   "fieldtype": "Button",
+   "label": "Import JSON File"
+  },
+  {
+   "fieldname": "column_break_ijue",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_vfub",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mapping_json_file",
+   "fieldtype": "Attach",
+   "label": "Mapping JSON File"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-07 10:42:53.819932",
+ "modified": "2025-12-01 14:48:43.749619",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",

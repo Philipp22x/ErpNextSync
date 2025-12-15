@@ -6,11 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "scheduler_tab",
-  "frequency",
-  "tab_2_tab",
-  "section_break_blzb",
-  "table_mapping",
-  "restore_default"
+  "frequency"
  ],
  "fields": [
   {
@@ -19,38 +15,17 @@
    "label": "Scheduler"
   },
   {
-   "fieldname": "tab_2_tab",
-   "fieldtype": "Tab Break",
-   "label": "Table Mapping"
-  },
-  {
    "fieldname": "frequency",
    "fieldtype": "Select",
    "label": "Frequency",
    "options": "Hourly\nDaily\nWeekly\nMonthly"
-  },
-  {
-   "fieldname": "section_break_blzb",
-   "fieldtype": "Section Break",
-   "label": "Customer"
-  },
-  {
-   "fieldname": "table_mapping",
-   "fieldtype": "Table",
-   "label": "Table Mapping",
-   "options": "Selectline Table Mapping"
-  },
-  {
-   "fieldname": "restore_default",
-   "fieldtype": "Button",
-   "label": "Restore Default"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-11-24 11:11:12.853251",
+ "modified": "2025-12-01 14:17:06.933898",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Pit ERPNextSync - SelectLine Settings",

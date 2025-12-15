@@ -6,4 +6,24 @@ from frappe.model.document import Document
 
 
 class SelectlineDBInstance(Document):
-	pass
+	
+
+	# get types from table mapping 
+	def get_table_mapping(self) -> list:
+		result: list = []
+		for row in self.table_mapping:
+			
+			# validate rows
+			if (
+				not row.type or 
+				not row.doc_type or 
+				not row.table_name or 
+				not row.primary_key or 
+				not row.mapping
+			):
+				continue
+
+			# get types
+			result.append(row)
+
+		return result

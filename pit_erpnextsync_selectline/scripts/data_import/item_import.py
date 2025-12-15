@@ -114,10 +114,16 @@ def update_item_and_mapping(fetched_item: dict, selectline_id: str, instance: st
                     if row.child_table_doctype and row.child_table_name:
                         old_value = frappe.db.get_value(row.child_table_doctype, row.child_table_name, row.fieldname)
                         if value != old_value:
-                            # set new data
-                            frappe.db.set_value(row.child_table_doctype, row.child_table_name, row.fieldname, value)
 
-                            make_log(f"Updated field {row.fieldname} in {row.child_table_doctype} {row.child_table_name} for Mapping {existing_mapping} successfully", "INFO", controller.APP_NAME)
+                            # delete child table row if new value is empty or none
+                            if not value:
+                                frappe.delete_doc(row.child_table_doctype, row.child_table_name)
+                                make_log(f"{row.child_table_doctype} {row.child_table_name} in {row.mapping_doctype} {row.docname} {row.fieldname} deleted", "INFO", controller.APP_NAME)
+                            else:
+                                # set new data
+                                frappe.db.set_value(row.child_table_doctype, row.child_table_name, row.fieldname, value)
+
+                                make_log(f"Updated field {row.fieldname} in {row.child_table_doctype} {row.child_table_name} for Mapping {existing_mapping} successfully", "INFO", controller.APP_NAME)
 
                     # row without child docs
                     else:
