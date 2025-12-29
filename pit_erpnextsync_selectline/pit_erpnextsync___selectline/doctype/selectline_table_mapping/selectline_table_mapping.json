@@ -10,6 +10,7 @@
   "doc_type",
   "table_name",
   "primary_key",
+  "query_filter",
   "mapping"
  ],
  "fields": [
@@ -47,13 +48,20 @@
    "fieldname": "mapping",
    "fieldtype": "JSON",
    "label": "Mapping"
+  },
+  {
+   "fieldname": "query_filter",
+   "fieldtype": "Text",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Query Filter"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-12-01 13:31:08.527961",
+ "modified": "2025-12-22 09:06:14.687487",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline Table Mapping",

@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "scheduler_tab",
-  "frequency"
+  "mapping_section",
+  "delete_document"
  ],
  "fields": [
   {
@@ -15,17 +16,23 @@
    "label": "Scheduler"
   },
   {
-   "fieldname": "frequency",
-   "fieldtype": "Select",
-   "label": "Frequency",
-   "options": "Hourly\nDaily\nWeekly\nMonthly"
+   "fieldname": "mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Mapping"
+  },
+  {
+   "default": "1",
+   "description": "If mapping will be deleted, the mapped documents will also be deleted if not linked in another mapping.",
+   "fieldname": "delete_document",
+   "fieldtype": "Check",
+   "label": "Delete Document"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-12-01 14:17:06.933898",
+ "modified": "2025-12-29 08:42:19.784353",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Pit ERPNextSync - SelectLine Settings",

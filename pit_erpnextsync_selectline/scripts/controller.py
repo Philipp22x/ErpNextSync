@@ -1,21 +1,20 @@
-import os
+
 import json
 import pymssql
-from pprint import pprint
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import now
 
 from pit_erpnext.scripts.logger import make_log
 
 
 # constants
 APP_NAME: str = "pit_erpnextsync_selectline"
+DEBUG_LOG_NAME: str = f"{APP_NAME}_DEUBUG"
 
 
 
-### CONNECTION ##################################################################################
+#*## CONNECTION ##################################################################################
 
 # create connection to db
 def db_connect(instance: str) -> pymssql.Connection | None:
@@ -87,7 +86,7 @@ def connection_test(instance: str) -> bool:
             pass
 
 
-### GET DATA ##################################################################################
+#*## GET DATA ##################################################################################
 
 # fetch data from db
 def fetch_data(instance: str, sql: str) -> list:
@@ -124,7 +123,7 @@ def fetch_data(instance: str, sql: str) -> list:
             pass
 
 
-### MAPPING ##################################################################################
+#*## MAPPING ##################################################################################
 
 # check if mapping exists
 def check_mapping_exists(selectline_id: str) -> str | None:
@@ -153,52 +152,69 @@ def check_mapping_exists(selectline_id: str) -> str | None:
 
 
 # create new mapping
-def create_mapping(instance: str, mapping_obj_id: str, mapping_data: list[dict]) -> dict | None:
-
+def create_mapping_doc(instance: str, mapping_obj_id: str, mapping_type: str) -> Document | None:
+    
     try:
-        if not mapping_data or not mapping_obj_id:
-            raise Exception("Invalid arg values")
-        
-        # creade mapping doc
-        new_mapping: Document = frappe.get_doc({
+        new_mapping_doc: Document = frappe.get_doc({
             "doctype": "Selectline Mapping",
             "selecline_db_instance": instance,
             "selectline_id": mapping_obj_id,
-            "last_update": now()
+            "type": mapping_type
         })
 
-        # create mapping table entries
-        mapping_childs_list: list = []
+        new_mapping_doc.insert(
+            ignore_permissions=True,
+            ignore_mandatory=True,
+            ignore_links=True
+        )
 
-        for row in mapping_data:
+        frappe.db.commit()
+        return new_mapping_doc
 
-            # basic data for new mapping child
-            new_mapping_child: Document = frappe.new_doc("Selectline Mapping Entry")
-            new_mapping_child.parrenttype = new_mapping.doctype
-            new_mapping_child.parent = new_mapping.name
-            new_mapping_child.parentfield = "mapping_table"
-
-            # mapping data
-            for key, value in row.items():
-                new_mapping_child.set(key, value)
-
-            mapping_childs_list.append(new_mapping_child)
-
-        return {"mapping_doc": new_mapping, "mapping_childs": mapping_childs_list}
+    except frappe.exceptions.DuplicateEntryError:
+        make_log(f"Mapping id {mapping_obj_id} already exists! Creating new mapping aborted", "ERROR", APP_NAME)
+        return None
 
     except Exception as e:
-        make_log(f"Could not create new mapping: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
+        make_log(f"Could not create new doc: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
+        return None
+    
+
+# create new selectline mapping entry
+def insert_mapping_row(mapping_doc_name: str, data: dict) -> str | None:
+
+    try:
+        new_mapping_row: Document = frappe.new_doc("Selectline Mapping Entry")
+
+        new_mapping_row.set("parenttype", "Selectline Mapping")
+        new_mapping_row.set("parent", mapping_doc_name)
+        new_mapping_row.set("parentfield", "mapping_table")
+
+        for key, value in data.items():
+            new_mapping_row.set(key, value)
+
+        new_mapping_row.insert(
+            ignore_permissions=True,
+            ignore_mandatory=True,
+            ignore_links=True
+        )
+
+        frappe.db.commit()
+        return new_mapping_row.name
+    
+    except Exception as e:
+        make_log(f"Could not create new Selectline Mapping Entry: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
         return None
 
 
-def update_mapping() -> None:
-    pass
+# def update_mapping() -> None:
+#     pass
 
-def delete_mapping() -> None:
-    pass
+# def delete_mapping() -> None:
+#     pass
 
 
-### UTILS ##################################################################################
+#*## UTILS ##################################################################################
 
 # create object mapping id
 def create_object_id(instance: str, table_name: str, primary_key: str) -> str:
@@ -287,7 +303,7 @@ def load_table_mapping(instance: str) -> str| None:
             new_mapping_row.parentfield = "table_mapping"
 
             for key, value in row.items():
-                if key == "mapping":
+                if key in ["mapping", "query_filter"]:
                     new_mapping_row.set(key, json.dumps(value, indent=4))
                 else:
                     new_mapping_row.set(key, value)
@@ -302,10 +318,64 @@ def load_table_mapping(instance: str) -> str| None:
     except Exception as e:
         make_log(f"Could not load table mapping: {e}", "ERROR", APP_NAME)
         return None
+    
+
+# make the sql command str
+def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0) -> str:
+
+    if not mapping_row_data.primary_key in col_to_fetch:
+        col_to_fetch.append(mapping_row_data.primary_key)
+
+    top_str: str = ""
+    if top > 0:
+        top_str = f"TOP ({top})"
+
+    # handle filters if exists in mapping
+    query_filter: str = mapping_row_data.get("query_filter")
+    query_filter_command: str = ""
+    if query_filter and type(query_filter) == str:
+        query_filter_command = f"WHERE {query_filter.replace('"', '')}"
+
+    col_string: str = ",\n".join(col_to_fetch)
+
+    # sql command
+    fetch_sql: str = f"""
+    SELECT {top_str} {col_string}
+    FROM dbo.{mapping_row_data.table_name}
+    {query_filter_command}
+    ORDER BY {mapping_row_data.primary_key}
+    """
+
+    make_log(f"SQL string:{fetch_sql}", "INFO", APP_NAME)
+    return fetch_sql
+
+
+# check if types are given and if given types are existing in mapping table
+def get_types_to_import(instance: str, types_args: list) -> list:
+    instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+
+     # check wich type (doctypes) has to import | if types arg is empty, import all types
+    types_rows_to_import: list = []
+    existing_type_rows: list = instance_doc.get_table_mapping()
+    if not types_args:
+        types_rows_to_import = existing_type_rows
+    else:
+        # check if given types are exists in instance table mapping
+        for arg_type in types_args:
+            existing_type: dict = next(
+                (t for t in existing_type_rows if t.get("type") == arg_type), None)
+
+            if not existing_type:
+                make_log(f"Type {arg_type} is not existing in instance {instance} table mapping. Import for this type aborted!", "WARNING", APP_NAME)
+                continue
+            else:
+                types_rows_to_import.append(existing_type)
+
+    return types_rows_to_import
 
 
 
-### TESTS ##################################################################################
+#*## TESTS ##################################################################################
 
 def test():
     # pprint(fetch_data("test instance", "SELECT TOP (5) * FROM dbo.ART ORDER BY ART_ID"))

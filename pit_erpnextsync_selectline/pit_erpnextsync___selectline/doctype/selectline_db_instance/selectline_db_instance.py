@@ -1,12 +1,14 @@
 # Copyright (c) 2025, PIT IT GmbH and contributors
 # For license information, please see license.txt
 
-# import frappe
+import frappe
 from frappe.model.document import Document
+
+from pit_erpnextsync_selectline.scripts import controller
+from pit_erpnext.scripts.logger import make_log
 
 
 class SelectlineDBInstance(Document):
-	
 
 	# get types from table mapping 
 	def get_table_mapping(self) -> list:
@@ -27,3 +29,11 @@ class SelectlineDBInstance(Document):
 			result.append(row)
 
 		return result
+
+
+	
+
+
+		
+
+		
