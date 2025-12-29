@@ -17,7 +17,8 @@ def test2():
 
 
 #* entry point for data import ##########################################################################
-def start_import(instance: str, types: list = []) -> None:
+@frappe.whitelist()
+def start_import(instance: str, top: int, types_str: str = "") -> None:
 
     # get instance doc
     try:
@@ -28,6 +29,9 @@ def start_import(instance: str, types: list = []) -> None:
     except Exception as e:
         make_log(f"Could not get instance doc {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
         return None
+    
+    # convert types str to a list
+    types: list = json.loads(types_str)
 
     types_rows_to_import: list = controller.get_types_to_import(instance=instance, types_args=types)
    
@@ -41,7 +45,7 @@ def start_import(instance: str, types: list = []) -> None:
         try:
             fetched_data: list = controller.fetch_data(
                 instance=instance, sql=controller.make_sql_string(mapping_row_data=row, col_to_fetch=get_fields_to_import(json.loads(row.mapping)),
-                top=2)
+                top=top)
             )
 
             for fetched_obj in fetched_data:

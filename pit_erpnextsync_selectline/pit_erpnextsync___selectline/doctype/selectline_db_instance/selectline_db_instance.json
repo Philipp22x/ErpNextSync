@@ -28,7 +28,16 @@
   "import_json_file",
   "column_break_qisn",
   "column_break_ijue",
-  "column_break_vfub"
+  "column_break_vfub",
+  "data_import_section",
+  "column_break_jgvh",
+  "types_to_import",
+  "column_break_ojon",
+  "amount_of_data_rows",
+  "column_break_hrbn",
+  "start_import",
+  "reset",
+  "column_break_ximu"
  ],
  "fields": [
   {
@@ -123,7 +132,8 @@
   },
   {
    "fieldname": "section_break_pdio",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "label": "JSON File Import"
   },
   {
    "fieldname": "column_break_qisn",
@@ -146,12 +156,55 @@
    "fieldname": "mapping_json_file",
    "fieldtype": "Attach",
    "label": "Mapping JSON File"
+  },
+  {
+   "fieldname": "data_import_section",
+   "fieldtype": "Section Break",
+   "label": "Data Import"
+  },
+  {
+   "fieldname": "start_import",
+   "fieldtype": "Button",
+   "label": "Start Import"
+  },
+  {
+   "fieldname": "column_break_jgvh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ojon",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Separate with \",\". Leave empty for all types.",
+   "fieldname": "types_to_import",
+   "fieldtype": "Data",
+   "label": "Types To Import"
+  },
+  {
+   "fieldname": "column_break_hrbn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ximu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set 0 for all",
+   "fieldname": "amount_of_data_rows",
+   "fieldtype": "Int",
+   "label": "Amount Of Data Rows"
+  },
+  {
+   "fieldname": "reset",
+   "fieldtype": "Button",
+   "label": "Reset"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-01 14:48:43.749619",
+ "modified": "2025-12-29 18:57:11.968386",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",
