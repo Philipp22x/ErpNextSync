@@ -25,7 +25,7 @@ class SelectlineMapping(Document):
 	# check for deleting mapped doctypes
 	def on_delete_mapping(self) -> bool:
 
-		if not frappe.get_single_value("Pit ERPNextSync - Selectline Settings", "delete_document"):
+		if not frappe.get_single_value("Pit ERPNextSync - SelectLine Settings", "delete_document"):
 			return True
 
 		try:	
