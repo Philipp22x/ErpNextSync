@@ -5,21 +5,21 @@ from frappe.model.document import Document
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync_selectline.scripts import controller
+from pit_erpnextsync_selectline.scripts.classes.field_vars import FieldVars
 
 
 
 #* test ##############################################################################################
 def test():
-    start_import("test instance", types=["Customer"])
+    start_import("test instance",top=3, types_str="Customer")
 
 def test2():
-    start_import("cobra test", types=[])
+    start_import("cobra test",top=3, types_str="")
 
 
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
 def start_import(instance: str, top: int, types_str: str = "") -> None:
-
     # get instance doc
     try:
         instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
@@ -29,16 +29,19 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
     except Exception as e:
         make_log(f"Could not get instance doc {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
         return None
-    
+
     # convert types str to a list
     types: list = json.loads(types_str)
 
     types_rows_to_import: list = controller.get_types_to_import(instance=instance, types_args=types)
-   
+
     # return function if no rows for import
     if not types_rows_to_import:
         make_log(f"Could not found any table mapping rows. Import aborted for instance {instance}!", "ERROR", controller.APP_NAME)
         return None
+    
+    # init field vars object
+    field_vars_obj: FieldVars = FieldVars()
 
     # fetch db data for every row
     for row in types_rows_to_import:
@@ -57,7 +60,8 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                     timeout=600,
                     instance=instance,
                     fetched_obj=fetched_obj,
-                    table_mapping_row=row
+                    table_mapping_row=row,
+                    field_vars_obj=field_vars_obj
                 )
 
             if not fetched_data:
@@ -70,7 +74,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 #* IMPORT #########################################################################################
 
 # new object
-def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: list) -> None:
+def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: list, field_vars_obj: FieldVars) -> None:
 
     try:
         # validate args
@@ -109,28 +113,28 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
 
         # loop mapping table for every doctype ------------------------------------------------------------
         for mapped_doctype in mapping:
-            
+
             # try to create doc and check result code
             try:
-                new_doc_result: dict = create_doc(mapped_doctype=mapped_doctype, fetched_obj=fetched_obj)
+                new_doc_result: dict = create_doc(mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj)
 
             except Exception as e:
                 raise Exception(e)
-            
+
             if new_doc_result["code"] != 100:
 
                 # if error code
                 if new_doc_result["code"] in [101, 103]:
                     continue
-                    
+
                 if new_doc_result["code"] == 102:
-                    
+
                     # delete docs if already inserted
                     if created_docs:
                         delete_docs(created_docs=created_docs)
 
                     raise Exception("Required Document could not be created")
-                
+
             else:
                 # add current doc mapping data to obj mapping data
                 obj_mapping_data.append(new_doc_result["doc_mapping_data"])
@@ -138,11 +142,23 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
                 # add doc to created docs list
                 created_docs.append(new_doc_result["created_doc"])
 
+                # add tags from tag list
+                doc_tags: list = new_doc_result["tags"]
+                if doc_tags:
+                    try:
+                        cur_doc: Document = frappe.get_doc(new_doc_result["created_doc"]["dt"], new_doc_result["created_doc"]["dn"])
+                        for tag in doc_tags:
+                            cur_doc.add_tag(tag)
+
+                    except Exception as e:
+                        make_log(f"Could not add tags: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+
+
         # create new mapping doc --------------------------------------------------------------------------
         new_mapping_result: Document | None = create_mapping(
-            instance=instance, 
-            new_mapping_data=obj_mapping_data, 
-            table_mapping_row=table_mapping_row, 
+            instance=instance,
+            new_mapping_data=obj_mapping_data,
+            table_mapping_row=table_mapping_row,
             obj_id=obj_id
         )
 
@@ -161,10 +177,10 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
             frappe.db.commit()
 
             raise Exception("Could not create mapping")
-            
+
         frappe.db.commit()
 
-    except Exception as e:    
+    except Exception as e:
         make_log(f"Could not import fetched oject: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         raise
 
@@ -179,12 +195,12 @@ def delete_docs(created_docs: list) -> None:
         except Exception as e:
             make_log(f"Could not delete doc {doc["dt"], doc["dn"]}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
             continue
-    
+
     frappe.db.commit()
 
 
 # create doc
-def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
+def create_doc(mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVars) -> dict:
 
     #? _____return codes:_____
     #
@@ -192,6 +208,8 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
     #? 101: field reqd error
     #? 102: obj reqd error
     #? 103: error -> skip
+
+    make_log(f"field var list {field_vars_obj.get_field_vars()}", "ERROR", controller.DEBUG_LOG_NAME)
 
     # create doc without fields
     new_doc: Document = frappe.new_doc(mapped_doctype["doctype"])
@@ -201,6 +219,9 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
 
     # will contain all mapping data
     doc_mapping_data: list = []
+
+    # list for doc tags
+    doc_tags: list = []
 
     # set field values
     for field in mapped_doctype["fields"]:
@@ -217,6 +238,9 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
             else:
                 new_doc.set(field["fieldname"], field_value)
+                # special line for adding tags to doc
+                if field["fieldname"] == "_user_tags":
+                    doc_tags.append(str(fetched_obj[field["sl_column"]]))
 
             # create new mapping doc row data for every field
             data: dict = {
@@ -229,7 +253,15 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
         # default fields
         elif field.get("default"):
             new_doc.set(field["fieldname"], field["default"])
-            
+
+        # field vars
+        elif field.get("field_var"):
+            var_value = field_vars_obj.get_field_var_value(field.get("field_var"))
+            if var_value:
+                new_doc.set(field["fieldname"], var_value)
+            else:
+                continue
+
         # tables
         elif field.get("table_fields"):
             new_child_row = new_doc.append(field["fieldname"], {})
@@ -239,7 +271,7 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
 
                 # fetched child row fields
                 if table_field.get("sl_column"):
-                    if field.get("alt_key"):
+                    if table_field.get("alt_key"):
                         field_value = str(fetched_obj[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["alt_key"]]
                     else:
                         field_value = str(fetched_obj[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["sl_column"]]
@@ -249,7 +281,7 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
                         return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
                     else:
                         new_child_row.set(table_field["table_fieldname"], field_value)
-                
+
                     # create new mapping doc row data for every field
                     data: dict = {
                         "mapping_doctype": new_doc.doctype,
@@ -260,12 +292,25 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
                     doc_mapping_data.append(data)
 
                     # remove empty row if no
-                    if fetched_obj[table_field["sl_column"]] in ["", None]:
-                        new_doc.remove(new_child_row)
+                    if table_field.get("sl_column"):
+                        if table_field.get("alt_key"):
+                            if fetched_obj[table_field["alt_key"]] in ["", None]:
+                                new_doc.remove(new_child_row)
+                        else:
+                            if fetched_obj[table_field["sl_column"]] in ["", None]:
+                                new_doc.remove(new_child_row)
 
                 elif table_field.get("default"):
                     new_child_row.set(table_field["table_fieldname"], table_field["default"])
-    
+
+                # field vars
+                elif table_field.get("field_var"):
+                    var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
+                    if var_value:
+                        new_child_row.set(table_field["table_fieldname"], var_value)
+                    else:
+                        continue
+
     # insert new doc
     before_doc_insert_hook(new_doc=new_doc, fetched_obj=fetched_obj)
 
@@ -307,12 +352,20 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict) -> dict:
     for entry in doc_mapping_data:
         entry["docname"] = mapping_doc_name
 
+    # check for post field var
+    doc_field_var_list: list | None = mapped_doctype.get("post_field_vars")
+    if doc_field_var_list:
+        for field_var in doc_field_var_list:
+            field_var["value"] = new_doc.get(field_var.get("field_name"))
+            field_vars_obj.add_field_var(field_var=field_var)
+
     make_log(f"{new_doc.doctype} {new_doc.name} inserted successfully", "INFO", controller.APP_NAME)
 
     return {
         "code": 100,
         "doc_mapping_data": doc_mapping_data,
-        "created_doc": {"dt": new_doc.doctype, "dn": new_doc.name}
+        "created_doc": {"dt": new_doc.doctype, "dn": new_doc.name},
+        "tags": doc_tags
     }
 
 
@@ -324,7 +377,7 @@ def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: lis
         new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type)
         if not new_mapping_doc:
             raise Exception("Creating new mapping doc was aborted")
-        
+
         # fill mapping table in mapping doc
         for doc_data in new_mapping_data:
             for data in doc_data:
@@ -348,7 +401,7 @@ def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: lis
         return {
             "result": False
         }
-        
+
 
 # check if required level 2 fields are fetched
 def check_obj_requirements(fetched_obj: dict, mapping: list) -> list:
@@ -362,7 +415,7 @@ def check_obj_requirements(fetched_obj: dict, mapping: list) -> list:
                 for table_field in field["table_fields"]:
                     if table_field.get("reqd") == 2 and table_field.get("default") == None:
                         reqd_columns.append(table_field.get("sl_column") if table_field.get("alt_key") == None else table_field.get("alt_key"))
-            
+
             else:
                 if field.get("reqd") == 2 and field.get("default") == None:
                     reqd_columns.append(field.get("sl_column") if field.get("alt_key") == None else field.get("alt_key"))
