@@ -16,6 +16,13 @@ def test():
 def test2():
     start_import("cobra test",top=3, types_str="")
 
+def test3():
+    print(controller.get_mapped_value(
+        sl_id="cobra test:ADDRESSES A1:41231",
+        doc_type="Lead",
+        fieldname="city"
+    ))
+
 
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
@@ -76,6 +83,8 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 # new object
 def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: list, field_vars_obj: FieldVars) -> None:
 
+    make_log(f"fetched_obj: {fetched_obj}", "ERROR", controller.DEBUG_LOG_NAME)
+
     try:
         # validate args
         if (
@@ -116,7 +125,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
 
             # try to create doc and check result code
             try:
-                new_doc_result: dict = create_doc(mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj)
+                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj)
 
             except Exception as e:
                 raise Exception(e)
@@ -200,7 +209,7 @@ def delete_docs(created_docs: list) -> None:
 
 
 # create doc
-def create_doc(mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVars) -> dict:
+def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVars) -> dict:
 
     #? _____return codes:_____
     #
@@ -208,8 +217,6 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVar
     #? 101: field reqd error
     #? 102: obj reqd error
     #? 103: error -> skip
-
-    make_log(f"field var list {field_vars_obj.get_field_vars()}", "ERROR", controller.DEBUG_LOG_NAME)
 
     # create doc without fields
     new_doc: Document = frappe.new_doc(mapped_doctype["doctype"])
@@ -232,6 +239,15 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVar
                 field_value = str(fetched_obj[field["alt_key"]]) if field.get("force_str_type") == 1 else fetched_obj[field["alt_key"]]
             else:
                 field_value = str(fetched_obj[field["sl_column"]]) if field.get("force_str_type") == 1 else fetched_obj[field["sl_column"]]
+
+            # check for mapped value
+            if field.get("mapped_value"):
+                mapped_value: any = controller.get_mapped_value(
+                    sl_id=f"{instance}:{field.get("mapped_value").get("table_name")}:{fetched_obj[field["mapped_value"]["sl_id"]]}",
+                    doc_type=field.get("mapped_value").get("doc_type"),
+                    fieldname=field.get("mapped_value").get("fieldname")
+                )
+                field_value = str(mapped_value) if field.get("force_str_type") == 1 else mapped_value
 
             # check if field value is empty and reqd
             if field_value in ["", None] and field.get("reqd") == 1:
@@ -275,6 +291,14 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVar
                         field_value = str(fetched_obj[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["alt_key"]]
                     else:
                         field_value = str(fetched_obj[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["sl_column"]]
+
+                    if table_field.get("mapped_value"):
+                        mapped_value: any = controller.get_mapped_value(
+                            sl_id=f"{instance}:{table_field.get("mapped_value").get("table_name")}:{fetched_obj[table_field["mapped_value"]["sl_id"]]}",
+                            doc_type=table_field.get("mapped_value").get("doc_type"),
+                            fieldname=table_field.get("mapped_value").get("fieldname")
+                        )
+                        field_value = str(mapped_value) if table_field.get("force_str_type") == 1 else mapped_value
 
                     # check if field value is empty and reqd
                     if field_value in ["", None] and field.get("reqd") == 1:
@@ -325,13 +349,16 @@ def create_doc(mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVar
 
         frappe.db.commit()
 
-    except frappe.exceptions.DoesNotExistError:
+    except frappe.exceptions.DoesNotExistError as e:
+        make_log(f"Could not insert document: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+
         if doc_is_reqd:
             return {"code": 102}
         else:
             return {"code": 103}
 
-    except frappe.exceptions.ValidationError:
+    except frappe.exceptions.ValidationError as e:
+        make_log(f"Could not insert document: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         if doc_is_reqd:
             return {"code": 102}
         else:
@@ -385,7 +412,7 @@ def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: lis
 
         # if mapping table in mapping doc is empty -> raise exeption
         if not mapping_doc_has_mapping_etries(parent=new_mapping_doc.name):
-            raise Exception("No mapping entries")
+            raise Exception(f"No mapping entries: {frappe.get_traceback()}")
 
         # if successfull
         make_log(f"New mapping {new_mapping_doc.name} {new_mapping_doc.selectline_id} created", "INFO", controller.APP_NAME)
@@ -435,7 +462,6 @@ def before_doc_insert_hook(new_doc: Document, fetched_obj: dict) -> None:
     match new_doc.doctype:
         case "Customer":
             new_doc.flags.name_set = True
-
 
 
 #* UTILS #########################################################################################
