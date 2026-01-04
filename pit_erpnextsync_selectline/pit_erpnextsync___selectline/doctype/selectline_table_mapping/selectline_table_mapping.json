@@ -10,6 +10,7 @@
   "doc_type",
   "table_name",
   "primary_key",
+  "order_by",
   "query_filter",
   "mapping"
  ],
@@ -55,13 +56,21 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Query Filter"
+  },
+  {
+   "columns": 1,
+   "fieldname": "order_by",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Order By"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-12-22 09:06:14.687487",
+ "modified": "2026-01-04 22:17:40.927027",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline Table Mapping",

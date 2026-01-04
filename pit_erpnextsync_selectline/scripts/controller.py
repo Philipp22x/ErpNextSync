@@ -176,7 +176,7 @@ def create_mapping_doc(instance: str, mapping_obj_id: str, mapping_type: str) ->
         return None
 
     except Exception as e:
-        make_log(f"Could not create new doc: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
+        make_log(f"Could not create new mapping doc: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
         return None
     
 
@@ -323,9 +323,15 @@ def load_table_mapping(instance: str) -> str| None:
 # make the sql command str
 def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0) -> str:
 
+    # add primary key if not in columns to fetch
     if not mapping_row_data.primary_key in col_to_fetch:
         col_to_fetch.append(mapping_row_data.primary_key)
 
+    # add order_by columns if not already in coumns to fetch
+    if mapping_row_data.order_by and mapping_row_data.order_by not in col_to_fetch:
+        col_to_fetch.append(mapping_row_data.order_by)
+
+    # set amount to fetch
     top_str: str = ""
     if top > 0:
         top_str = f"TOP ({top})"
@@ -336,14 +342,21 @@ def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0
     if query_filter and type(query_filter) == str:
         query_filter_command = f"WHERE {query_filter.replace('"', '')}"
 
+
+    # convert columns to fetch list to str
     col_string: str = ",\n".join(col_to_fetch)
+
+    # set order by string
+    order_by: str = mapping_row_data.primary_key
+    if mapping_row_data.order_by:
+        order_by = mapping_row_data.order_by
 
     # sql command
     fetch_sql: str = f"""
     SELECT {top_str} {col_string}
     FROM dbo.{mapping_row_data.table_name}
     {query_filter_command}
-    ORDER BY {mapping_row_data.primary_key}
+    ORDER BY {order_by}
     """
 
     make_log(f"SQL string:{fetch_sql}", "INFO", APP_NAME)
@@ -374,6 +387,53 @@ def get_types_to_import(instance: str, types_args: list) -> list:
     return types_rows_to_import
 
 
+# get value from mapping entry
+def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
+
+    make_log(f"get mapping value args: {sl_id} {doc_type} {fieldname}", "ERROR", DEBUG_LOG_NAME)
+
+    mapping_doc_name: any = frappe.db.exists(
+        "Selectline Mapping",
+        {
+            "selectline_id": sl_id
+        }
+    )
+
+    if fieldname == "name":
+        docname_list: list = frappe.get_all(
+            "Selectline Mapping Entry",
+            filters={
+                "parent": mapping_doc_name,
+                "mapping_doctype": doc_type
+            },
+            pluck="docname"
+        )
+
+        return docname_list[0] if docname_list else ""
+
+    if mapping_doc_name:
+        mapping_entry_name: any = frappe.db.exists(
+        "Selectline Mapping Entry",
+        {
+            "parent": mapping_doc_name,
+            "mapping_doctype": doc_type,
+            "fieldname": fieldname
+        }
+    )
+        
+    else: 
+        return ""
+        
+    if mapping_entry_name:    
+        _doctype = frappe.db.get_value("Selectline Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="mapping_doctype"),
+        _filters = frappe.db.get_value("Selectline Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="docname"),
+
+        value: any = frappe.db.get_value(str(_doctype[0]), str(_filters[0]), fieldname=fieldname)
+
+        return value
+    
+    else: 
+        return ""
 
 #*## TESTS ##################################################################################
 
