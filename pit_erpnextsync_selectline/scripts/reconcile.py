@@ -224,10 +224,14 @@ def reconcile_single_mapping(
 				)
 				result["actions"]["additions"] = addition_result
 			
-			# Update timestamp
-			mapping_doc.last_update = frappe.utils.now()
-			mapping_doc.save()
+			# Update timestamp only (don't save parent doc to avoid overwriting child table)
+			frappe.db.set_value("Selectline Mapping", mapping_name, "last_update", frappe.utils.now())
 			frappe.db.commit()
+			make_log(
+				f"Updated timestamp for {mapping_name} without saving child table",
+				"DEBUG",
+				APP_NAME
+			)
 		
 		make_log(
 			f"Reconciliation completed for {mapping_name} (dry_run={dry_run})",
