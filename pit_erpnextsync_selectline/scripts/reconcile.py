@@ -633,6 +633,15 @@ def apply_field_additions(
 						field_value
 					)
 					
+					# Skip creating mapping entry for fields with only "default" value (no sl_column)
+					if not field_def.get("sl_column"):
+						make_log(
+							f"Skipping child mapping entry for {doctype}.{fieldname}.{child_row_fieldname}: no sl_column (default/static value)",
+							"DEBUG",
+							APP_NAME
+						)
+						continue
+					
 					# Check if mapping entry already exists
 					existing_entry = frappe.db.exists(
 						"Selectline Mapping Entry",
@@ -680,6 +689,16 @@ def apply_field_additions(
 			else:
 				# Update parent document field (even if None, to clear it if needed)
 				frappe.db.set_value(doctype, docname, fieldname, field_value)
+				
+				# Skip creating mapping entry for fields with only "default" value (no sl_column)
+				# These are static values from JSON, not synced from SelectLine
+				if not field_def.get("sl_column"):
+					make_log(
+						f"Skipping mapping entry for {doctype}.{fieldname}: no sl_column (default/static value)",
+						"DEBUG",
+						APP_NAME
+					)
+					continue
 				
 				# Check if mapping entry already exists
 				existing_entry = frappe.db.exists(
