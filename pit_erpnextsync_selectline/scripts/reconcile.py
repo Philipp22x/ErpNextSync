@@ -758,6 +758,14 @@ def apply_field_additions(
 					APP_NAME
 				)
 			
+			# Explicit commit after each field to ensure persistence
+			frappe.db.commit()
+			make_log(
+				f"Committed transaction for {doctype}.{fieldname}",
+				"DEBUG",
+				APP_NAME
+			)
+			
 			added_count += 1
 			
 		except Exception as e:
