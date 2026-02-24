@@ -323,6 +323,14 @@ def get_mapping_changes(
 						"column_change": True
 					})
 	
+	make_log(
+		f"Mapping changes for {mapping_name}: "
+		f"fields_to_add={[f.get('doctype') + '.' + f.get('fieldname') for f in fields_to_add]}, "
+		f"total_new={len(new_fields_dict)}, total_stored={len(stored_fields_dict)}",
+		"DEBUG",
+		APP_NAME
+	)
+	
 	return {
 		"fields_to_add": fields_to_add,
 		"fields_to_remove": fields_to_remove,
@@ -643,20 +651,35 @@ def apply_field_additions(
 				
 				if not existing_entry:
 					# Create mapping entry
-					result = controller.insert_mapping_row(
-						mapping_doc_name=mapping_name,
-						data={
+					try:
+						mapping_data = {
 							"mapping_doctype": doctype,
 							"docname": docname,
 							"fieldname": fieldname,
 							"selectline_column": field_def.get("sl_column")
 						}
-					)
-					make_log(
-						f"Created mapping entry for {doctype}.{fieldname}: result={result}",
-						"DEBUG",
-						APP_NAME
-					)
+						make_log(
+							f"Inserting mapping row for {doctype}.{fieldname} with data: {mapping_data}",
+							"DEBUG",
+							APP_NAME
+						)
+						result = controller.insert_mapping_row(
+							mapping_doc_name=mapping_name,
+							data=mapping_data
+						)
+						make_log(
+							f"Created mapping entry for {doctype}.{fieldname}: result={result}",
+							"DEBUG",
+							APP_NAME
+						)
+					except Exception as insert_error:
+						make_log(
+							f"ERROR inserting mapping row for {doctype}.{fieldname}: {insert_error}",
+							"ERROR",
+							APP_NAME,
+							with_traceback=True
+						)
+						raise
 				else:
 					make_log(
 						f"Mapping entry already exists for {doctype}.{fieldname}: {existing_entry}",
