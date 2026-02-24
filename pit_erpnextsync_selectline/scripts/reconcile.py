@@ -516,14 +516,14 @@ def apply_field_additions(
 				
 				if not existing_entries:
 					# This is a new doctype that wasn't in the original mapping
-					# We need to create it first
+					# We need to get or create the document first
 					make_log(
 						f"Creating new document for doctype {doctype} during reconciliation",
 						"INFO",
 						APP_NAME
 					)
 					
-					# Create new document with the field value
+					# Get or create document with the field value
 					new_doc = create_new_doc_for_reconciliation(
 						doctype=doctype,
 						field_def=field_def,
@@ -535,20 +535,7 @@ def apply_field_additions(
 					if new_doc:
 						docname = new_doc.name
 						created_docs_cache[doctype] = docname
-						
-						# Create mapping entry for this document
-						controller.insert_mapping_row(
-							mapping_doc_name=mapping_name,
-							data={
-								"mapping_doctype": doctype,
-								"docname": docname,
-								"fieldname": fieldname,
-								"selectline_column": field_def.get("sl_column")
-							}
-						)
-						
-						added_count += 1
-						continue  # Move to next field
+						# Don't continue here - we still need to create the mapping entry for this field
 					else:
 						raise Exception(f"Failed to create new document for doctype {doctype}")
 				else:
@@ -583,6 +570,48 @@ def apply_field_additions(
 						field_value
 					)
 					
+					# Check if mapping entry already exists
+					existing_entry = frappe.db.exists(
+						"Selectline Mapping Entry",
+						{
+							"parent": mapping_name,
+							"mapping_doctype": doctype,
+							"docname": docname,
+							"fieldname": fieldname,
+							"child_row_fieldname": child_row_fieldname
+						}
+					)
+					
+					if not existing_entry:
+						# Create mapping entry
+						controller.insert_mapping_row(
+							mapping_doc_name=mapping_name,
+							data={
+								"mapping_doctype": doctype,
+								"docname": docname,
+								"fieldname": fieldname,
+								"child_row_fieldname": child_row_fieldname,
+								"child_row_name": child_info["child_name"],
+								"child_row_doctype": child_info["child_doctype"],
+								"selectline_column": field_def.get("sl_column")
+							}
+						)
+			else:
+				# Update parent document field
+				frappe.db.set_value(doctype, docname, fieldname, field_value)
+				
+				# Check if mapping entry already exists
+				existing_entry = frappe.db.exists(
+					"Selectline Mapping Entry",
+					{
+						"parent": mapping_name,
+						"mapping_doctype": doctype,
+						"docname": docname,
+						"fieldname": fieldname
+					}
+				)
+				
+				if not existing_entry:
 					# Create mapping entry
 					controller.insert_mapping_row(
 						mapping_doc_name=mapping_name,
@@ -590,26 +619,9 @@ def apply_field_additions(
 							"mapping_doctype": doctype,
 							"docname": docname,
 							"fieldname": fieldname,
-							"child_row_fieldname": child_row_fieldname,
-							"child_row_name": child_info["child_name"],
-							"child_row_doctype": child_info["child_doctype"],
 							"selectline_column": field_def.get("sl_column")
 						}
 					)
-			else:
-				# Update parent document field
-				frappe.db.set_value(doctype, docname, fieldname, field_value)
-				
-				# Create mapping entry
-				controller.insert_mapping_row(
-					mapping_doc_name=mapping_name,
-					data={
-						"mapping_doctype": doctype,
-						"docname": docname,
-						"fieldname": fieldname,
-						"selectline_column": field_def.get("sl_column")
-					}
-				)
 			
 			added_count += 1
 			
