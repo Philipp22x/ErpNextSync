@@ -599,6 +599,12 @@ def apply_field_additions(
 			
 			# Handle child table fields
 			if child_row_fieldname:
+				make_log(
+					f"Handling child table field: {doctype}.{fieldname}.{child_row_fieldname}",
+					"DEBUG",
+					APP_NAME
+				)
+				
 				# Find or create child row
 				child_info = get_or_create_child_row(
 					mapping_name=mapping_name,
@@ -609,6 +615,12 @@ def apply_field_additions(
 				)
 				
 				if child_info:
+					make_log(
+						f"Got child info: {child_info}",
+						"DEBUG",
+						APP_NAME
+					)
+					
 					# Update child row field
 					frappe.db.set_value(
 						child_info["child_doctype"],
@@ -631,7 +643,7 @@ def apply_field_additions(
 					
 					if not existing_entry:
 						# Create mapping entry
-						controller.insert_mapping_row(
+						result = controller.insert_mapping_row(
 							mapping_doc_name=mapping_name,
 							data={
 								"mapping_doctype": doctype,
@@ -643,6 +655,24 @@ def apply_field_additions(
 								"selectline_column": field_def.get("sl_column")
 							}
 						)
+						make_log(
+							f"Created child mapping entry for {doctype}.{fieldname}.{child_row_fieldname}: result={result}",
+							"DEBUG",
+							APP_NAME
+						)
+					else:
+						make_log(
+							f"Child mapping entry already exists: {existing_entry}",
+							"DEBUG",
+							APP_NAME
+						)
+				else:
+					make_log(
+						f"ERROR: Could not get or create child row for {doctype}.{fieldname}",
+						"ERROR",
+						APP_NAME
+					)
+					raise Exception(f"Failed to get or create child row for {doctype}.{fieldname}")
 			else:
 				# Update parent document field (even if None, to clear it if needed)
 				frappe.db.set_value(doctype, docname, fieldname, field_value)
@@ -702,6 +732,31 @@ def apply_field_additions(
 						"DEBUG",
 						APP_NAME
 					)
+			
+			# Verify the mapping entry was created
+			verify_entry = frappe.db.exists(
+				"Selectline Mapping Entry",
+				{
+					"parent": mapping_name,
+					"mapping_doctype": doctype,
+					"docname": docname,
+					"fieldname": fieldname
+				}
+			)
+			
+			if not verify_entry:
+				make_log(
+					f"VERIFICATION FAILED: Mapping entry for {doctype}.{fieldname} not found after creation!",
+					"ERROR",
+					APP_NAME
+				)
+				raise Exception(f"Mapping entry verification failed for {doctype}.{fieldname}")
+			else:
+				make_log(
+					f"VERIFIED: Mapping entry exists for {doctype}.{fieldname}: {verify_entry}",
+					"DEBUG",
+					APP_NAME
+				)
 			
 			added_count += 1
 			
