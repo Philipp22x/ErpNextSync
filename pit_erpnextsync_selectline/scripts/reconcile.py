@@ -194,10 +194,17 @@ def reconcile_single_mapping(
 			
 			# 3. Handle field additions
 			if changes.get("fields_to_add"):
+				fields_to_add = changes["fields_to_add"]
+				make_log(
+					f"Applying {len(fields_to_add)} field additions for {mapping_name}: "
+					f"{[f.get('doctype') + '.' + f.get('fieldname') for f in fields_to_add]}",
+					"DEBUG",
+					APP_NAME
+				)
 				addition_result = apply_field_additions(
 					instance=instance,
 					mapping_name=mapping_name,
-					fields_to_add=changes["fields_to_add"],
+					fields_to_add=fields_to_add,
 					fetched_obj=fetched_obj
 				)
 				result["actions"]["additions"] = addition_result
@@ -268,11 +275,21 @@ def get_mapping_changes(
 	for key, field_def in new_fields_dict.items():
 		if key not in stored_fields_dict:
 			fields_to_add.append(field_def)
+			make_log(
+				f"Field to add: {key} ({field_def.get('doctype')}.{field_def.get('fieldname')})",
+				"DEBUG",
+				APP_NAME
+			)
 	
 	# Fields to remove (in stored but not in new)
 	for key, field_info in stored_fields_dict.items():
 		if key not in new_fields_dict:
 			fields_to_remove.append(field_info)
+			make_log(
+				f"Field to remove: {key} ({field_info.get('mapping_doctype')}.{field_info.get('fieldname')})",
+				"DEBUG",
+				APP_NAME
+			)
 	
 	# Structural changes (same field key but different mapping type)
 	for key in new_fields_dict:
@@ -499,6 +516,13 @@ def apply_field_additions(
 			if not doctype or not fieldname:
 				raise Exception(f"Field definition missing doctype or fieldname: {field_def}")
 			
+			# Debug logging
+			make_log(
+				f"Processing field addition: {doctype}.{fieldname} (child: {child_row_fieldname})",
+				"DEBUG",
+				APP_NAME
+			)
+			
 			# Check if we have a cached docname for this doctype
 			docname = created_docs_cache.get(doctype)
 			
@@ -611,9 +635,15 @@ def apply_field_additions(
 					}
 				)
 				
+				make_log(
+					f"Field {doctype}.{fieldname}: existing_entry={existing_entry}, docname={docname}, field_value={field_value}",
+					"DEBUG",
+					APP_NAME
+				)
+				
 				if not existing_entry:
 					# Create mapping entry
-					controller.insert_mapping_row(
+					result = controller.insert_mapping_row(
 						mapping_doc_name=mapping_name,
 						data={
 							"mapping_doctype": doctype,
@@ -621,6 +651,17 @@ def apply_field_additions(
 							"fieldname": fieldname,
 							"selectline_column": field_def.get("sl_column")
 						}
+					)
+					make_log(
+						f"Created mapping entry for {doctype}.{fieldname}: result={result}",
+						"DEBUG",
+						APP_NAME
+					)
+				else:
+					make_log(
+						f"Mapping entry already exists for {doctype}.{fieldname}: {existing_entry}",
+						"DEBUG",
+						APP_NAME
 					)
 			
 			added_count += 1
