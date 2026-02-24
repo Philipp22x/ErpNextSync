@@ -133,14 +133,29 @@ def reconcile_single_mapping(
 		# Get stored mapping entries
 		stored_entries: List[Dict] = controller.get_mapping_table_data(mapping_name)
 		
-		# Get the SelectLine data for this mapping
+		# First detect changes to know what columns we need to fetch
+		# We do a preliminary comparison without fetched_obj
+		preliminary_changes: Dict = get_mapping_changes(
+			mapping_name=mapping_name,
+			stored_entries=stored_entries,
+			new_json_mapping=new_json_mapping,
+			fetched_obj={},
+			instance=instance
+		)
+		
+		# Get the SelectLine data for this mapping, including new columns
 		id_data: Dict = parse_object_id(mapping_doc.selectline_id)
-		fetched_obj: Optional[Dict] = fetch_source_data(instance, mapping_doc, id_data)
+		fetched_obj: Optional[Dict] = fetch_source_data(
+			instance=instance,
+			mapping_doc=mapping_doc,
+			id_data=id_data,
+			new_fields=preliminary_changes.get("fields_to_add", [])
+		)
 		
 		if not fetched_obj:
 			raise Exception(f"Could not fetch source data for {mapping_doc.selectline_id}")
 		
-		# Detect changes
+		# Detect changes again with actual fetched data
 		changes: Dict = get_mapping_changes(
 			mapping_name=mapping_name,
 			stored_entries=stored_entries,
@@ -895,11 +910,18 @@ def get_field_value(
 		col_name = field_def.get("sl_column")
 		alt_key = field_def.get("alt_key")
 		force_str = field_def.get("force_str_type") == 1
+		fieldname = field_def.get("fieldname", "unknown")
 		
 		if alt_key and fetched_obj.get(alt_key):
 			value = fetched_obj.get(alt_key)
 		else:
 			value = fetched_obj.get(col_name)
+		
+		make_log(
+			f"get_field_value for {fieldname}: col={col_name}, alt_key={alt_key}, value={value}, type={type(value)}",
+			"DEBUG",
+			APP_NAME
+		)
 		
 		if force_str and value is not None:
 			return str(value)
@@ -1033,10 +1055,12 @@ def parse_object_id(obj_id: str) -> Dict:
 def fetch_source_data(
 	instance: str,
 	mapping_doc: Document,
-	id_data: Dict
+	id_data: Dict,
+	new_fields: Optional[List[Dict]] = None
 ) -> Optional[Dict]:
 	"""
 	Fetches current data from SelectLine for a mapping.
+	Includes columns from existing mapping AND new fields being added.
 	"""
 	try:
 		# Get table name from id_data
@@ -1056,6 +1080,22 @@ def fetch_source_data(
 		entries = controller.get_mapping_table_data(mapping_doc.name)
 		columns = list(set([e.get("selectline_column") for e in entries if e.get("selectline_column")]))
 		
+		# Add columns from new fields being added (for reconciliation)
+		if new_fields:
+			for field in new_fields:
+				if field.get("sl_column"):
+					columns.append(field["sl_column"])
+				# Also check child table fields
+				if field.get("table_fields"):
+					# This shouldn't happen for parent-level new_fields list
+					pass
+				# For child table fields, the sl_column is in child_row_fieldname context
+				# but we need to check if this field itself has sl_column at parent level
+				# Actually, for new fields list, we need to extract all sl_columns including from nested table_fields
+		
+		# Remove duplicates while preserving order
+		columns = list(dict.fromkeys(columns))
+		
 		# Add timestamp column
 		ts_col = frappe.db.get_value(
 			"Selectline DB Instance",
@@ -1069,6 +1109,12 @@ def fetch_source_data(
 			raise Exception(f"No columns to fetch for mapping {mapping_doc.name}")
 		
 		col_string = ",\n".join(columns)
+		
+		make_log(
+			f"Fetching columns for {mapping_doc.name}: {columns}",
+			"DEBUG",
+			APP_NAME
+		)
 		
 		# Build and execute SQL
 		sql = f"""
