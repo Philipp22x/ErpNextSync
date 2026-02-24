@@ -1106,7 +1106,13 @@ def get_or_create_child_row(
 		})
 		
 		new_child.flags.name_set = True
-		new_child.insert()
+		
+		# Insert with ignore_mandatory=True to allow creating child rows
+		# without all required fields initially. Fields will be set afterward.
+		new_child.insert(
+			ignore_permissions=True,
+			ignore_mandatory=True
+		)
 		
 		return {
 			"child_doctype": child_doctype,
