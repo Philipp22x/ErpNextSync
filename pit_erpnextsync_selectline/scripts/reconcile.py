@@ -644,7 +644,7 @@ def apply_field_additions(
 							}
 						)
 			else:
-				# Update parent document field
+				# Update parent document field (even if None, to clear it if needed)
 				frappe.db.set_value(doctype, docname, fieldname, field_value)
 				
 				# Check if mapping entry already exists
@@ -665,7 +665,8 @@ def apply_field_additions(
 				)
 				
 				if not existing_entry:
-					# Create mapping entry
+					# Create mapping entry (ALWAYS create, even if value is None)
+					# This ensures future updates will work when value changes from NULL to a value
 					try:
 						mapping_data = {
 							"mapping_doctype": doctype,
