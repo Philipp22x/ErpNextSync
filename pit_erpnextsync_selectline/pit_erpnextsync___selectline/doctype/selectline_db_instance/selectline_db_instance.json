@@ -19,8 +19,14 @@
   "test_connection",
   "column_break_fgdy",
   "port",
+  "schema",
   "column_break_szea",
   "column_break_ahli",
+  "section_break_dgop",
+  "db_time_stamp_column_name",
+  "column_break_swiu",
+  "column_break_mohy",
+  "column_break_rlum",
   "table_mapping_section",
   "table_mapping",
   "section_break_pdio",
@@ -29,13 +35,19 @@
   "column_break_qisn",
   "column_break_ijue",
   "column_break_vfub",
+  "mapping_reconciliation_section",
+  "types_to_reconcile",
+  "preview_reconciliation",
+  "column_break_recon1",
+  "apply_reconciliation",
+  "column_break_recon2",
+  "column_break_recon3",
   "data_import_section",
   "column_break_jgvh",
   "types_to_import",
   "column_break_ojon",
   "amount_of_data_rows",
   "column_break_hrbn",
-  "start_import",
   "reset",
   "column_break_ximu"
  ],
@@ -131,6 +143,7 @@
    "options": "Selectline Table Mapping"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_pdio",
    "fieldtype": "Section Break",
    "label": "JSON File Import"
@@ -148,24 +161,63 @@
    "fieldname": "column_break_ijue",
    "fieldtype": "Column Break"
   },
-  {
-   "fieldname": "column_break_vfub",
-   "fieldtype": "Column Break"
-  },
+   {
+    "fieldname": "column_break_vfub",
+    "fieldtype": "Column Break"
+   },
+   {
+    "collapsible": 1,
+    "depends_on": "eval: !doc.__islocal",
+    "fieldname": "mapping_reconciliation_section",
+    "fieldtype": "Section Break",
+    "label": "Mapping Reconciliation"
+   },
+   {
+    "description": "Separate with \",\". Leave empty for all types.",
+    "fieldname": "types_to_reconcile",
+    "fieldtype": "Data",
+    "label": "Types to Reconcile"
+   },
+   {
+    "depends_on": "eval: !doc.__islocal",
+    "fieldname": "preview_reconciliation",
+    "fieldtype": "Button",
+    "label": "Preview Reconciliation"
+   },
+   {
+    "fieldname": "column_break_recon1",
+    "fieldtype": "Column Break"
+   },
+   {
+    "depends_on": "eval: !doc.__islocal",
+    "fieldname": "apply_reconciliation",
+    "fieldtype": "Button",
+    "label": "Apply Reconciliation"
+   },
+   {
+    "fieldname": "column_break_recon2",
+    "fieldtype": "Column Break"
+   },
+   {
+    "fieldname": "column_break_recon3",
+    "fieldtype": "Column Break"
+   },
+   {
+    "collapsible": 1,
+    "fieldname": "data_import_section",
+    "fieldtype": "Section Break",
+    "label": "Data Import Settings"
+   },
   {
    "fieldname": "mapping_json_file",
    "fieldtype": "Attach",
    "label": "Mapping JSON File"
   },
   {
+   "collapsible": 1,
    "fieldname": "data_import_section",
    "fieldtype": "Section Break",
-   "label": "Data Import"
-  },
-  {
-   "fieldname": "start_import",
-   "fieldtype": "Button",
-   "label": "Start Import"
+   "label": "Data Import Settings"
   },
   {
    "fieldname": "column_break_jgvh",
@@ -199,12 +251,46 @@
    "fieldname": "reset",
    "fieldtype": "Button",
    "label": "Reset"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_dgop",
+   "fieldtype": "Section Break",
+   "label": "Settings"
+  },
+  {
+   "fieldname": "db_time_stamp_column_name",
+   "fieldtype": "Data",
+   "label": "DB Time Stamp Column Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_swiu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_mohy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_rlum",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "schema",
+   "fieldtype": "Data",
+   "label": "Schema"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
- "links": [],
- "modified": "2025-12-29 18:57:11.968386",
+ "links": [
+  {
+   "link_doctype": "Selectline Mapping",
+   "link_fieldname": "selecline_db_instance"
+  }
+ ],
+ "modified": "2026-02-18 10:42:46.724764",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",

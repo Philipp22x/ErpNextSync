@@ -3,7 +3,7 @@
 
 frappe.ui.form.on("Selectline DB Instance", {
 	refresh(frm) {
-
+        custom_action_buttons(frm);
 	},
     test_connection(frm) {
         connection_test(frm);
@@ -11,14 +11,28 @@ frappe.ui.form.on("Selectline DB Instance", {
     import_json_file(frm) {
         import_json_file(frm);
     },
-    start_import(frm) {
-        start_import_action(frm);
-    },
     reset(frm) {
         frm.set_value("types_to_import", "");
         frm.set_value("amount_of_data_rows", 0);
+    },
+    preview_reconciliation(frm) {
+        preview_reconciliation(frm);
+    },
+    apply_reconciliation(frm) {
+        apply_reconciliation(frm);
     }
 });
+
+function custom_action_buttons(frm){
+    if (!frm.is_new()) {
+        frm.add_custom_button(__('Import'), () => {
+            start_import_action(frm);
+        });
+        frm.add_custom_button(__('Update'), () => {
+            start_update_action(frm);
+        });
+    }
+}
 
 
 // start import button action
@@ -47,10 +61,33 @@ function start_import_action(frm){
             frappe.msgprint("Background jobs were created. Import runs in background.")
         }
     });
-    
-
 }
 
+
+// start update button action
+function start_update_action(frm){
+    // check types
+    let types_str = frm.doc.types_to_import
+    let types_list = [];
+    if (types_str){
+        types_list = types_str.split(",");
+    }
+
+    // call import
+    frappe.dom.freeze(__("creating background jobs for update..."));
+    frappe.call({
+        method: "pit_erpnextsync_selectline.scripts.update.run_bulk_update",
+        args:{
+            "instance": frm.doc.name,
+            "types_str": JSON.stringify(types_list),
+        },
+        callback: function(r){
+            frappe.dom.unfreeze();
+            frappe.msgprint("Background jobs were created. Update runs in background.")
+        }
+    });
+}
+    
 
 // import json mapping file
 function import_json_file(frm){
@@ -92,4 +129,83 @@ function connection_test(frm){
             frappe.dom.unfreeze();
         }
     });
+}
+
+
+// preview reconciliation button action
+function preview_reconciliation(frm){
+    // check types
+    let types_str = frm.doc.types_to_reconcile
+    let types_list = [];
+    if (types_str){
+        types_list = types_str.split(",").map(t => t.trim()).filter(t => t);
+    }
+
+    frappe.dom.freeze(__("creating background jobs for reconciliation preview..."));
+    frappe.call({
+        method: "pit_erpnextsync_selectline.scripts.reconcile.start_reconciliation",
+        args:{
+            "instance": frm.doc.name,
+            "types_str": JSON.stringify(types_list),
+            "dry_run": true
+        },
+        callback: function(r){
+            frappe.dom.unfreeze();
+            if(r.message && r.message.status === "success"){
+                frappe.msgprint({
+                    title: __("Reconciliation Preview Queued"),
+                    message: __("Preview queued for {0} mappings. Check Error Log for details.", [r.message.mappings_count]),
+                    indicator: "blue"
+                });
+            } else {
+                frappe.msgprint({
+                    title: __("Error"),
+                    message: r.message ? r.message.message : __("Unknown error"),
+                    indicator: "red"
+                });
+            }
+        }
+    });
+}
+
+
+// apply reconciliation button action
+function apply_reconciliation(frm){
+    // check types
+    let types_str = frm.doc.types_to_reconcile
+    let types_list = [];
+    if (types_str){
+        types_list = types_str.split(",").map(t => t.trim()).filter(t => t);
+    }
+
+    frappe.confirm(
+        __("This will modify existing documents and mappings based on the current JSON mapping definitions. Are you sure you want to proceed?"),
+        function(){
+            frappe.dom.freeze(__("creating background jobs for reconciliation..."));
+            frappe.call({
+                method: "pit_erpnextsync_selectline.scripts.reconcile.start_reconciliation",
+                args:{
+                    "instance": frm.doc.name,
+                    "types_str": JSON.stringify(types_list),
+                    "dry_run": false
+                },
+                callback: function(r){
+                    frappe.dom.unfreeze();
+                    if(r.message && r.message.status === "success"){
+                        frappe.msgprint({
+                            title: __("Reconciliation Started"),
+                            message: __("Reconciliation queued for {0} mappings. Check Error Log for details.", [r.message.mappings_count]),
+                            indicator: "orange"
+                        });
+                    } else {
+                        frappe.msgprint({
+                            title: __("Error"),
+                            message: r.message ? r.message.message : __("Unknown error"),
+                            indicator: "red"
+                        });
+                    }
+                }
+            });
+        }
+    );
 }

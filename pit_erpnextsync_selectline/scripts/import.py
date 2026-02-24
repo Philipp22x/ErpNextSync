@@ -46,7 +46,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
     if not types_rows_to_import:
         make_log(f"Could not found any table mapping rows. Import aborted for instance {instance}!", "ERROR", controller.APP_NAME)
         return None
-    
+
     # init field vars object
     field_vars_obj: FieldVars = FieldVars()
 
@@ -54,22 +54,42 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
     for row in types_rows_to_import:
         try:
             fetched_data: list = controller.fetch_data(
-                instance=instance, sql=controller.make_sql_string(mapping_row_data=row, col_to_fetch=get_fields_to_import(json.loads(row.mapping)),
-                top=top)
+                instance=instance,
+                sql=controller.make_sql_string(
+                    instance=instance,
+                    db_ts_col_name=frappe.get_value("Selectline DB Instance", instance, "db_time_stamp_column_name") or "",
+                    mapping_row_data=row,
+                    col_to_fetch=get_fields_to_import(json.loads(row.mapping)),
+                    top=top
+                )
             )
 
             for fetched_obj in fetched_data:
 
-                # set background job for every object
-                frappe.enqueue(
-                    "pit_erpnextsync_selectline.scripts.import.import_fetched_object",
-                    queue="long",
-                    timeout=600,
+                # get new mapping id
+                obj_id: str = controller.create_object_id(
                     instance=instance,
-                    fetched_obj=fetched_obj,
-                    table_mapping_row=row,
-                    field_vars_obj=field_vars_obj
+                    table_name=row.table_name,
+                    primary_key=str(fetched_obj.get(row.primary_key))
                 )
+
+                # check if mapping already exists
+                mapping_exists: str | None = controller.check_mapping_exists(obj_id)
+                if mapping_exists:
+                    make_log(f"Mapping {obj_id} already exists", "INFO", controller.APP_NAME)
+
+                else:
+                    # set background job for import object
+                    frappe.enqueue(
+                        "pit_erpnextsync_selectline.scripts.import.import_fetched_object",
+                        queue="long",
+                        timeout=600,
+                        instance=instance,
+                        fetched_obj=fetched_obj,
+                        table_mapping_row=row,
+                        field_vars_obj=field_vars_obj,
+                        obj_id=obj_id
+                    )
 
             if not fetched_data:
                 raise Exception
@@ -81,16 +101,16 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 #* IMPORT #########################################################################################
 
 # new object
-def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: list, field_vars_obj: FieldVars) -> None:
-
-    make_log(f"fetched_obj: {fetched_obj}", "ERROR", controller.DEBUG_LOG_NAME)
+def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, field_vars_obj: FieldVars, obj_id: str) -> None:
 
     try:
         # validate args
         if (
             not instance or
             not fetched_obj or
-            not table_mapping_row
+            not table_mapping_row or
+            not field_vars_obj or
+            not obj_id
         ):
             raise Exception("Args invalid")
 
@@ -101,18 +121,6 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
         missing_columns: list = check_obj_requirements(fetched_obj=fetched_obj, mapping=mapping)
         if missing_columns:
             raise Exception(f"Missing field values: {missing_columns}")
-
-        # get new mapping id
-        obj_id: str = controller.create_object_id(
-            instance=instance,
-            table_name=table_mapping_row.table_name,
-            primary_key=str(fetched_obj.get(table_mapping_row.primary_key))
-        )
-
-        # check if mapping already exists
-        mapping_exists: str | None = controller.check_mapping_exists(obj_id)
-        if mapping_exists:
-            raise Exception(f"Mapping {mapping_exists} already exists")
 
         # mapping data for whole mapping doc
         obj_mapping_data: list = []
@@ -128,6 +136,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
                 new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj)
 
             except Exception as e:
+                make_log(f"Could not create new doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
                 raise Exception(e)
 
             if new_doc_result["code"] != 100:
@@ -145,6 +154,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
                     raise Exception("Required Document could not be created")
 
             else:
+
                 # add current doc mapping data to obj mapping data
                 obj_mapping_data.append(new_doc_result["doc_mapping_data"])
 
@@ -168,7 +178,8 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: l
             instance=instance,
             new_mapping_data=obj_mapping_data,
             table_mapping_row=table_mapping_row,
-            obj_id=obj_id
+            obj_id=obj_id,
+            time_stamp=fetched_obj.get(frappe.db.get_value("Selectline DB Instance", instance, "db_time_stamp_column_name"))
         )
 
         # if mapping not created -> delete all docs in mapping
@@ -202,7 +213,7 @@ def delete_docs(created_docs: list) -> None:
 
 
         except Exception as e:
-            make_log(f"Could not delete doc {doc["dt"], doc["dn"]}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+            make_log(f"Could not delete doc {doc['dt'], doc['dn']}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
             continue
 
     frappe.db.commit()
@@ -230,6 +241,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
     # list for doc tags
     doc_tags: list = []
 
+    # child row list
+    child_doc_list: list = []
+
     # set field values
     for field in mapped_doctype["fields"]:
 
@@ -243,7 +257,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
             # check for mapped value
             if field.get("mapped_value"):
                 mapped_value: any = controller.get_mapped_value(
-                    sl_id=f"{instance}:{field.get("mapped_value").get("table_name")}:{fetched_obj[field["mapped_value"]["sl_id"]]}",
+                    sl_id=f"{instance}:{field.get('mapped_value').get('table_name')}:{fetched_obj[field['mapped_value']['sl_id']]}",
                     doc_type=field.get("mapped_value").get("doc_type"),
                     fieldname=field.get("mapped_value").get("fieldname")
                 )
@@ -280,7 +294,28 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
 
         # tables
         elif field.get("table_fields"):
-            new_child_row = new_doc.append(field["fieldname"], {})
+
+            try:
+
+                # get child doctype from table field
+                child_doctype: str = frappe.get_meta(mapped_doctype["doctype"]).get_field(field["fieldname"]).options
+                if not child_doctype:
+                    raise Exception(f"Could not get child doctype from {mapped_doctype["doctype"].get_field(field["fieldname"])}")
+
+                child_name = frappe.generate_hash(length=8)
+
+                new_child_row: Document = frappe.get_doc({
+                    "doctype": child_doctype,
+                    "parenttype": mapped_doctype["doctype"],
+                    "name": child_name,
+                    "parentfield": field.get("fieldname")
+                })
+
+                child_doc_list.append(new_child_row)
+
+            except Exception as e:
+                make_log(f"Could not create child doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+                continue
 
             # child row fields
             for table_field in field["table_fields"]:
@@ -294,7 +329,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
 
                     if table_field.get("mapped_value"):
                         mapped_value: any = controller.get_mapped_value(
-                            sl_id=f"{instance}:{table_field.get("mapped_value").get("table_name")}:{fetched_obj[table_field["mapped_value"]["sl_id"]]}",
+                            sl_id=f"{instance}:{table_field.get('mapped_value').get('table_name')}:{fetched_obj[table_field['mapped_value']['sl_id']]}",
                             doc_type=table_field.get("mapped_value").get("doc_type"),
                             fieldname=table_field.get("mapped_value").get("fieldname")
                         )
@@ -311,7 +346,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                         "mapping_doctype": new_doc.doctype,
                         "fieldname": field["fieldname"],
                         "selectline_column": table_field["sl_column"],
-                        "child_row_fieldname": table_field["table_fieldname"]
+                        "child_row_fieldname": table_field["table_fieldname"],
+                        "child_row_name": new_child_row.name,
+                        "child_row_doctype": new_child_row.doctype
                     }
                     doc_mapping_data.append(data)
 
@@ -319,10 +356,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                     if table_field.get("sl_column"):
                         if table_field.get("alt_key"):
                             if fetched_obj[table_field["alt_key"]] in ["", None]:
-                                new_doc.remove(new_child_row)
+                                child_doc_list.remove(new_child_row)
                         else:
                             if fetched_obj[table_field["sl_column"]] in ["", None]:
-                                new_doc.remove(new_child_row)
+                                child_doc_list.remove(new_child_row)
 
                 elif table_field.get("default"):
                     new_child_row.set(table_field["table_fieldname"], table_field["default"])
@@ -347,6 +384,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
 
         mapping_doc_name: str = new_doc.name
 
+        for child_doc in child_doc_list:
+            child_doc.parent = new_doc.name
+            child_doc.flags.name_set = True
+            child_doc.insert()
+
         frappe.db.commit()
 
     except frappe.exceptions.DoesNotExistError as e:
@@ -365,7 +407,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
             return {"code": 103}
 
     except frappe.exceptions.DuplicateEntryError:
-        make_log(f"{new_doc.doctype} {new_doc.name} already exists -> insert was skipped", "WARNING", controller.APP_NAME)
+        make_log(f"{new_doc.doctype} {new_doc.name} already exists -> insert was skipped", "ERROR", controller.APP_NAME)
         return {"code": 103}
 
     except Exception as e:
@@ -397,11 +439,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
 
 
 # create mapping for object
-def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: list, obj_id: str) -> dict:
+def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: dict, obj_id: str, time_stamp: str = "") -> dict:
 
     try:
         # create new mapping doc with empty mapping
-        new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type)
+        new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, primary_key_column=table_mapping_row.primary_key, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type, db_time_stamp=time_stamp)
         if not new_mapping_doc:
             raise Exception("Creating new mapping doc was aborted")
 
