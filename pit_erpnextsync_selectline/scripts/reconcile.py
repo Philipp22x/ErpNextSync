@@ -486,6 +486,9 @@ def apply_field_additions(
 	# Create field_vars object for this reconciliation
 	field_vars_obj: FieldVars = FieldVars()
 	
+	# Track newly created documents to avoid recreating
+	created_docs_cache: Dict[str, str] = {}
+	
 	for field_def in fields_to_add:
 		try:
 			doctype = field_def.get("doctype")
@@ -496,21 +499,61 @@ def apply_field_additions(
 			if not doctype or not fieldname:
 				raise Exception(f"Field definition missing doctype or fieldname: {field_def}")
 			
-			# Find the docname from existing mapping entries of same doctype
-			existing_entries = frappe.get_all(
-				"Selectline Mapping Entry",
-				filters={
-					"parent": mapping_name,
-					"mapping_doctype": doctype
-				},
-				limit=1,
-				pluck="docname"
-			)
+			# Check if we have a cached docname for this doctype
+			docname = created_docs_cache.get(doctype)
 			
-			if not existing_entries:
-				raise Exception(f"No existing document found for doctype {doctype}")
-			
-			docname = existing_entries[0]
+			if not docname:
+				# Find the docname from existing mapping entries of same doctype
+				existing_entries = frappe.get_all(
+					"Selectline Mapping Entry",
+					filters={
+						"parent": mapping_name,
+						"mapping_doctype": doctype
+					},
+					limit=1,
+					pluck="docname"
+				)
+				
+				if not existing_entries:
+					# This is a new doctype that wasn't in the original mapping
+					# We need to create it first
+					make_log(
+						f"Creating new document for doctype {doctype} during reconciliation",
+						"INFO",
+						APP_NAME
+					)
+					
+					# Create new document with the field value
+					new_doc = create_new_doc_for_reconciliation(
+						doctype=doctype,
+						field_def=field_def,
+						fetched_obj=fetched_obj,
+						instance=instance,
+						field_vars_obj=field_vars_obj
+					)
+					
+					if new_doc:
+						docname = new_doc.name
+						created_docs_cache[doctype] = docname
+						
+						# Create mapping entry for this document
+						controller.insert_mapping_row(
+							mapping_doc_name=mapping_name,
+							data={
+								"mapping_doctype": doctype,
+								"docname": docname,
+								"fieldname": fieldname,
+								"selectline_column": field_def.get("sl_column")
+							}
+						)
+						
+						added_count += 1
+						continue  # Move to next field
+					else:
+						raise Exception(f"Failed to create new document for doctype {doctype}")
+				else:
+					docname = existing_entries[0]
+					created_docs_cache[doctype] = docname
 			
 			# Get the value based on mapping type
 			field_value = get_field_value(
@@ -665,23 +708,7 @@ def apply_structural_changes(
 			
 			doctype = new_def.get("doctype") or old_def.get("mapping_doctype")
 			fieldname = new_def.get("fieldname")
-			
-			# Get current docname from mapping
-			entries = frappe.get_all(
-				"Selectline Mapping Entry",
-				filters={
-					"parent": mapping_name,
-					"mapping_doctype": doctype,
-					"fieldname": fieldname
-				},
-				limit=1,
-				pluck="docname"
-			)
-			
-			if not entries:
-				raise Exception(f"No mapping entry found for {doctype}.{fieldname}")
-			
-			docname = entries[0]
+			child_row_fieldname = new_def.get("child_row_fieldname") or old_def.get("child_row_fieldname")
 			
 			# Get new value
 			field_vars_obj = FieldVars()
@@ -692,8 +719,52 @@ def apply_structural_changes(
 				field_vars_obj=field_vars_obj
 			)
 			
-			# Update document
-			frappe.db.set_value(doctype, docname, fieldname, new_value)
+			# Handle child table fields differently
+			if child_row_fieldname:
+				# For child table fields, get the specific child row
+				child_entries = frappe.get_all(
+					"Selectline Mapping Entry",
+					filters={
+						"parent": mapping_name,
+						"mapping_doctype": doctype,
+						"fieldname": fieldname,
+						"child_row_fieldname": child_row_fieldname
+					},
+					fields=["docname", "child_row_name", "child_row_doctype"],
+					limit=1
+				)
+				
+				if not child_entries:
+					raise Exception(f"No child row mapping entry found for {doctype}.{fieldname}.{child_row_fieldname}")
+				
+				child_info = child_entries[0]
+				# Update child document directly
+				if child_info.get("child_row_name") and child_info.get("child_row_doctype"):
+					frappe.db.set_value(
+						child_info["child_row_doctype"],
+						child_info["child_row_name"],
+						child_row_fieldname,
+						new_value
+					)
+			else:
+				# For parent fields, use the existing logic
+				entries = frappe.get_all(
+					"Selectline Mapping Entry",
+					filters={
+						"parent": mapping_name,
+						"mapping_doctype": doctype,
+						"fieldname": fieldname
+					},
+					limit=1,
+					pluck="docname"
+				)
+				
+				if not entries:
+					raise Exception(f"No mapping entry found for {doctype}.{fieldname}")
+				
+				docname = entries[0]
+				# Update parent document field
+				frappe.db.set_value(doctype, docname, fieldname, new_value)
 			
 			# Update mapping entry with new column reference if applicable
 			if change.get("column_change"):
@@ -965,5 +1036,77 @@ def get_current_json_mapping(instance_doc: Document, mapping_type: str) -> Optio
 			f"Failed to get JSON mapping for type {mapping_type}: {e}",
 			"ERROR",
 			APP_NAME
+		)
+		return None
+
+
+def create_new_doc_for_reconciliation(
+	doctype: str,
+	field_def: Dict,
+	fetched_obj: Dict,
+	instance: str,
+	field_vars_obj: FieldVars
+) -> Optional[Document]:
+	"""
+	Creates a new document during reconciliation for doctypes that weren't in the original mapping.
+	
+	Args:
+		doctype: The DocType to create
+		field_def: Field definition for the first field
+		fetched_obj: Data from SelectLine
+		instance: Selectline DB Instance name
+		field_vars_obj: FieldVars object for variable resolution
+	
+	Returns:
+		The newly created Document or None if failed
+	"""
+	try:
+		# Create new document
+		new_doc = frappe.new_doc(doctype)
+		
+		# Get the field value
+		fieldname = field_def.get("fieldname")
+		field_value = get_field_value(
+			field_def=field_def,
+			fetched_obj=fetched_obj,
+			instance=instance,
+			field_vars_obj=field_vars_obj
+		)
+		
+		# Set the field value
+		new_doc.set(fieldname, field_value)
+		
+		# Set any default fields that are required
+		meta = frappe.get_meta(doctype)
+		for df in meta.fields:
+			if df.reqd and not new_doc.get(df.fieldname):
+				if df.default:
+					new_doc.set(df.fieldname, df.default)
+				elif df.fieldtype == "Data":
+					new_doc.set(df.fieldname, f"{doctype} {fetched_obj.get('ID', 'Unknown')}")
+		
+		# Insert the document
+		new_doc.insert(
+			ignore_permissions=True,
+			ignore_mandatory=True,
+			ignore_links=True
+		)
+		
+		frappe.db.commit()
+		
+		make_log(
+			f"Created new {doctype} document '{new_doc.name}' during reconciliation",
+			"INFO",
+			APP_NAME
+		)
+		
+		return new_doc
+		
+	except Exception as e:
+		make_log(
+			f"Failed to create new {doctype} document during reconciliation: {e}",
+			"ERROR",
+			APP_NAME,
+			with_traceback=True
 		)
 		return None
