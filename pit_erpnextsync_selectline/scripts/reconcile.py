@@ -1049,6 +1049,7 @@ def create_new_doc_for_reconciliation(
 ) -> Optional[Document]:
 	"""
 	Creates a new document during reconciliation for doctypes that weren't in the original mapping.
+	If document already exists (by name), returns the existing document instead.
 	
 	Args:
 		doctype: The DocType to create
@@ -1058,13 +1059,10 @@ def create_new_doc_for_reconciliation(
 		field_vars_obj: FieldVars object for variable resolution
 	
 	Returns:
-		The newly created Document or None if failed
+		The newly created or existing Document, or None if failed
 	"""
 	try:
-		# Create new document
-		new_doc = frappe.new_doc(doctype)
-		
-		# Get the field value
+		# Get the field value first to determine document name
 		fieldname = field_def.get("fieldname")
 		field_value = get_field_value(
 			field_def=field_def,
@@ -1072,6 +1070,39 @@ def create_new_doc_for_reconciliation(
 			instance=instance,
 			field_vars_obj=field_vars_obj
 		)
+		
+		# Check if document with this name already exists
+		# For many DocTypes (like UOM), the name is the same as the field value
+		potential_name = str(field_value) if field_value else None
+		
+		if potential_name:
+			existing_doc = frappe.db.exists(doctype, potential_name)
+			if existing_doc:
+				make_log(
+					f"Using existing {doctype} document '{potential_name}' during reconciliation",
+					"INFO",
+					APP_NAME
+				)
+				return frappe.get_doc(doctype, potential_name)
+			
+			# Also check if there's a document with this value in the specific field
+			# This handles cases where name != field value
+			existing_by_field = frappe.get_all(
+				doctype,
+				filters={fieldname: field_value},
+				limit=1,
+				pluck="name"
+			)
+			if existing_by_field:
+				make_log(
+					f"Using existing {doctype} document '{existing_by_field[0]}' with {fieldname}='{field_value}' during reconciliation",
+					"INFO",
+					APP_NAME
+				)
+				return frappe.get_doc(doctype, existing_by_field[0])
+		
+		# Create new document if not found
+		new_doc = frappe.new_doc(doctype)
 		
 		# Set the field value
 		new_doc.set(fieldname, field_value)
@@ -1085,11 +1116,12 @@ def create_new_doc_for_reconciliation(
 				elif df.fieldtype == "Data":
 					new_doc.set(df.fieldname, f"{doctype} {fetched_obj.get('ID', 'Unknown')}")
 		
-		# Insert the document
+		# Insert the document with ignore_if_duplicate just in case
 		new_doc.insert(
 			ignore_permissions=True,
 			ignore_mandatory=True,
-			ignore_links=True
+			ignore_links=True,
+			ignore_if_duplicate=True
 		)
 		
 		frappe.db.commit()
