@@ -189,11 +189,12 @@ def reconcile_single_mapping(
 		if not dry_run:
 			# Apply changes
 			
-			# 1. Handle field removals (just remove mapping entries)
+			# 1. Handle field removals (remove mapping entries and orphaned docs)
 			if changes.get("fields_to_remove"):
 				removal_result = apply_field_removals(
 					mapping_name=mapping_name,
-					fields_to_remove=changes["fields_to_remove"]
+					fields_to_remove=changes["fields_to_remove"],
+					instance=instance
 				)
 				result["actions"]["removals"] = removal_result
 			
@@ -813,19 +814,32 @@ def apply_field_additions(
 
 def apply_field_removals(
 	mapping_name: str,
-	fields_to_remove: List[Dict]
+	fields_to_remove: List[Dict],
+	instance: str = ""
 ) -> Dict:
 	"""
-	Removes mapping entries for deleted fields (keeps doc values).
+	Removes mapping entries for deleted fields.
+	Also deletes documents if they're no longer referenced in any mapping.
 	"""
 	removed_count: int = 0
 	errors: List[str] = []
+	
+	# Track which documents had all their fields removed
+	docs_to_check: Dict[str, List[str]] = {}  # doctype -> [docnames]
 	
 	for field_info in fields_to_remove:
 		try:
 			doctype = field_info.get("mapping_doctype")
 			fieldname = field_info.get("fieldname")
 			child_row_fieldname = field_info.get("child_row_fieldname")
+			docname = field_info.get("docname")
+			
+			# Track document for later check
+			if doctype and docname:
+				if doctype not in docs_to_check:
+					docs_to_check[doctype] = []
+				if docname not in docs_to_check[doctype]:
+					docs_to_check[doctype].append(docname)
 			
 			# Find and delete mapping entry
 			filters = {
@@ -859,10 +873,59 @@ def apply_field_removals(
 			)
 			continue
 	
+	# Check for orphaned documents and delete them
+	deleted_docs_count = 0
+	for doctype, docnames in docs_to_check.items():
+		for docname in docnames:
+			try:
+				# Check if document is still referenced in any other mapping
+				other_mappings = frappe.get_all(
+					"Selectline Mapping Entry",
+					filters={
+						"mapping_doctype": doctype,
+						"docname": docname,
+						"parent": ["!=", mapping_name]  # Exclude current mapping
+					},
+					limit=1
+				)
+				
+				if not other_mappings:
+					# Document is not referenced anywhere else, safe to delete
+					make_log(
+						f"Document {doctype} '{docname}' is no longer referenced in any mapping. Deleting...",
+						"INFO",
+						APP_NAME
+					)
+					
+					try:
+						frappe.delete_doc(doctype, docname, ignore_permissions=True)
+						deleted_docs_count += 1
+						make_log(
+							f"Successfully deleted orphaned document {doctype} '{docname}'",
+							"INFO",
+							APP_NAME
+						)
+					except Exception as delete_error:
+						# Document might be linked to other documents (not through mappings)
+						make_log(
+							f"Could not delete {doctype} '{docname}': {delete_error}. Document may be linked elsewhere.",
+							"WARNING",
+							APP_NAME
+						)
+			except Exception as e:
+				make_log(
+					f"Error checking orphaned document {doctype} '{docname}': {e}",
+					"ERROR",
+					APP_NAME,
+					with_traceback=True
+				)
+				continue
+	
 	frappe.db.commit()
 	
 	return {
 		"removed": removed_count,
+		"deleted_docs": deleted_docs_count,
 		"errors": errors
 	}
 
