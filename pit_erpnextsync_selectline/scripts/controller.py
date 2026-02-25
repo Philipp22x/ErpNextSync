@@ -295,7 +295,7 @@ def change_mapping_id(mapping_doc_name: str, new_id: str) -> None:
 
 # create object mapping id
 def create_object_id(instance: str, table_name: str, primary_key: str) -> str:
-    return f"{instance.replace(" ", "_")}:{table_name.replace(" ", "_")}:{primary_key.replace(" ", "_")}"
+    return f"{instance.replace(chr(32), chr(95))}:{table_name.replace(chr(32), chr(95))}:{primary_key.replace(chr(32), chr(95))}"
 
 
 # get db credentials from instance doc
