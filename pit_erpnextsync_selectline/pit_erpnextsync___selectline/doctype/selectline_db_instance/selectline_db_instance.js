@@ -14,26 +14,28 @@ frappe.ui.form.on("Selectline DB Instance", {
     reset(frm) {
         frm.set_value("types_to_import", "");
         frm.set_value("amount_of_data_rows", 0);
-    },
-    preview_reconciliation(frm) {
-        preview_reconciliation(frm);
-    },
-    apply_reconciliation(frm) {
-        apply_reconciliation(frm);
     }
 });
 
+
 function custom_action_buttons(frm){
     if (!frm.is_new()) {
+
         frm.add_custom_button(__('Import'), () => {
             start_import_action(frm);
         });
         frm.add_custom_button(__('Update'), () => {
             start_update_action(frm);
         });
+        frm.add_custom_button(__('Preview'), () => {
+            preview_reconciliation(frm);
+        },__("Reconcile"));
+        frm.add_custom_button(__('Apply'), () => {
+            apply_reconciliation(frm);
+        },__("Reconcile"));
     }
 }
-
+            
 
 // start import button action
 function start_import_action(frm){
@@ -135,7 +137,7 @@ function connection_test(frm){
 // preview reconciliation button action
 function preview_reconciliation(frm){
     // check types
-    let types_str = frm.doc.types_to_reconcile
+    let types_str = frm.doc.types_to_import
     let types_list = [];
     if (types_str){
         types_list = types_str.split(",").map(t => t.trim()).filter(t => t);
@@ -172,7 +174,7 @@ function preview_reconciliation(frm){
 // apply reconciliation button action
 function apply_reconciliation(frm){
     // check types
-    let types_str = frm.doc.types_to_reconcile
+    let types_str = frm.doc.types_to_import
     let types_list = [];
     if (types_str){
         types_list = types_str.split(",").map(t => t.trim()).filter(t => t);

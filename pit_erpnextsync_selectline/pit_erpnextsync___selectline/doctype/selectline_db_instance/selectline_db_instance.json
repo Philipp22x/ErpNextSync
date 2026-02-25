@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_copy": 1,
  "allow_rename": 1,
  "autoname": "field:title",
  "creation": "2025-11-06 10:41:59.554955",
@@ -35,13 +36,6 @@
   "column_break_qisn",
   "column_break_ijue",
   "column_break_vfub",
-  "mapping_reconciliation_section",
-  "types_to_reconcile",
-  "preview_reconciliation",
-  "column_break_recon1",
-  "apply_reconciliation",
-  "column_break_recon2",
-  "column_break_recon3",
   "data_import_section",
   "column_break_jgvh",
   "types_to_import",
@@ -161,53 +155,16 @@
    "fieldname": "column_break_ijue",
    "fieldtype": "Column Break"
   },
-   {
-    "fieldname": "column_break_vfub",
-    "fieldtype": "Column Break"
-   },
-   {
-    "collapsible": 1,
-    "depends_on": "eval: !doc.__islocal",
-    "fieldname": "mapping_reconciliation_section",
-    "fieldtype": "Section Break",
-    "label": "Mapping Reconciliation"
-   },
-   {
-    "description": "Separate with \",\". Leave empty for all types.",
-    "fieldname": "types_to_reconcile",
-    "fieldtype": "Data",
-    "label": "Types to Reconcile"
-   },
-   {
-    "depends_on": "eval: !doc.__islocal",
-    "fieldname": "preview_reconciliation",
-    "fieldtype": "Button",
-    "label": "Preview Reconciliation"
-   },
-   {
-    "fieldname": "column_break_recon1",
-    "fieldtype": "Column Break"
-   },
-   {
-    "depends_on": "eval: !doc.__islocal",
-    "fieldname": "apply_reconciliation",
-    "fieldtype": "Button",
-    "label": "Apply Reconciliation"
-   },
-   {
-    "fieldname": "column_break_recon2",
-    "fieldtype": "Column Break"
-   },
-   {
-    "fieldname": "column_break_recon3",
-    "fieldtype": "Column Break"
-   },
-   {
-    "collapsible": 1,
-    "fieldname": "data_import_section",
-    "fieldtype": "Section Break",
-    "label": "Data Import Settings"
-   },
+  {
+   "fieldname": "column_break_vfub",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "data_import_section",
+   "fieldtype": "Section Break",
+   "label": "Data Import Settings"
+  },
   {
    "fieldname": "mapping_json_file",
    "fieldtype": "Attach",
@@ -290,7 +247,7 @@
    "link_fieldname": "selecline_db_instance"
   }
  ],
- "modified": "2026-02-18 10:42:46.724764",
+ "modified": "2026-02-24 16:17:43.104683",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",
@@ -313,5 +270,6 @@
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }
