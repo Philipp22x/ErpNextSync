@@ -66,7 +66,7 @@ class SelectlineMapping(Document):
 			# delete docs
 			for doc in docs_to_delete:
 				frappe.delete_doc(doc["doctype"], doc["docname"], force=True, ignore_permissions=True, ignore_missing=True, ignore_on_trash=True)
-				make_log(f"{doc["doctype"]} {doc["docname"]} was deleted with mapping {self.selectline_id}", "INFO", controller.APP_NAME)
+				make_log(f"{doc['doctype']} {doc['docname']} was deleted with mapping {self.selectline_id}", "INFO", controller.APP_NAME)
 
 			return True
 
