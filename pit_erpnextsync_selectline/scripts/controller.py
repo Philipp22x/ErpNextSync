@@ -1,6 +1,7 @@
 
 import json
 import pymssql
+from pprint import pprint
 
 import frappe
 from frappe.model.document import Document
@@ -10,7 +11,7 @@ from pit_erpnext.scripts.logger import make_log
 
 # constants
 APP_NAME: str = "pit_erpnextsync_selectline"
-DEBUG_LOG_NAME: str = f"{APP_NAME}_DEUBUG"
+DEBUG_LOG_NAME: str = f"{APP_NAME}_DEBUG"
 
 
 
@@ -152,14 +153,16 @@ def check_mapping_exists(selectline_id: str) -> str | None:
 
 
 # create new mapping
-def create_mapping_doc(instance: str, mapping_obj_id: str, mapping_type: str) -> Document | None:
+def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: str, mapping_type: str, db_time_stamp: str = "") -> Document | None:
     
     try:
         new_mapping_doc: Document = frappe.get_doc({
             "doctype": "Selectline Mapping",
-            "selecline_db_instance": instance,
+            "selectline_db_instance": instance,
             "selectline_id": mapping_obj_id,
-            "type": mapping_type
+            "type": mapping_type,
+            "db_time_stamp": db_time_stamp,
+            "primary_key_column": primary_key_column
         })
 
         new_mapping_doc.insert(
@@ -205,6 +208,80 @@ def insert_mapping_row(mapping_doc_name: str, data: dict) -> str | None:
     except Exception as e:
         make_log(f"Could not create new Selectline Mapping Entry: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
         return None
+
+
+# change all mapping ids instance name
+def change_mapping_id_bulk(old_instance_name: str, new_instance_name: str) -> str:
+    
+    # validate args
+    if not type(old_instance_name) == str or not type(new_instance_name) == str:
+        _msg = f"Handle bulk change mapping id failed: no valid arguments -> {old_instance_name}, {new_instance_name}"
+        make_log(_msg, "ERROR", APP_NAME, with_traceback=True)
+        return _msg
+    
+    old_converted_name: str = old_instance_name.replace(" ", "_")
+    
+    instance_mapping_list: list = frappe.get_all(
+        "Selectline Mapping",
+        filters={
+            "selectline_id": ["like", f"%{old_converted_name}%"]
+        },
+        pluck="name"
+    )
+
+    for mapping_doc_name in instance_mapping_list:
+        sliced_mapping_id: list = frappe.db.get_value("Selectline Mapping", mapping_doc_name, "selectline_id").split(":")
+        sliced_mapping_id[0] = new_instance_name.replace(" ", "_")
+        new_mapping_id = ":".join(sliced_mapping_id)
+        
+        frappe.enqueue(
+            "pit_erpnextsync_selectline.scripts.controller.change_mapping_id",
+            queue="long",
+            timeout=600,
+            mapping_doc_name=mapping_doc_name,
+            new_id=new_mapping_id
+        )
+
+    return "Renaming mappings is queued"
+
+        
+#get data of mapping doc as dict
+def get_mapping_table_data(mapping_name: str) -> list:
+    data: list = frappe.get_all(
+        "Selectline Mapping Entry",
+        filters={
+            "parenttype": "Selectline Mapping",
+            "parentfield": "mapping_table",
+            "parent": mapping_name
+        },
+        fields=[
+            "mapping_doctype",
+            "docname",
+            "fieldname",
+            "selectline_column",
+            "child_row_fieldname",
+            "parent",
+            "parenttype"
+        ]
+    )
+
+    return data
+
+
+# change single mapping id
+def change_mapping_id(mapping_doc_name: str, new_id: str) -> None:
+    try:
+        mapping_doc: Document = frappe.get_doc("Selectline Mapping", mapping_doc_name)
+    except:
+        make_log(f"Failed to get Selectline Mapping {mapping_doc_name} for renaming mapping_id", "ERROR", APP_NAME, with_traceback=True)
+        return
+
+    if not mapping_doc.selectline_id:
+        return
+
+    mapping_doc.selectline_id = new_id
+    mapping_doc.save()
+    frappe.db.commit()
 
 
 # def update_mapping() -> None:
@@ -321,7 +398,7 @@ def load_table_mapping(instance: str) -> str| None:
     
 
 # make the sql command str
-def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0) -> str:
+def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Document, col_to_fetch: list, top: int = 0) -> str:
 
     # add primary key if not in columns to fetch
     if not mapping_row_data.primary_key in col_to_fetch:
@@ -330,6 +407,9 @@ def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0
     # add order_by columns if not already in coumns to fetch
     if mapping_row_data.order_by and mapping_row_data.order_by not in col_to_fetch:
         col_to_fetch.append(mapping_row_data.order_by)
+
+    if db_ts_col_name:
+        col_to_fetch.append(db_ts_col_name)
 
     # set amount to fetch
     top_str: str = ""
@@ -342,9 +422,12 @@ def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0
     if query_filter and type(query_filter) == str:
         query_filter_command = f"WHERE {query_filter.replace('"', '')}"
 
-
     # convert columns to fetch list to str
     col_string: str = ",\n".join(col_to_fetch)
+
+    # get db schema from instance
+    schema: str = frappe.db.get_value("Selectline DB Instance", instance, "schema") or ""
+    shema_dot: str = "." if schema else ""
 
     # set order by string
     order_by: str = mapping_row_data.primary_key
@@ -354,7 +437,7 @@ def make_sql_string(mapping_row_data: Document, col_to_fetch: list, top: int = 0
     # sql command
     fetch_sql: str = f"""
     SELECT {top_str} {col_string}
-    FROM dbo.{mapping_row_data.table_name}
+    FROM {schema}{shema_dot}{mapping_row_data.table_name}
     {query_filter_command}
     ORDER BY {order_by}
     """
@@ -389,8 +472,6 @@ def get_types_to_import(instance: str, types_args: list) -> list:
 
 # get value from mapping entry
 def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
-
-    make_log(f"get mapping value args: {sl_id} {doc_type} {fieldname}", "ERROR", DEBUG_LOG_NAME)
 
     mapping_doc_name: any = frappe.db.exists(
         "Selectline Mapping",
@@ -438,5 +519,4 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
 #*## TESTS ##################################################################################
 
 def test():
-    # pprint(fetch_data("test instance", "SELECT TOP (5) * FROM dbo.ART ORDER BY ART_ID"))
-    load_table_mapping("test instance")
+    pass

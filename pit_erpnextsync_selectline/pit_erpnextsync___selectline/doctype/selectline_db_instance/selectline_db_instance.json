@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_copy": 1,
  "allow_rename": 1,
  "autoname": "field:title",
  "creation": "2025-11-06 10:41:59.554955",
@@ -19,8 +20,14 @@
   "test_connection",
   "column_break_fgdy",
   "port",
+  "schema",
   "column_break_szea",
   "column_break_ahli",
+  "section_break_dgop",
+  "db_time_stamp_column_name",
+  "column_break_swiu",
+  "column_break_mohy",
+  "column_break_rlum",
   "table_mapping_section",
   "table_mapping",
   "section_break_pdio",
@@ -35,7 +42,6 @@
   "column_break_ojon",
   "amount_of_data_rows",
   "column_break_hrbn",
-  "start_import",
   "reset",
   "column_break_ximu"
  ],
@@ -131,6 +137,7 @@
    "options": "Selectline Table Mapping"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_pdio",
    "fieldtype": "Section Break",
    "label": "JSON File Import"
@@ -153,19 +160,21 @@
    "fieldtype": "Column Break"
   },
   {
+   "collapsible": 1,
+   "fieldname": "data_import_section",
+   "fieldtype": "Section Break",
+   "label": "Data Import Settings"
+  },
+  {
    "fieldname": "mapping_json_file",
    "fieldtype": "Attach",
    "label": "Mapping JSON File"
   },
   {
+   "collapsible": 1,
    "fieldname": "data_import_section",
    "fieldtype": "Section Break",
-   "label": "Data Import"
-  },
-  {
-   "fieldname": "start_import",
-   "fieldtype": "Button",
-   "label": "Start Import"
+   "label": "Data Import Settings"
   },
   {
    "fieldname": "column_break_jgvh",
@@ -199,12 +208,46 @@
    "fieldname": "reset",
    "fieldtype": "Button",
    "label": "Reset"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_dgop",
+   "fieldtype": "Section Break",
+   "label": "Settings"
+  },
+  {
+   "fieldname": "db_time_stamp_column_name",
+   "fieldtype": "Data",
+   "label": "DB Time Stamp Column Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_swiu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_mohy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_rlum",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "schema",
+   "fieldtype": "Data",
+   "label": "Schema"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
- "links": [],
- "modified": "2025-12-29 18:57:11.968386",
+ "links": [
+  {
+   "link_doctype": "Selectline Mapping",
+   "link_fieldname": "selecline_db_instance"
+  }
+ ],
+ "modified": "2026-02-24 16:17:43.104683",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",
@@ -227,5 +270,6 @@
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

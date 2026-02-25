@@ -9,6 +9,8 @@
   "docname",
   "fieldname",
   "child_row_fieldname",
+  "child_row_doctype",
+  "child_row_name",
   "selectline_column"
  ],
  "fields": [
@@ -20,7 +22,7 @@
    "options": "DocType"
   },
   {
-   "columns": 1,
+   "columns": 2,
    "fieldname": "docname",
    "fieldtype": "Dynamic Link",
    "in_list_view": 1,
@@ -44,13 +46,25 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Child Row Fieldname"
+  },
+  {
+   "depends_on": "eval: doc.child_row_fieldname",
+   "fieldname": "child_row_name",
+   "fieldtype": "Data",
+   "label": "Child Row Name"
+  },
+  {
+   "depends_on": "eval: doc.child_row_fieldname",
+   "fieldname": "child_row_doctype",
+   "fieldtype": "Data",
+   "label": "Child Row Doctype"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-12-16 10:26:15.382682",
+ "modified": "2026-02-17 15:02:22.711189",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline Mapping Entry",
