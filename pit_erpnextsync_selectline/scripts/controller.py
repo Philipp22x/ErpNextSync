@@ -420,7 +420,7 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
     query_filter: str = mapping_row_data.get("query_filter")
     query_filter_command: str = ""
     if query_filter and type(query_filter) == str:
-        query_filter_command = f"WHERE {query_filter.replace('"', '')}"
+        query_filter_command = f"WHERE {query_filter.replace(chr(34), '')}"
 
     # convert columns to fetch list to str
     col_string: str = ",\n".join(col_to_fetch)
