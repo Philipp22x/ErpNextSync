@@ -36,14 +36,14 @@
   "column_break_qisn",
   "column_break_ijue",
   "column_break_vfub",
-  "data_import_section",
   "column_break_jgvh",
   "types_to_import",
   "column_break_ojon",
   "amount_of_data_rows",
   "column_break_hrbn",
   "reset",
-  "column_break_ximu"
+  "column_break_ximu",
+  "data_import_section"
  ],
  "fields": [
   {
@@ -244,10 +244,10 @@
  "links": [
   {
    "link_doctype": "Selectline Mapping",
-   "link_fieldname": "selecline_db_instance"
+   "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-02-24 16:17:43.104683",
+ "modified": "2026-02-26 12:12:39.060237",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",
