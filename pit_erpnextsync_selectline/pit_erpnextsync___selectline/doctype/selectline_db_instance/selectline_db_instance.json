@@ -36,14 +36,15 @@
   "column_break_qisn",
   "column_break_ijue",
   "column_break_vfub",
+  "import_settings_section",
   "column_break_jgvh",
   "types_to_import",
   "column_break_ojon",
   "amount_of_data_rows",
   "column_break_hrbn",
   "reset",
-  "column_break_ximu",
-  "data_import_section"
+  "column_break_ifrk",
+  "column_break_ximu"
  ],
  "fields": [
   {
@@ -160,21 +161,9 @@
    "fieldtype": "Column Break"
   },
   {
-   "collapsible": 1,
-   "fieldname": "data_import_section",
-   "fieldtype": "Section Break",
-   "label": "Data Import Settings"
-  },
-  {
    "fieldname": "mapping_json_file",
    "fieldtype": "Attach",
    "label": "Mapping JSON File"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "data_import_section",
-   "fieldtype": "Section Break",
-   "label": "Data Import Settings"
   },
   {
    "fieldname": "column_break_jgvh",
@@ -237,6 +226,15 @@
    "fieldname": "schema",
    "fieldtype": "Data",
    "label": "Schema"
+  },
+  {
+   "fieldname": "import_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Import Settings"
+  },
+  {
+   "fieldname": "column_break_ifrk",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
@@ -247,7 +245,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-02-26 12:12:39.060237",
+ "modified": "2026-02-26 12:43:09.477159",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",
