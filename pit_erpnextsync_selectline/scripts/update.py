@@ -198,7 +198,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
             raise Exception(f"Could not fetch data: {fetched_data}")
 
         if len(fetched_data) > 1:
-            raise Exception(f"Got {len(fetched_data)} rows when fetching data from table:{id_data.get("table")} Key:{primary_key_col} ID:{id_data.get("primary_key")}")
+            raise Exception(f"Got {len(fetched_data)} rows when fetching data from table:{id_data.get('table')} Key:{primary_key_col} ID:{id_data.get("primary_key")}")
         
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:

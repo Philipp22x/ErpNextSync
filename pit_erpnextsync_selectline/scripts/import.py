@@ -300,7 +300,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                 # get child doctype from table field
                 child_doctype: str = frappe.get_meta(mapped_doctype["doctype"]).get_field(field["fieldname"]).options
                 if not child_doctype:
-                    raise Exception(f"Could not get child doctype from {mapped_doctype["doctype"].get_field(field["fieldname"])}")
+                    raise Exception(f"Could not get child doctype from {mapped_doctype['doctype'].get_field(field['fieldname'])}")
 
                 child_name = frappe.generate_hash(length=8)
 
