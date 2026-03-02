@@ -57,12 +57,12 @@ def run(instances: list) -> None:
             start_import(
                 instance=instance_data.get("name"), 
                 top=instance_data.get("amount_of_data_rows"), 
-                instance=instance_data.get("name")
+                types_str=instance_data.get("types_to_import")
             )
 
             run_bulk_update(
                 instance=instance_data.get("name"), 
-                instance=instance_data.get("name")
+                types_str=instance_data.get("types_to_import")
             )
 
             make_log(f"Background jobs for import/update ({instance_data.get('repetation')}) for {instance_data.get('name')} created successfully", "INFO", controller.APP_NAME)
