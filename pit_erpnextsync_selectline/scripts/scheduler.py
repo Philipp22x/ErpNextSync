@@ -34,6 +34,9 @@ def all() -> None:
 def daily() -> None:
     run(get_instances("daily"))
 
+def hourly() -> None:
+    run(get_instances("hourly"))
+
 def weekly() -> None:
     run(get_instances("weekly"))
 
