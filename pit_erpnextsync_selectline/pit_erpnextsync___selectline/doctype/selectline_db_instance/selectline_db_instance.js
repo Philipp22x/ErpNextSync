@@ -52,7 +52,7 @@ function start_import_action(frm){
     // call import
     frappe.dom.freeze(__("creating background jobs for import..."));
     frappe.call({
-        method: "pit_erpnextsync_selectline.scripts.import.start_import",
+        method: "pit_erpnextsync_selectline.scripts.data_import.start_import",
         args:{
             "instance": frm.doc.name,
             "types_str": types_list,

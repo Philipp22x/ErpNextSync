@@ -148,6 +148,24 @@ after_install = "pit_erpnextsync_selectline.install.after_install"
 # Scheduled Tasks
 # ---------------
 
+scheduler_events = {
+	"all": [
+		"pit_erpnextsync_selectline.scripts.scheduler.all"
+	],
+	"daily": [
+		"pit_erpnextsync_selectline.scripts.scheduler.daily"
+	],
+	"hourly": [
+		"pit_erpnextsync_selectline.scripts.scheduler.hourly"
+	],
+	"weekly": [
+		"pit_erpnextsync_selectline.scripts.scheduler.weekly"
+	],
+	"monthly": [
+		"pit_erpnextsync_selectline.scripts.scheduler.monthly"
+	],
+}
+
 # scheduler_events = {
 # 	"all": [
 # 		"pit_erpnextsync_selectline.tasks.all"

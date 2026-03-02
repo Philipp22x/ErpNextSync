@@ -23,11 +23,6 @@
   "schema",
   "column_break_szea",
   "column_break_ahli",
-  "section_break_dgop",
-  "db_time_stamp_column_name",
-  "column_break_swiu",
-  "column_break_mohy",
-  "column_break_rlum",
   "table_mapping_section",
   "table_mapping",
   "section_break_pdio",
@@ -44,7 +39,20 @@
   "column_break_hrbn",
   "reset",
   "column_break_ifrk",
-  "column_break_ximu"
+  "column_break_ximu",
+  "section_break_dgop",
+  "db_time_stamp_column_name",
+  "column_break_swiu",
+  "column_break_mohy",
+  "column_break_rlum",
+  "column_break_kans",
+  "scheduler_section",
+  "enable_scheduler",
+  "repetition",
+  "column_break_pozb",
+  "column_break_jrhk",
+  "column_break_dras",
+  "column_break_snqx"
  ],
  "fields": [
   {
@@ -202,7 +210,7 @@
    "collapsible": 1,
    "fieldname": "section_break_dgop",
    "fieldtype": "Section Break",
-   "label": "Settings"
+   "label": "Defaults"
   },
   {
    "fieldname": "db_time_stamp_column_name",
@@ -228,6 +236,7 @@
    "label": "Schema"
   },
   {
+   "collapsible": 1,
    "fieldname": "import_settings_section",
    "fieldtype": "Section Break",
    "label": "Import Settings"
@@ -235,6 +244,46 @@
   {
    "fieldname": "column_break_ifrk",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_kans",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "scheduler_section",
+   "fieldtype": "Section Break",
+   "label": "Scheduler"
+  },
+  {
+   "fieldname": "column_break_pozb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_jrhk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_dras",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_snqx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_scheduler",
+   "fieldtype": "Check",
+   "label": "Enable Scheduler"
+  },
+  {
+   "default": "all",
+   "description": "\"all\" = 4 minutes by default, depends on settings",
+   "fieldname": "repetition",
+   "fieldtype": "Select",
+   "label": "Repetition",
+   "options": "all\ndaily\nhourly\nweekly\nmonthly"
   }
  ],
  "grid_page_length": 50,
@@ -245,7 +294,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-02-26 12:43:09.477159",
+ "modified": "2026-03-02 12:32:44.072365",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",
