@@ -40,12 +40,6 @@
   "reset",
   "column_break_ifrk",
   "column_break_ximu",
-  "section_break_dgop",
-  "db_time_stamp_column_name",
-  "column_break_swiu",
-  "column_break_mohy",
-  "column_break_rlum",
-  "column_break_kans",
   "scheduler_section",
   "enable_scheduler",
   "repetition",
@@ -207,30 +201,6 @@
    "label": "Reset"
   },
   {
-   "collapsible": 1,
-   "fieldname": "section_break_dgop",
-   "fieldtype": "Section Break",
-   "label": "Defaults"
-  },
-  {
-   "fieldname": "db_time_stamp_column_name",
-   "fieldtype": "Data",
-   "label": "DB Time Stamp Column Name",
-   "reqd": 1
-  },
-  {
-   "fieldname": "column_break_swiu",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_mohy",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_rlum",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "schema",
    "fieldtype": "Data",
    "label": "Schema"
@@ -243,10 +213,6 @@
   },
   {
    "fieldname": "column_break_ifrk",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_kans",
    "fieldtype": "Column Break"
   },
   {
@@ -294,7 +260,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-03-02 12:32:44.072365",
+ "modified": "2026-03-04 14:18:57.776427",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync - SelectLine",
  "name": "Selectline DB Instance",

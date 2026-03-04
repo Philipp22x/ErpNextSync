@@ -57,7 +57,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                 instance=instance,
                 sql=controller.make_sql_string(
                     instance=instance,
-                    db_ts_col_name=frappe.get_value("Selectline DB Instance", instance, "db_time_stamp_column_name") or "",
+                    db_ts_col_name=row.timestamp_column_name,
                     mapping_row_data=row,
                     col_to_fetch=get_fields_to_import(json.loads(row.mapping)),
                     top=top
@@ -179,7 +179,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
             new_mapping_data=obj_mapping_data,
             table_mapping_row=table_mapping_row,
             obj_id=obj_id,
-            time_stamp=fetched_obj.get(frappe.db.get_value("Selectline DB Instance", instance, "db_time_stamp_column_name"))
+            time_stamp=fetched_obj.get(table_mapping_row.timestamp_column_name)
         )
 
         # if mapping not created -> delete all docs in mapping
