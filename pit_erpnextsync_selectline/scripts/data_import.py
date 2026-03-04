@@ -27,6 +27,8 @@ def test3():
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
 def start_import(instance: str, top: int, types_str: str = "") -> None:
+    make_log(f"start_import", "INFO", controller.DEBUG_LOG_NAME)
+
     # get instance doc
     try:
         instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
@@ -64,8 +66,9 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                 )
             )
 
-            for fetched_obj in fetched_data:
+            make_log(f"for fetched_obj in fetched_data", "INFO", controller.DEBUG_LOG_NAME)
 
+            for fetched_obj in fetched_data:
                 # get new mapping id
                 obj_id: str = controller.create_object_id(
                     instance=instance,
@@ -80,8 +83,9 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
                 else:
                     # set background job for import object
+                    make_log(f"frappe.enqueue import_fetched_object", "INFO", controller.DEBUG_LOG_NAME)
                     frappe.enqueue(
-                        "pit_erpnextsync_selectline.scripts.import.import_fetched_object",
+                        "pit_erpnextsync_selectline.scripts.data_import.import_fetched_object",
                         queue="long",
                         timeout=600,
                         instance=instance,
@@ -102,6 +106,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
 # new object
 def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, field_vars_obj: FieldVars, obj_id: str) -> None:
+    make_log(f"import_fetched_object", "INFO", controller.DEBUG_LOG_NAME)
 
     try:
         # validate args
@@ -172,14 +177,13 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                     except Exception as e:
                         make_log(f"Could not add tags: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
 
-
         # create new mapping doc --------------------------------------------------------------------------
         new_mapping_result: Document | None = create_mapping(
             instance=instance,
             new_mapping_data=obj_mapping_data,
             table_mapping_row=table_mapping_row,
             obj_id=obj_id,
-            time_stamp=fetched_obj.get(table_mapping_row.timestamp_column_name)
+            time_stamp=fetched_obj.get(table_mapping_row.timestamp_column_name) or ""
         )
 
         # if mapping not created -> delete all docs in mapping
