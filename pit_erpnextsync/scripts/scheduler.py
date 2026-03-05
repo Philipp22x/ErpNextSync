@@ -1,16 +1,16 @@
 import frappe
 
 from pit_erpnext.scripts.logger import make_log
-from pit_erpnextsync_selectline.scripts import controller
-from pit_erpnextsync_selectline.scripts.data_import import start_import
-from pit_erpnextsync_selectline.scripts.update import run_bulk_update
+from pit_erpnextsync.scripts import controller
+from pit_erpnextsync.scripts.data_import import start_import
+from pit_erpnextsync.scripts.update import run_bulk_update
 
 
 
 # get list of db instances
 def get_instances(repetition: str) -> list:
     enabled_instances: list = frappe.get_all(
-        "Selectline DB Instance",
+        "Sync Instance",
         filters={
             "enabled": 1,
             "repetition": repetition

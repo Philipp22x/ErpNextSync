@@ -10,7 +10,7 @@ from pit_erpnext.scripts.logger import make_log
 
 
 # constants
-APP_NAME: str = "pit_erpnextsync_selectline"
+APP_NAME: str = "pit_erpnextsync"
 DEBUG_LOG_NAME: str = f"{APP_NAME}_DEBUG"
 
 
@@ -22,7 +22,7 @@ def db_connect(instance: str) -> pymssql.Connection | None:
     """Connects to a SQL database
 
     Args:
-        instance (str): Name of the Selectline DB Instance doc
+        instance (str): Name of the Sync Instance doc
 
     Returns:
         pymysql.Connection | None: Database connection or None if fails
@@ -57,7 +57,7 @@ def connection_test(instance: str) -> bool:
     """Checks the connection to the db instance
 
     Args:
-        instance (str): Name of the Selectline DB Instance doc
+        instance (str): Name of the Sync Instance doc
 
     Returns:
         bool: success = True, fail = False
@@ -134,11 +134,11 @@ def check_mapping_exists(selectline_id: str) -> str | None:
         selectline_id (str): Selectline id (<tablename>:<row id>)
 
     Returns:
-        str | None: name of the Selectline Mapping doc or None if not exists
+        str | None: name of the Sync Mapping doc or None if not exists
     """
 
     result: list = frappe.get_all(
-        "Selectline Mapping",
+        "Sync Mapping",
         filters={
             "selectline_id": selectline_id
         },
@@ -157,7 +157,7 @@ def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: s
     
     try:
         new_mapping_doc: Document = frappe.get_doc({
-            "doctype": "Selectline Mapping",
+            "doctype": "Sync Mapping",
             "selectline_db_instance": instance,
             "selectline_id": mapping_obj_id,
             "type": mapping_type,
@@ -187,9 +187,9 @@ def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: s
 def insert_mapping_row(mapping_doc_name: str, data: dict) -> str | None:
 
     try:
-        new_mapping_row: Document = frappe.new_doc("Selectline Mapping Entry")
+        new_mapping_row: Document = frappe.new_doc("Sync Mapping Entry")
 
-        new_mapping_row.set("parenttype", "Selectline Mapping")
+        new_mapping_row.set("parenttype", "Sync Mapping")
         new_mapping_row.set("parent", mapping_doc_name)
         new_mapping_row.set("parentfield", "mapping_table")
 
@@ -206,7 +206,7 @@ def insert_mapping_row(mapping_doc_name: str, data: dict) -> str | None:
         return new_mapping_row.name
     
     except Exception as e:
-        make_log(f"Could not create new Selectline Mapping Entry: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
+        make_log(f"Could not create new Sync Mapping Entry: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
         return None
 
 
@@ -222,7 +222,7 @@ def change_mapping_id_bulk(old_instance_name: str, new_instance_name: str) -> st
     old_converted_name: str = old_instance_name.replace(" ", "_")
     
     instance_mapping_list: list = frappe.get_all(
-        "Selectline Mapping",
+        "Sync Mapping",
         filters={
             "selectline_id": ["like", f"%{old_converted_name}%"]
         },
@@ -230,12 +230,12 @@ def change_mapping_id_bulk(old_instance_name: str, new_instance_name: str) -> st
     )
 
     for mapping_doc_name in instance_mapping_list:
-        sliced_mapping_id: list = frappe.db.get_value("Selectline Mapping", mapping_doc_name, "selectline_id").split(":")
+        sliced_mapping_id: list = frappe.db.get_value("Sync Mapping", mapping_doc_name, "selectline_id").split(":")
         sliced_mapping_id[0] = new_instance_name.replace(" ", "_")
         new_mapping_id = ":".join(sliced_mapping_id)
         
         frappe.enqueue(
-            "pit_erpnextsync_selectline.scripts.controller.change_mapping_id",
+            "pit_erpnextsync.scripts.controller.change_mapping_id",
             queue="long",
             timeout=600,
             mapping_doc_name=mapping_doc_name,
@@ -248,9 +248,9 @@ def change_mapping_id_bulk(old_instance_name: str, new_instance_name: str) -> st
 #get data of mapping doc as dict
 def get_mapping_table_data(mapping_name: str) -> list:
     data: list = frappe.get_all(
-        "Selectline Mapping Entry",
+        "Sync Mapping Entry",
         filters={
-            "parenttype": "Selectline Mapping",
+            "parenttype": "Sync Mapping",
             "parentfield": "mapping_table",
             "parent": mapping_name
         },
@@ -271,9 +271,9 @@ def get_mapping_table_data(mapping_name: str) -> list:
 # change single mapping id
 def change_mapping_id(mapping_doc_name: str, new_id: str) -> None:
     try:
-        mapping_doc: Document = frappe.get_doc("Selectline Mapping", mapping_doc_name)
+        mapping_doc: Document = frappe.get_doc("Sync Mapping", mapping_doc_name)
     except:
-        make_log(f"Failed to get Selectline Mapping {mapping_doc_name} for renaming mapping_id", "ERROR", APP_NAME, with_traceback=True)
+        make_log(f"Failed to get Sync Mapping {mapping_doc_name} for renaming mapping_id", "ERROR", APP_NAME, with_traceback=True)
         return
 
     if not mapping_doc.selectline_id:
@@ -303,14 +303,14 @@ def get_instance_data(instance: str) -> dict | None:
     """Gives the data / credentials for db connection
 
     Args:
-        instance (str): Name of the Selectline DB Instance doc
+        instance (str): Name of the Sync Instance doc
 
     Returns:
-        dict | None: Dict of the DB credentials fetched from the Selectline DB Instance doc
+        dict | None: Dict of the DB credentials fetched from the Sync Instance doc
     """
 
     # get instace doc
-    instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+    instance_doc: Document = frappe.get_doc("Sync Instance", instance)
 
     if not instance_doc:
         return
@@ -339,7 +339,7 @@ def get_instance_data(instance: str) -> dict | None:
 # get settings doc
 def get_settings_doc() -> Document | None:
     try:
-        return frappe.get_single("Pit ERPNextSync - SelectLine Settings")
+        return frappe.get_single("Pit Erpnext Sync Settings")
 
     except Exception as e:
         make_log(f"Could not get settings doc: {e}", "ERROR", APP_NAME)
@@ -351,7 +351,7 @@ def get_settings_doc() -> Document | None:
 def load_table_mapping(instance: str) -> str| None:
 
     try:
-        instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+        instance_doc: Document = frappe.get_doc("Sync Instance", instance)
 
         # load json data
         file_url: str | None = instance_doc.mapping_json_file
@@ -375,7 +375,7 @@ def load_table_mapping(instance: str) -> str| None:
         # load to table
         for row in data:
             new_mapping_row: Document = frappe.new_doc("Selectline Table Mapping")
-            new_mapping_row.parenttype = "Selectline DB Instance"
+            new_mapping_row.parenttype = "Sync Instance"
             new_mapping_row.parent = instance
             new_mapping_row.parentfield = "table_mapping"
 
@@ -388,7 +388,7 @@ def load_table_mapping(instance: str) -> str| None:
             new_mapping_row.insert(ignore_permissions=True)
             frappe.db.commit()
 
-            make_log(f"Created table mapping entry for Selectline DB Instance {instance} successfully", "INFO", APP_NAME)
+            make_log(f"Created table mapping entry for Sync Instance {instance} successfully", "INFO", APP_NAME)
         
         return "success"
             
@@ -426,7 +426,7 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
     col_string: str = ",\n".join(col_to_fetch)
 
     # get db schema from instance
-    schema: str = frappe.db.get_value("Selectline DB Instance", instance, "schema") or ""
+    schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
     shema_dot: str = "." if schema else ""
 
     # set order by string
@@ -448,7 +448,7 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
 
 # check if types are given and if given types are existing in mapping table
 def get_types_to_import(instance: str, types_args: list) -> list:
-    instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+    instance_doc: Document = frappe.get_doc("Sync Instance", instance)
 
      # check wich type (doctypes) has to import | if types arg is empty, import all types
     types_rows_to_import: list = []
@@ -474,7 +474,7 @@ def get_types_to_import(instance: str, types_args: list) -> list:
 def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
 
     mapping_doc_name: any = frappe.db.exists(
-        "Selectline Mapping",
+        "Sync Mapping",
         {
             "selectline_id": sl_id
         }
@@ -482,7 +482,7 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
 
     if fieldname == "name":
         docname_list: list = frappe.get_all(
-            "Selectline Mapping Entry",
+            "Sync Mapping Entry",
             filters={
                 "parent": mapping_doc_name,
                 "mapping_doctype": doc_type
@@ -494,7 +494,7 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
 
     if mapping_doc_name:
         mapping_entry_name: any = frappe.db.exists(
-        "Selectline Mapping Entry",
+        "Sync Mapping Entry",
         {
             "parent": mapping_doc_name,
             "mapping_doctype": doc_type,
@@ -506,8 +506,8 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
         return ""
         
     if mapping_entry_name:    
-        _doctype = frappe.db.get_value("Selectline Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="mapping_doctype"),
-        _filters = frappe.db.get_value("Selectline Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="docname"),
+        _doctype = frappe.db.get_value("Sync Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="mapping_doctype"),
+        _filters = frappe.db.get_value("Sync Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="docname"),
 
         value: any = frappe.db.get_value(str(_doctype[0]), str(_filters[0]), fieldname=fieldname)
 

@@ -4,12 +4,12 @@
 import frappe
 from frappe.model.document import Document
 
-from pit_erpnextsync_selectline.scripts import controller
-from pit_erpnextsync_selectline.scripts import reconcile
+from pit_erpnextsync.scripts import controller
+from pit_erpnextsync.scripts import reconcile
 from pit_erpnext.scripts.logger import make_log
 
 
-class SelectlineDBInstance(Document):
+class SyncInstance(Document):
 
 	def before_rename(self, old: str, new: str, merge: bool=False):
 		controller.change_mapping_id_bulk(old, new)

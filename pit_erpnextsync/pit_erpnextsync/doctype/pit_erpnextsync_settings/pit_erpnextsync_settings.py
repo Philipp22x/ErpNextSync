@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class SelectlineMappingEntry(Document):
+class PitERPNextSyncSettings(Document):
 	pass

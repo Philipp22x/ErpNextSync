@@ -1,7 +1,7 @@
 // Copyright (c) 2025, PIT IT GmbH and contributors
 // For license information, please see license.txt
 
-frappe.ui.form.on("Selectline DB Instance", {
+frappe.ui.form.on("Sync Instance", {
 	refresh(frm) {
         custom_action_buttons(frm);
 	},
@@ -52,7 +52,7 @@ function start_import_action(frm){
     // call import
     frappe.dom.freeze(__("creating background jobs for import..."));
     frappe.call({
-        method: "pit_erpnextsync_selectline.scripts.data_import.start_import",
+        method: "pit_erpnextsync.scripts.data_import.start_import",
         args:{
             "instance": frm.doc.name,
             "types_str": types_list,
@@ -78,7 +78,7 @@ function start_update_action(frm){
     // call import
     frappe.dom.freeze(__("creating background jobs for update..."));
     frappe.call({
-        method: "pit_erpnextsync_selectline.scripts.update.run_bulk_update",
+        method: "pit_erpnextsync.scripts.update.run_bulk_update",
         args:{
             "instance": frm.doc.name,
             "types_str": JSON.stringify(types_list),
@@ -100,7 +100,7 @@ function import_json_file(frm){
     }
 
     frappe.call({
-        method: "pit_erpnextsync_selectline.scripts.controller.load_table_mapping",
+        method: "pit_erpnextsync.scripts.controller.load_table_mapping",
         args:{
             "instance": frm.doc.name
         },
@@ -118,7 +118,7 @@ function import_json_file(frm){
 function connection_test(frm){
     frappe.dom.freeze(__("testing database connection..."));
     frappe.call({
-        method: "pit_erpnextsync_selectline.scripts.controller.connection_test",
+        method: "pit_erpnextsync.scripts.controller.connection_test",
         args:{
             "instance": frm.doc.name
         },
@@ -145,7 +145,7 @@ function preview_reconciliation(frm){
 
     frappe.dom.freeze(__("creating background jobs for reconciliation preview..."));
     frappe.call({
-        method: "pit_erpnextsync_selectline.scripts.reconcile.start_reconciliation",
+        method: "pit_erpnextsync.scripts.reconcile.start_reconciliation",
         args:{
             "instance": frm.doc.name,
             "types_str": JSON.stringify(types_list),
@@ -185,7 +185,7 @@ function apply_reconciliation(frm){
         function(){
             frappe.dom.freeze(__("creating background jobs for reconciliation..."));
             frappe.call({
-                method: "pit_erpnextsync_selectline.scripts.reconcile.start_reconciliation",
+                method: "pit_erpnextsync.scripts.reconcile.start_reconciliation",
                 args:{
                     "instance": frm.doc.name,
                     "types_str": JSON.stringify(types_list),

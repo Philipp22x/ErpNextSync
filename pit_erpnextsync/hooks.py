@@ -1,5 +1,5 @@
-app_name = "pit_erpnextsync_selectline"
-app_title = "PIT ERPNextSync - SelectLine"
+app_name = "pit_erpnextsync"
+app_title = "PIT ERPNextSync"
 app_publisher = "PIT IT GmbH"
 app_description = "Connector for SelectLine to ErpNext"
 app_email = "digital@pit-it.at"
@@ -13,11 +13,11 @@ app_license = "mit"
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
 # 	{
-# 		"name": "pit_erpnextsync_selectline",
-# 		"logo": "/assets/pit_erpnextsync_selectline/logo.png",
-# 		"title": "PIT ERPNextSync - SelectLine",
-# 		"route": "/pit_erpnextsync_selectline",
-# 		"has_permission": "pit_erpnextsync_selectline.api.permission.has_app_permission"
+# 		"name": "pit_erpnextsync",
+# 		"logo": "/assets/pit_erpnextsync/logo.png",
+# 		"title": "PIT ERPNextSync",
+# 		"route": "/pit_erpnextsync",
+# 		"has_permission": "pit_erpnextsync.api.permission.has_app_permission"
 # 	}
 # ]
 
@@ -25,15 +25,15 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/pit_erpnextsync_selectline/css/pit_erpnextsync_selectline.css"
-# app_include_js = "/assets/pit_erpnextsync_selectline/js/pit_erpnextsync_selectline.js"
+# app_include_css = "/assets/pit_erpnextsync/css/pit_erpnextsync.css"
+# app_include_js = "/assets/pit_erpnextsync/js/pit_erpnextsync.js"
 
 # include js, css files in header of web template
-# web_include_css = "/assets/pit_erpnextsync_selectline/css/pit_erpnextsync_selectline.css"
-# web_include_js = "/assets/pit_erpnextsync_selectline/js/pit_erpnextsync_selectline.js"
+# web_include_css = "/assets/pit_erpnextsync/css/pit_erpnextsync.css"
+# web_include_js = "/assets/pit_erpnextsync/js/pit_erpnextsync.js"
 
 # include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "pit_erpnextsync_selectline/public/scss/website"
+# website_theme_scss = "pit_erpnextsync/public/scss/website"
 
 # include js, css files in header of web form
 # webform_include_js = {"doctype": "public/js/doctype.js"}
@@ -51,7 +51,7 @@ app_license = "mit"
 # Svg Icons
 # ------------------
 # include app icons in desk
-# app_include_icons = "pit_erpnextsync_selectline/public/icons.svg"
+# app_include_icons = "pit_erpnextsync/public/icons.svg"
 
 # Home Pages
 # ----------
@@ -75,43 +75,43 @@ app_license = "mit"
 
 # add methods and filters to jinja environment
 # jinja = {
-# 	"methods": "pit_erpnextsync_selectline.utils.jinja_methods",
-# 	"filters": "pit_erpnextsync_selectline.utils.jinja_filters"
+# 	"methods": "pit_erpnextsync.utils.jinja_methods",
+# 	"filters": "pit_erpnextsync.utils.jinja_filters"
 # }
 
 # Installation
 # ------------
 
-# before_install = "pit_erpnextsync_selectline.install.before_install"
-after_install = "pit_erpnextsync_selectline.install.after_install"
+# before_install = "pit_erpnextsync.install.before_install"
+after_install = "pit_erpnextsync.install.after_install"
 
 # Uninstallation
 # ------------
 
-# before_uninstall = "pit_erpnextsync_selectline.uninstall.before_uninstall"
-# after_uninstall = "pit_erpnextsync_selectline.uninstall.after_uninstall"
+# before_uninstall = "pit_erpnextsync.uninstall.before_uninstall"
+# after_uninstall = "pit_erpnextsync.uninstall.after_uninstall"
 
 # Integration Setup
 # ------------------
 # To set up dependencies/integrations with other apps
 # Name of the app being installed is passed as an argument
 
-# before_app_install = "pit_erpnextsync_selectline.utils.before_app_install"
-# after_app_install = "pit_erpnextsync_selectline.utils.after_app_install"
+# before_app_install = "pit_erpnextsync.utils.before_app_install"
+# after_app_install = "pit_erpnextsync.utils.after_app_install"
 
 # Integration Cleanup
 # -------------------
 # To clean up dependencies/integrations with other apps
 # Name of the app being uninstalled is passed as an argument
 
-# before_app_uninstall = "pit_erpnextsync_selectline.utils.before_app_uninstall"
-# after_app_uninstall = "pit_erpnextsync_selectline.utils.after_app_uninstall"
+# before_app_uninstall = "pit_erpnextsync.utils.before_app_uninstall"
+# after_app_uninstall = "pit_erpnextsync.utils.after_app_uninstall"
 
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
 
-# notification_config = "pit_erpnextsync_selectline.notifications.get_notification_config"
+# notification_config = "pit_erpnextsync.notifications.get_notification_config"
 
 # Permissions
 # -----------
@@ -150,57 +150,57 @@ after_install = "pit_erpnextsync_selectline.install.after_install"
 
 scheduler_events = {
 	"all": [
-		"pit_erpnextsync_selectline.scripts.scheduler.all"
+		"pit_erpnextsync.scripts.scheduler.all"
 	],
 	"daily": [
-		"pit_erpnextsync_selectline.scripts.scheduler.daily"
+		"pit_erpnextsync.scripts.scheduler.daily"
 	],
 	"hourly": [
-		"pit_erpnextsync_selectline.scripts.scheduler.hourly"
+		"pit_erpnextsync.scripts.scheduler.hourly"
 	],
 	"weekly": [
-		"pit_erpnextsync_selectline.scripts.scheduler.weekly"
+		"pit_erpnextsync.scripts.scheduler.weekly"
 	],
 	"monthly": [
-		"pit_erpnextsync_selectline.scripts.scheduler.monthly"
+		"pit_erpnextsync.scripts.scheduler.monthly"
 	],
 }
 
 # scheduler_events = {
 # 	"all": [
-# 		"pit_erpnextsync_selectline.tasks.all"
+# 		"pit_erpnextsync.tasks.all"
 # 	],
 # 	"daily": [
-# 		"pit_erpnextsync_selectline.tasks.daily"
+# 		"pit_erpnextsync.tasks.daily"
 # 	],
 # 	"hourly": [
-# 		"pit_erpnextsync_selectline.tasks.hourly"
+# 		"pit_erpnextsync.tasks.hourly"
 # 	],
 # 	"weekly": [
-# 		"pit_erpnextsync_selectline.tasks.weekly"
+# 		"pit_erpnextsync.tasks.weekly"
 # 	],
 # 	"monthly": [
-# 		"pit_erpnextsync_selectline.tasks.monthly"
+# 		"pit_erpnextsync.tasks.monthly"
 # 	],
 # }
 
 # Testing
 # -------
 
-# before_tests = "pit_erpnextsync_selectline.install.before_tests"
+# before_tests = "pit_erpnextsync.install.before_tests"
 
 # Overriding Methods
 # ------------------------------
 #
 # override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "pit_erpnextsync_selectline.event.get_events"
+# 	"frappe.desk.doctype.event.event.get_events": "pit_erpnextsync.event.get_events"
 # }
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
 # override_doctype_dashboards = {
-# 	"Task": "pit_erpnextsync_selectline.task.get_dashboard_data"
+# 	"Task": "pit_erpnextsync.task.get_dashboard_data"
 # }
 
 # exempt linked doctypes from being automatically cancelled
@@ -214,13 +214,13 @@ scheduler_events = {
 
 # Request Events
 # ----------------
-# before_request = ["pit_erpnextsync_selectline.utils.before_request"]
-# after_request = ["pit_erpnextsync_selectline.utils.after_request"]
+# before_request = ["pit_erpnextsync.utils.before_request"]
+# after_request = ["pit_erpnextsync.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["pit_erpnextsync_selectline.utils.before_job"]
-# after_job = ["pit_erpnextsync_selectline.utils.after_job"]
+# before_job = ["pit_erpnextsync.utils.before_job"]
+# after_job = ["pit_erpnextsync.utils.after_job"]
 
 # User Data Protection
 # --------------------
@@ -250,7 +250,7 @@ scheduler_events = {
 # --------------------------------
 
 # auth_hooks = [
-# 	"pit_erpnextsync_selectline.auth.validate"
+# 	"pit_erpnextsync.auth.validate"
 # ]
 
 # Automatically update python controller files with type annotations for this app.

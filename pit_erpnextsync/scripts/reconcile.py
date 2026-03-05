@@ -4,11 +4,11 @@ from frappe.model.document import Document
 from typing import Dict, List, Tuple, Any, Optional
 
 from pit_erpnext.scripts.logger import make_log
-from pit_erpnextsync_selectline.scripts import controller
-from pit_erpnextsync_selectline.scripts.classes.field_vars import FieldVars
+from pit_erpnextsync.scripts import controller
+from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 
 
-APP_NAME: str = "pit_erpnextsync_selectline"
+APP_NAME: str = "pit_erpnextsync"
 
 
 @frappe.whitelist()
@@ -21,7 +21,7 @@ def start_reconciliation(
 	Entry point for reconciliation. Validates input and queues background jobs.
 	
 	Args:
-		instance: Name of the Selectline DB Instance
+		instance: Name of the Sync Instance
 		types_str: JSON string of types to reconcile (empty = all)
 		dry_run: If True, only returns preview without making changes
 	
@@ -30,7 +30,7 @@ def start_reconciliation(
 	"""
 	try:
 		# Get instance doc
-		instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+		instance_doc: Document = frappe.get_doc("Sync Instance", instance)
 		if not instance_doc:
 			raise Exception(f"Could not get instance doc {instance}")
 		
@@ -46,7 +46,7 @@ def start_reconciliation(
 			filters["type"] = ["in", types]
 		
 		mappings_list: List[str] = frappe.get_all(
-			"Selectline Mapping",
+			"Sync Mapping",
 			filters=filters,
 			pluck="name"
 		)
@@ -61,7 +61,7 @@ def start_reconciliation(
 		queued_jobs: List[str] = []
 		for mapping_name in mappings_list:
 			job_id = frappe.enqueue(
-				"pit_erpnextsync_selectline.scripts.reconcile.reconcile_single_mapping",
+				"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
 				queue="long",
 				timeout=600,
 				instance=instance,
@@ -105,8 +105,8 @@ def reconcile_single_mapping(
 	Background job: Reconciles a single mapping record with current JSON definition.
 	
 	Args:
-		instance: Name of the Selectline DB Instance
-		mapping_name: Name of the Selectline Mapping doc
+		instance: Name of the Sync Instance
+		mapping_name: Name of the Sync Mapping doc
 		dry_run: If True, only preview changes
 	
 	Returns:
@@ -114,7 +114,7 @@ def reconcile_single_mapping(
 	"""
 	try:
 		# Get mapping doc
-		mapping_doc: Document = frappe.get_doc("Selectline Mapping", mapping_name)
+		mapping_doc: Document = frappe.get_doc("Sync Mapping", mapping_name)
 		if not mapping_doc:
 			raise Exception(f"Mapping {mapping_name} not found")
 		
@@ -124,7 +124,7 @@ def reconcile_single_mapping(
 			raise Exception(f"Mapping {mapping_name} has no type")
 		
 		# Get current JSON mapping from instance
-		instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+		instance_doc: Document = frappe.get_doc("Sync Instance", instance)
 		new_json_mapping: Optional[List[Dict]] = get_current_json_mapping(instance_doc, mapping_type)
 		
 		if not new_json_mapping:
@@ -226,7 +226,7 @@ def reconcile_single_mapping(
 				result["actions"]["additions"] = addition_result
 			
 			# Update timestamp only (don't save parent doc to avoid overwriting child table)
-			frappe.db.set_value("Selectline Mapping", mapping_name, "last_update", frappe.utils.now())
+			frappe.db.set_value("Sync Mapping", mapping_name, "last_update", frappe.utils.now())
 			frappe.db.commit()
 			make_log(
 				f"Updated timestamp for {mapping_name} without saving child table",
@@ -526,7 +526,7 @@ def apply_field_additions(
 	errors: List[str] = []
 	
 	# Get mapping doc for docname references
-	mapping_doc: Document = frappe.get_doc("Selectline Mapping", mapping_name)
+	mapping_doc: Document = frappe.get_doc("Sync Mapping", mapping_name)
 	
 	# Create field_vars object for this reconciliation
 	field_vars_obj: FieldVars = FieldVars()
@@ -557,7 +557,7 @@ def apply_field_additions(
 			if not docname:
 				# Find the docname from existing mapping entries of same doctype
 				existing_entries = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": mapping_name,
 						"mapping_doctype": doctype
@@ -645,7 +645,7 @@ def apply_field_additions(
 					
 					# Check if mapping entry already exists
 					existing_entry = frappe.db.exists(
-						"Selectline Mapping Entry",
+						"Sync Mapping Entry",
 						{
 							"parent": mapping_name,
 							"mapping_doctype": doctype,
@@ -703,7 +703,7 @@ def apply_field_additions(
 				
 				# Check if mapping entry already exists
 				existing_entry = frappe.db.exists(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					{
 						"parent": mapping_name,
 						"mapping_doctype": doctype,
@@ -759,7 +759,7 @@ def apply_field_additions(
 			
 			# Verify the mapping entry was created
 			verify_entry = frappe.db.exists(
-				"Selectline Mapping Entry",
+				"Sync Mapping Entry",
 				{
 					"parent": mapping_name,
 					"mapping_doctype": doctype,
@@ -852,13 +852,13 @@ def apply_field_removals(
 				filters["child_row_fieldname"] = child_row_fieldname
 			
 			entries = frappe.get_all(
-				"Selectline Mapping Entry",
+				"Sync Mapping Entry",
 				filters=filters,
 				pluck="name"
 			)
 			
 			for entry_name in entries:
-				frappe.delete_doc("Selectline Mapping Entry", entry_name)
+				frappe.delete_doc("Sync Mapping Entry", entry_name)
 			
 			removed_count += len(entries)
 			
@@ -880,7 +880,7 @@ def apply_field_removals(
 			try:
 				# Check if document is still referenced in any other mapping
 				other_mappings = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"mapping_doctype": doctype,
 						"docname": docname,
@@ -964,7 +964,7 @@ def apply_structural_changes(
 			if child_row_fieldname:
 				# For child table fields, get the specific child row
 				child_entries = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": mapping_name,
 						"mapping_doctype": doctype,
@@ -990,7 +990,7 @@ def apply_structural_changes(
 			else:
 				# For parent fields, use the existing logic
 				entries = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": mapping_name,
 						"mapping_doctype": doctype,
@@ -1016,10 +1016,10 @@ def apply_structural_changes(
 					"fieldname": fieldname
 				}
 				
-				entry_name = frappe.db.exists("Selectline Mapping Entry", entry_filters)
+				entry_name = frappe.db.exists("Sync Mapping Entry", entry_filters)
 				if entry_name:
 					frappe.db.set_value(
-						"Selectline Mapping Entry",
+						"Sync Mapping Entry",
 						entry_name,
 						"selectline_column",
 						new_def.get("sl_column")
@@ -1141,7 +1141,7 @@ def get_or_create_child_row(
 		
 		# Check if there's already a child row for this field in the mapping
 		existing_children = frappe.get_all(
-			"Selectline Mapping Entry",
+			"Sync Mapping Entry",
 			filters={
 				"parent": mapping_name,
 				"mapping_doctype": doctype,
@@ -1246,7 +1246,7 @@ def fetch_source_data(
 			raise Exception(f"No primary key column in mapping {mapping_doc.name}")
 		
 		# Get DB schema
-		schema = frappe.db.get_value("Selectline DB Instance", instance, "schema") or ""
+		schema = frappe.db.get_value("Sync Instance", instance, "schema") or ""
 		schema_dot = "." if schema else ""
 		
 		# Get all columns we need from existing mapping entries
@@ -1271,7 +1271,7 @@ def fetch_source_data(
 		
 		# Add timestamp column
 		ts_col = frappe.db.get_value(
-			"Selectline DB Instance",
+			"Sync Instance",
 			instance,
 			"db_time_stamp_column_name"
 		)
@@ -1350,7 +1350,7 @@ def create_new_doc_for_reconciliation(
 		doctype: The DocType to create
 		field_def: Field definition for the first field
 		fetched_obj: Data from SelectLine
-		instance: Selectline DB Instance name
+		instance: Sync Instance name
 		field_vars_obj: FieldVars object for variable resolution
 	
 	Returns:

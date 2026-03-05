@@ -5,5 +5,5 @@
 from frappe.tests.utils import FrappeTestCase
 
 
-class TestPitERPNextSyncSelectLineSettings(FrappeTestCase):
+class TestSyncInstance(FrappeTestCase):
 	pass

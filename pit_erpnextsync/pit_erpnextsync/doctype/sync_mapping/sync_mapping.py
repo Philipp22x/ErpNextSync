@@ -3,10 +3,10 @@
 
 import frappe
 from frappe.model.document import Document
-from pit_erpnextsync_selectline.scripts import controller
+from pit_erpnextsync.scripts import controller
 from pit_erpnext.scripts.logger import make_log
 
-class SelectlineMapping(Document):
+class SyncMapping(Document):
 	#### OVERRIDES #######################################
 	def on_trash(self) -> None:
 		result: bool = self.on_delete_mapping()
@@ -25,7 +25,7 @@ class SelectlineMapping(Document):
 	# check for deleting mapped doctypes
 	def on_delete_mapping(self) -> bool:
 
-		if not frappe.get_single_value("Pit ERPNextSync - SelectLine Settings", "delete_document"):
+		if not frappe.get_single_value("Pit Erpnext Sync Settings", "delete_document"):
 			return True
 
 		try:	
@@ -48,7 +48,7 @@ class SelectlineMapping(Document):
 			# check if doc is not used in other mapping before delete
 			for doc in docs_to_check:
 				doc_list: list = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": ["!=", self.name],
 						"mapping_doctype": doc["doctype"],

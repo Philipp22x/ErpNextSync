@@ -6,15 +6,15 @@ import datetime
 
 
 from pit_erpnext.scripts.logger import make_log
-from pit_erpnextsync_selectline.scripts import controller
-from pit_erpnextsync_selectline.scripts.classes.field_vars import FieldVars
+from pit_erpnextsync.scripts import controller
+from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 
 
 @frappe.whitelist()
 def run_bulk_update(instance: str, types_str: str) -> None:
     # get instance doc
     try:
-        instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+        instance_doc: Document = frappe.get_doc("Sync Instance", instance)
         if not instance_doc:
             raise Exception()
 
@@ -37,7 +37,7 @@ def run_bulk_update(instance: str, types_str: str) -> None:
 
     # get all mappings linked to the given instance
     mappings_list: list = frappe.get_all(
-        "Selectline Mapping",
+        "Sync Mapping",
             filters={
             "selectline_db_instance": instance,
             "enable": 1,
@@ -54,7 +54,7 @@ def run_bulk_update(instance: str, types_str: str) -> None:
     # main loop for all mappings of the given instance
     for mapping_name in mappings_list:
 
-        obj_id: str = frappe.db.get_value("Selectline Mapping", mapping_name, "selectline_id")
+        obj_id: str = frappe.db.get_value("Sync Mapping", mapping_name, "selectline_id")
 
         # verify obj_id
         if not obj_id:
@@ -69,7 +69,7 @@ def run_bulk_update(instance: str, types_str: str) -> None:
             continue
 
         frappe.enqueue(
-            "pit_erpnextsync_selectline.scripts.update.check_timestamp",
+            "pit_erpnextsync.scripts.update.check_timestamp",
             queue="long",
             timeout=600,
             instance=instance,
@@ -93,16 +93,16 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
             return
 
         # get db schema from instance
-        schema: str = frappe.db.get_value("Selectline DB Instance", instance, "schema")
+        schema: str = frappe.db.get_value("Sync Instance", instance, "schema")
         shema_dot: str = "." if schema else ""
 
         # get the column name of the primary key
-        primary_key_column: str = frappe.db.get_value("Selectline Mapping", mapping_name, "primary_key_column")
+        primary_key_column: str = frappe.db.get_value("Sync Mapping", mapping_name, "primary_key_column")
         if not primary_key_column:
             return "test1"
 
         # get the column name where the timestamp is stored on db
-        ts_col: str = frappe.db.get_value("Selectline DB Instance", instance, "db_time_stamp_column_name")
+        ts_col: str = frappe.db.get_value("Sync Instance", instance, "db_time_stamp_column_name")
         if not ts_col:
             return "test2"
 
@@ -128,7 +128,7 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
             raise Exception(f"Unvalid timestamp result: {date_as_str_result} ({type(date_as_str_result)})")
 
         # get stored timestamp in mapping
-        mapped_timestamp = frappe.db.get_value("Selectline Mapping", mapping_name, "db_time_stamp")
+        mapped_timestamp = frappe.db.get_value("Sync Mapping", mapping_name, "db_time_stamp")
         if not mapped_timestamp:
             raise Exception(f"No timestamp in mapping {mapping_name}")
 
@@ -138,7 +138,7 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
             return None
         else:
             frappe.enqueue(
-                "pit_erpnextsync_selectline.scripts.update.update_mapping",
+                "pit_erpnextsync.scripts.update.update_mapping",
                 queue="long",
                 timeout=600,
                 instance=instance,
@@ -157,7 +157,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
     make_log(f"run update_mapping()", "ERROR", controller.APP_NAME)
     try:
         # get mapping doc
-        mapping_doc: Document = frappe.get_doc("Selectline Mapping", mapping_name)
+        mapping_doc: Document = frappe.get_doc("Sync Mapping", mapping_name)
         if not mapping_doc:
             raise Exception(f"mapping_doc is {mapping_doc}")
 
@@ -170,14 +170,14 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
             d["selectline_column"] for d in mapping_table_data if d.get("selectline_column")
         ))
 
-        time_stamp_col_name: str = frappe.db.get_value("Selectline DB Instance", instance, "db_time_stamp_column_name")
+        time_stamp_col_name: str = frappe.db.get_value("Sync Instance", instance, "db_time_stamp_column_name")
         if not time_stamp_col_name:
             raise Exception(f"No time stamp column name found for: {mapping_name}")
         
         col_string += f", {time_stamp_col_name}"
 
         # get db schema from instance
-        schema: str = frappe.db.get_value("Selectline DB Instance", instance, "schema") or ""
+        schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
         shema_dot: str = "." if schema else ""
 
         # get name of primary key column from mapping doc
@@ -251,10 +251,10 @@ def get_id_data(obj_id: str) -> dict:
 def update_mapping_rows(mapping_name: str) -> None:
 
     try:
-        mapping_doc: Document = frappe.get_doc("Selectline Mapping", mapping_name)
+        mapping_doc: Document = frappe.get_doc("Sync Mapping", mapping_name)
 
         instance_name: str = mapping_doc.selectline_db_instance
-        instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance_name)
+        instance_doc: Document = frappe.get_doc("Sync Instance", instance_name)
 
         mapping_type: str = mapping_doc.type
         primary_key_column: str = mapping_doc.primary_key_column

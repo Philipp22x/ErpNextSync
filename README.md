@@ -9,7 +9,7 @@ You can install this app using the [bench](https://github.com/frappe/bench) CLI:
 ```bash
 cd $PATH_TO_YOUR_BENCH
 bench get-app $URL_OF_THIS_REPO --branch develop
-bench install-app pit_erpnextsync_selectline
+bench install-app pit_erpnextsync
 ```
 
 ### Contributing
@@ -17,7 +17,7 @@ bench install-app pit_erpnextsync_selectline
 This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
 
 ```bash
-cd apps/pit_erpnextsync_selectline
+cd apps/pit_erpnextsync
 pre-commit install
 ```
 

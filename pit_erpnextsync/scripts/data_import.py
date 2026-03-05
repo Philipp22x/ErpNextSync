@@ -4,8 +4,8 @@ import frappe
 from frappe.model.document import Document
 
 from pit_erpnext.scripts.logger import make_log
-from pit_erpnextsync_selectline.scripts import controller
-from pit_erpnextsync_selectline.scripts.classes.field_vars import FieldVars
+from pit_erpnextsync.scripts import controller
+from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 
 
 
@@ -31,7 +31,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
     # get instance doc
     try:
-        instance_doc: Document = frappe.get_doc("Selectline DB Instance", instance)
+        instance_doc: Document = frappe.get_doc("Sync Instance", instance)
         if not instance_doc:
             raise Exception(f"Could not get instance doc {instance}")
 
@@ -85,7 +85,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                     # set background job for import object
                     make_log(f"frappe.enqueue import_fetched_object", "INFO", controller.DEBUG_LOG_NAME)
                     frappe.enqueue(
-                        "pit_erpnextsync_selectline.scripts.data_import.import_fetched_object",
+                        "pit_erpnextsync.scripts.data_import.import_fetched_object",
                         queue="long",
                         timeout=600,
                         instance=instance,
@@ -515,7 +515,7 @@ def before_doc_insert_hook(new_doc: Document, fetched_obj: dict) -> None:
 # check if mapping has entries in mapping table
 def mapping_doc_has_mapping_etries(parent: str) -> bool:
     entries_list: list = frappe.get_all(
-        "Selectline Mapping Entry",
+        "Sync Mapping Entry",
         filters={
             "parent": parent
         },

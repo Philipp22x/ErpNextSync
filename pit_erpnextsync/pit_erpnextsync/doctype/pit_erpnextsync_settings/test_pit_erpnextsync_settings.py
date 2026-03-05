@@ -5,5 +5,5 @@
 from frappe.tests.utils import FrappeTestCase
 
 
-class TestSelectlineMapping(FrappeTestCase):
+class TestPitERPNextSyncSettings(FrappeTestCase):
 	pass
