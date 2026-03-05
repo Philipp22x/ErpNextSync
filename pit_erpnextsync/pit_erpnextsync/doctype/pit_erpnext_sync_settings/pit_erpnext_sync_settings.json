@@ -34,7 +34,7 @@
  "links": [],
  "modified": "2025-12-29 08:42:19.784353",
  "modified_by": "Administrator",
- "module": "PIT ERPNextSync - SelectLine",
+ "module": "PIT ERPNextSync",
  "name": "Pit Erpnext Sync Settings",
  "owner": "Administrator",
  "permissions": [

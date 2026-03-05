@@ -4,7 +4,7 @@ import frappe
 
 def test():
     child_doc = frappe.get_doc({
-        "doctype": "Sync Mapping Entry",
+        "doctype": "Selectline Mapping Entry",
         "name": "bliblabub"
     })
 
