@@ -1,0 +1,288 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "allow_rename": 1,
+ "autoname": "field:title",
+ "creation": "2025-11-06 10:41:59.554955",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "enabled",
+  "column_break_onzb",
+  "column_break_hges",
+  "column_break_fbbs",
+  "database_section",
+  "server",
+  "database",
+  "user",
+  "password",
+  "test_connection",
+  "column_break_fgdy",
+  "port",
+  "schema",
+  "column_break_szea",
+  "column_break_ahli",
+  "table_mapping_section",
+  "table_mapping",
+  "section_break_pdio",
+  "mapping_json_file",
+  "import_json_file",
+  "column_break_qisn",
+  "column_break_ijue",
+  "column_break_vfub",
+  "import_settings_section",
+  "column_break_jgvh",
+  "types_to_import",
+  "column_break_ojon",
+  "amount_of_data_rows",
+  "column_break_hrbn",
+  "reset",
+  "column_break_ifrk",
+  "column_break_ximu",
+  "scheduler_section",
+  "enable_scheduler",
+  "repetition",
+  "column_break_pozb",
+  "column_break_jrhk",
+  "column_break_dras",
+  "column_break_snqx"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "database_section",
+   "fieldtype": "Section Break",
+   "label": "Database"
+  },
+  {
+   "fieldname": "server",
+   "fieldtype": "Data",
+   "label": "Server",
+   "reqd": 1
+  },
+  {
+   "fieldname": "database",
+   "fieldtype": "Data",
+   "label": "Database",
+   "reqd": 1
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Data",
+   "label": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "password",
+   "fieldtype": "Data",
+   "label": "Password",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_fgdy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval: !doc.__islocal\n",
+   "fieldname": "test_connection",
+   "fieldtype": "Button",
+   "label": "Test Connection"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_onzb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_hges",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_szea",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1433",
+   "fieldname": "port",
+   "fieldtype": "Data",
+   "label": "Port",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_fbbs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ahli",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "table_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Table Mapping"
+  },
+  {
+   "fieldname": "table_mapping",
+   "fieldtype": "Table",
+   "options": "Selectline Table Mapping"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_pdio",
+   "fieldtype": "Section Break",
+   "label": "JSON File Import"
+  },
+  {
+   "fieldname": "column_break_qisn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "import_json_file",
+   "fieldtype": "Button",
+   "label": "Import JSON File"
+  },
+  {
+   "fieldname": "column_break_ijue",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_vfub",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mapping_json_file",
+   "fieldtype": "Attach",
+   "label": "Mapping JSON File"
+  },
+  {
+   "fieldname": "column_break_jgvh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ojon",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Separate with \",\". Leave empty for all types.",
+   "fieldname": "types_to_import",
+   "fieldtype": "Data",
+   "label": "Types To Import"
+  },
+  {
+   "fieldname": "column_break_hrbn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_ximu",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set 0 for all",
+   "fieldname": "amount_of_data_rows",
+   "fieldtype": "Int",
+   "label": "Amount Of Data Rows"
+  },
+  {
+   "fieldname": "reset",
+   "fieldtype": "Button",
+   "label": "Reset"
+  },
+  {
+   "fieldname": "schema",
+   "fieldtype": "Data",
+   "label": "Schema"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "import_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Import Settings"
+  },
+  {
+   "fieldname": "column_break_ifrk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "scheduler_section",
+   "fieldtype": "Section Break",
+   "label": "Scheduler"
+  },
+  {
+   "fieldname": "column_break_pozb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_jrhk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_dras",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_snqx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_scheduler",
+   "fieldtype": "Check",
+   "label": "Enable Scheduler"
+  },
+  {
+   "default": "all",
+   "description": "\"all\" = 4 minutes by default, depends on settings",
+   "fieldname": "repetition",
+   "fieldtype": "Select",
+   "label": "Repetition",
+   "options": "all\ndaily\nhourly\nweekly\nmonthly"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Sync Mapping",
+   "link_fieldname": "selectline_db_instance"
+  }
+ ],
+ "modified": "2026-03-04 14:18:57.776427",
+ "modified_by": "Administrator",
+ "module": "PIT ERPNextSync",
+ "name": "Sync Instance",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

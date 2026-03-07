@@ -1,9 +1,9 @@
 [project]
-name = "pit_erpnextsync_selectline"
+name = "pit_erpnextsync"
 authors = [
     { name = "PIT IT GmbH", email = "digital@pit-it.at"}
 ]
-description = "Connector for SelectLine to ErpNext"
+description = "Connector for ERPNext Sync"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
