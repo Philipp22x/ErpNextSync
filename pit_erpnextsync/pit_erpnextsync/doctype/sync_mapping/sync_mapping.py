@@ -48,7 +48,7 @@ class SyncMapping(Document):
 			# check if doc is not used in other mapping before delete
 			for doc in docs_to_check:
 				doc_list: list = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": ["!=", self.name],
 						"mapping_doctype": doc["doctype"],

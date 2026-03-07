@@ -262,7 +262,7 @@
  ],
  "modified": "2026-03-04 14:18:57.776427",
  "modified_by": "Administrator",
- "module": "PIT ERPNextSync",
+ "module": "PIT ERPNextSync - SelectLine",
  "name": "Sync Instance",
  "naming_rule": "By fieldname",
  "owner": "Administrator",

@@ -8,7 +8,7 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        files: "pit_erpnextsync.*"
+        files: "pit_erpnextsync_selectline.*"
         exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
       - id: check-merge-conflict
       - id: check-ast
@@ -38,11 +38,11 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                pit_erpnextsync/public/dist/.*|
+                pit_erpnextsync_selectline/public/dist/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                pit_erpnextsync/templates/includes/.*|
-                pit_erpnextsync/public/js/lib/.*
+                pit_erpnextsync_selectline/templates/includes/.*|
+                pit_erpnextsync_selectline/public/js/lib/.*
             )$
 
 
@@ -55,12 +55,12 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                pit_erpnextsync/public/dist/.*|
+                pit_erpnextsync_selectline/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                pit_erpnextsync/templates/includes/.*|
-                pit_erpnextsync/public/js/lib/.*
+                pit_erpnextsync_selectline/templates/includes/.*|
+                pit_erpnextsync_selectline/public/js/lib/.*
             )$
 
 ci:

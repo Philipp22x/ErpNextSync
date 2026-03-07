@@ -187,7 +187,7 @@ def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: s
 def insert_mapping_row(mapping_doc_name: str, data: dict) -> str | None:
 
     try:
-        new_mapping_row: Document = frappe.new_doc("Selectline Mapping Entry")
+        new_mapping_row: Document = frappe.new_doc("Sync Mapping Entry")
 
         new_mapping_row.set("parenttype", "Sync Mapping")
         new_mapping_row.set("parent", mapping_doc_name)
@@ -206,7 +206,7 @@ def insert_mapping_row(mapping_doc_name: str, data: dict) -> str | None:
         return new_mapping_row.name
     
     except Exception as e:
-        make_log(f"Could not create new Selectline Mapping Entry: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
+        make_log(f"Could not create new Sync Mapping Entry: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
         return None
 
 
@@ -248,7 +248,7 @@ def change_mapping_id_bulk(old_instance_name: str, new_instance_name: str) -> st
 #get data of mapping doc as dict
 def get_mapping_table_data(mapping_name: str) -> list:
     data: list = frappe.get_all(
-        "Selectline Mapping Entry",
+        "Sync Mapping Entry",
         filters={
             "parenttype": "Sync Mapping",
             "parentfield": "mapping_table",
@@ -482,7 +482,7 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
 
     if fieldname == "name":
         docname_list: list = frappe.get_all(
-            "Selectline Mapping Entry",
+            "Sync Mapping Entry",
             filters={
                 "parent": mapping_doc_name,
                 "mapping_doctype": doc_type
@@ -494,7 +494,7 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
 
     if mapping_doc_name:
         mapping_entry_name: any = frappe.db.exists(
-        "Selectline Mapping Entry",
+        "Sync Mapping Entry",
         {
             "parent": mapping_doc_name,
             "mapping_doctype": doc_type,
@@ -506,8 +506,8 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
         return ""
         
     if mapping_entry_name:    
-        _doctype = frappe.db.get_value("Selectline Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="mapping_doctype"),
-        _filters = frappe.db.get_value("Selectline Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="docname"),
+        _doctype = frappe.db.get_value("Sync Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="mapping_doctype"),
+        _filters = frappe.db.get_value("Sync Mapping Entry", filters={"name": mapping_entry_name, "fieldname": fieldname}, fieldname="docname"),
 
         value: any = frappe.db.get_value(str(_doctype[0]), str(_filters[0]), fieldname=fieldname)
 

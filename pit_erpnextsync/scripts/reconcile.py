@@ -557,7 +557,7 @@ def apply_field_additions(
 			if not docname:
 				# Find the docname from existing mapping entries of same doctype
 				existing_entries = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": mapping_name,
 						"mapping_doctype": doctype
@@ -645,7 +645,7 @@ def apply_field_additions(
 					
 					# Check if mapping entry already exists
 					existing_entry = frappe.db.exists(
-						"Selectline Mapping Entry",
+						"Sync Mapping Entry",
 						{
 							"parent": mapping_name,
 							"mapping_doctype": doctype,
@@ -703,7 +703,7 @@ def apply_field_additions(
 				
 				# Check if mapping entry already exists
 				existing_entry = frappe.db.exists(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					{
 						"parent": mapping_name,
 						"mapping_doctype": doctype,
@@ -759,7 +759,7 @@ def apply_field_additions(
 			
 			# Verify the mapping entry was created
 			verify_entry = frappe.db.exists(
-				"Selectline Mapping Entry",
+				"Sync Mapping Entry",
 				{
 					"parent": mapping_name,
 					"mapping_doctype": doctype,
@@ -852,13 +852,13 @@ def apply_field_removals(
 				filters["child_row_fieldname"] = child_row_fieldname
 			
 			entries = frappe.get_all(
-				"Selectline Mapping Entry",
+				"Sync Mapping Entry",
 				filters=filters,
 				pluck="name"
 			)
 			
 			for entry_name in entries:
-				frappe.delete_doc("Selectline Mapping Entry", entry_name)
+				frappe.delete_doc("Sync Mapping Entry", entry_name)
 			
 			removed_count += len(entries)
 			
@@ -880,7 +880,7 @@ def apply_field_removals(
 			try:
 				# Check if document is still referenced in any other mapping
 				other_mappings = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"mapping_doctype": doctype,
 						"docname": docname,
@@ -964,7 +964,7 @@ def apply_structural_changes(
 			if child_row_fieldname:
 				# For child table fields, get the specific child row
 				child_entries = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": mapping_name,
 						"mapping_doctype": doctype,
@@ -990,7 +990,7 @@ def apply_structural_changes(
 			else:
 				# For parent fields, use the existing logic
 				entries = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": mapping_name,
 						"mapping_doctype": doctype,
@@ -1016,10 +1016,10 @@ def apply_structural_changes(
 					"fieldname": fieldname
 				}
 				
-				entry_name = frappe.db.exists("Selectline Mapping Entry", entry_filters)
+				entry_name = frappe.db.exists("Sync Mapping Entry", entry_filters)
 				if entry_name:
 					frappe.db.set_value(
-						"Selectline Mapping Entry",
+						"Sync Mapping Entry",
 						entry_name,
 						"selectline_column",
 						new_def.get("sl_column")
@@ -1141,7 +1141,7 @@ def get_or_create_child_row(
 		
 		# Check if there's already a child row for this field in the mapping
 		existing_children = frappe.get_all(
-			"Selectline Mapping Entry",
+			"Sync Mapping Entry",
 			filters={
 				"parent": mapping_name,
 				"mapping_doctype": doctype,
