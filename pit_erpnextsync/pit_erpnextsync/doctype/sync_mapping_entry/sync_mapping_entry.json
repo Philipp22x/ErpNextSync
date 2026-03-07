@@ -67,7 +67,7 @@
  "modified": "2026-02-17 15:02:22.711189",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
- "name": "Selectline Mapping Entry",
+ "name": "Sync Mapping Entry",
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",
