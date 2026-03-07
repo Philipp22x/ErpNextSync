@@ -515,7 +515,7 @@ def before_doc_insert_hook(new_doc: Document, fetched_obj: dict) -> None:
 # check if mapping has entries in mapping table
 def mapping_doc_has_mapping_etries(parent: str) -> bool:
     entries_list: list = frappe.get_all(
-        "Sync Mapping Entry",
+        "Selectline Mapping Entry",
         filters={
             "parent": parent
         },
