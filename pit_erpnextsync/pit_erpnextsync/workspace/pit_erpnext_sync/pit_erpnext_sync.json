@@ -1,0 +1,73 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"0pBoOZCfMj\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Pit Erpnext Sync</span>\",\"col\":12}},{\"id\":\"03vVkIR2HH\",\"type\":\"card\",\"data\":{\"card_name\":\"General\",\"col\":4}}]",
+ "creation": "2026-03-07 11:26:54.085218",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "change",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Pit Erpnext Sync",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "General",
+   "link_count": 3,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Instance",
+   "link_count": 0,
+   "link_to": "Sync Instance",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Mapping",
+   "link_count": 0,
+   "link_to": "Sync Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Pit ErpNextSync Settings",
+   "link_count": 0,
+   "link_to": "Pit ErpNextSync Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-03-07 11:29:12.985428",
+ "modified_by": "Administrator",
+ "module": "PIT ERPNextSync",
+ "name": "Pit Erpnext Sync",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ],
+ "sequence_id": 1.0,
+ "shortcuts": [],
+ "title": "Pit Erpnext Sync"
+}
