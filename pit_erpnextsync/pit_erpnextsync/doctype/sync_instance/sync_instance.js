@@ -35,7 +35,7 @@ function custom_action_buttons(frm){
         },__("Reconcile"));
     }
 }
-            
+
 
 // start import button action
 function start_import_action(frm){

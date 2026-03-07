@@ -25,7 +25,7 @@ class SyncMapping(Document):
 	# check for deleting mapped doctypes
 	def on_delete_mapping(self) -> bool:
 
-		if not frappe.get_single_value("Pit Erpnext Sync Settings", "delete_document"):
+		if not frappe.get_single_value("Pit ErpNextSync Settings", "delete_document"):
 			return True
 
 		try:	
@@ -48,7 +48,7 @@ class SyncMapping(Document):
 			# check if doc is not used in other mapping before delete
 			for doc in docs_to_check:
 				doc_list: list = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"parent": ["!=", self.name],
 						"mapping_doctype": doc["doctype"],

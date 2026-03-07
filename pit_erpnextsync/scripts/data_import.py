@@ -66,7 +66,11 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                 )
             )
 
-            make_log(f"for fetched_obj in fetched_data", "INFO", controller.DEBUG_LOG_NAME)
+            if not fetched_data: 
+                make_log(f"No data fetched: {fetched_data}", "ERROR", controller.APP_NAME)
+                continue
+
+            make_log(f"Fetched data: {fetched_data}", "ERROR", controller.APP_NAME)
 
             for fetched_obj in fetched_data:
                 # get new mapping id
@@ -83,7 +87,6 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
                 else:
                     # set background job for import object
-                    make_log(f"frappe.enqueue import_fetched_object", "INFO", controller.DEBUG_LOG_NAME)
                     frappe.enqueue(
                         "pit_erpnextsync.scripts.data_import.import_fetched_object",
                         queue="long",
@@ -106,8 +109,6 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
 # new object
 def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, field_vars_obj: FieldVars, obj_id: str) -> None:
-    make_log(f"import_fetched_object", "INFO", controller.DEBUG_LOG_NAME)
-
     try:
         # validate args
         if (
@@ -515,7 +516,7 @@ def before_doc_insert_hook(new_doc: Document, fetched_obj: dict) -> None:
 # check if mapping has entries in mapping table
 def mapping_doc_has_mapping_etries(parent: str) -> bool:
     entries_list: list = frappe.get_all(
-        "Selectline Mapping Entry",
+        "Sync Mapping Entry",
         filters={
             "parent": parent
         },
