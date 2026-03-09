@@ -7,8 +7,6 @@ from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 
-
-
 #* test ##############################################################################################
 def test():
     start_import("test instance",top=3, types_str="Customer")
@@ -104,7 +102,6 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
         except Exception as e:
             make_log(f"Could not fetch data from {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
 
-
 #* IMPORT #########################################################################################
 
 # new object
@@ -177,7 +174,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
                     except Exception as e:
                         make_log(f"Could not add tags: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
-
+        
         # create new mapping doc --------------------------------------------------------------------------
         new_mapping_result: Document | None = create_mapping(
             instance=instance,
@@ -186,7 +183,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
             obj_id=obj_id,
             time_stamp=fetched_obj.get(table_mapping_row.timestamp_column_name) or ""
         )
-
+        
         # if mapping not created -> delete all docs in mapping
         if new_mapping_result["result"] == False:
 
@@ -377,16 +374,19 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                     else:
                         continue
 
+    # set doctype flags
+    set_doctype_flags(doc=new_doc, mapped_doctype=mapped_doctype)
+
     # insert new doc
     before_doc_insert_hook(new_doc=new_doc, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row)
-
+    
     try:
         new_doc.insert(
             ignore_permissions=True,
             ignore_mandatory=True,
             ignore_links=True
         )
-
+        
         mapping_doc_name: str = new_doc.name
 
         for child_doc in child_doc_list:
@@ -526,6 +526,26 @@ def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_ro
 
 
 #* UTILS #########################################################################################
+
+# set doctype flags
+def set_doctype_flags(doc: Document, mapped_doctype: dict) -> None:
+    try:
+        doctypte_flags = mapped_doctype.get("doctype_flags")
+
+        if not doctypte_flags:
+            return
+        
+        if type(doctypte_flags) != list:
+            make_log(f"Invalid doctype flags: not a list", "ERROR", controller.APP_NAME, with_traceback=True)
+            return
+        
+        for key, value in doctypte_flags:
+            setattr(doc.flags, key, value)
+
+    except Exception as e:
+        make_log(f"Could not set doctype flag: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+
+
 
 # check if mapping has entries in mapping table
 def mapping_doc_has_mapping_etries(parent: str) -> bool:
