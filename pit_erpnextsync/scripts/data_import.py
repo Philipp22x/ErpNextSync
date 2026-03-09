@@ -139,7 +139,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
             # try to create doc and check result code
             try:
-                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj)
+                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj, table_mapping_row=table_mapping_row)
 
             except Exception as e:
                 make_log(f"Could not create new doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -225,7 +225,7 @@ def delete_docs(created_docs: list) -> None:
 
 
 # create doc
-def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVars) -> dict:
+def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVars, table_mapping_row: dict) -> dict:
 
     #? _____return codes:_____
     #
@@ -378,7 +378,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                         continue
 
     # insert new doc
-    before_doc_insert_hook(new_doc=new_doc, fetched_obj=fetched_obj)
+    before_doc_insert_hook(new_doc=new_doc, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row)
 
     try:
         new_doc.insert(
@@ -392,9 +392,14 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
         for child_doc in child_doc_list:
             child_doc.parent = new_doc.name
             child_doc.flags.name_set = True
-            child_doc.insert()
+            child_doc.insert(
+                ignore_permissions=True,
+                ignore_mandatory=True,
+                ignore_links=True
+            )
 
         frappe.db.commit()
+
 
     except frappe.exceptions.DoesNotExistError as e:
         make_log(f"Could not insert document: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -434,6 +439,8 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
             field_vars_obj.add_field_var(field_var=field_var)
 
     make_log(f"{new_doc.doctype} {new_doc.name} inserted successfully", "INFO", controller.APP_NAME)
+    
+    after_doc_insert_hook(new_doc=new_doc, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row)
 
     return {
         "code": 100,
@@ -505,10 +512,17 @@ def check_obj_requirements(fetched_obj: dict, mapping: list) -> list:
 
 
 #* HOOKS #########################################################################################
-def before_doc_insert_hook(new_doc: Document, fetched_obj: dict) -> None:
+def before_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
     match new_doc.doctype:
         case "Customer":
             new_doc.flags.name_set = True
+        case "Item":
+            new_doc.flags.name_set = True
+
+
+def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
+    pass
+    
 
 
 #* UTILS #########################################################################################
