@@ -17,6 +17,7 @@
   "section_break_droz",
   "mapping_table",
   "db_time_stamp",
+  "time_stamp_type",
   "last_update"
  ],
  "fields": [
@@ -72,12 +73,12 @@
    "fieldname": "section_break_droz",
    "fieldtype": "Section Break"
   },
-  {
-   "fieldname": "db_time_stamp",
-   "fieldtype": "Data",
-   "label": "DB Time Stamp",
-   "read_only": 1
-  },
+   {
+    "fieldname": "db_time_stamp",
+    "fieldtype": "Text",
+    "label": "DB Time Stamp",
+    "read_only": 1
+   },
   {
    "fieldname": "primary_key_column",
    "fieldtype": "Data",
@@ -93,12 +94,19 @@
    "options": "Sync Instance",
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "time_stamp_type",
+   "fieldtype": "Select",
+   "label": "Time Stamp Type",
+   "options": "datetime\nrowversion",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-07 10:58:08.125798",
+ "modified": "2026-03-10 14:26:34.436356",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Mapping",

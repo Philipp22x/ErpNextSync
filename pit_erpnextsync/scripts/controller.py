@@ -153,7 +153,7 @@ def check_mapping_exists(selectline_id: str) -> str | None:
 
 
 # create new mapping
-def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: str, mapping_type: str, db_time_stamp: str = "") -> Document | None:
+def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: str, mapping_type: str, db_time_stamp: str = "", time_stamp_type: str = "datetime") -> Document | None:
     
     try:
         new_mapping_doc: Document = frappe.get_doc({
@@ -162,6 +162,7 @@ def create_mapping_doc(instance: str, primary_key_column: str, mapping_obj_id: s
             "selectline_id": mapping_obj_id,
             "type": mapping_type,
             "db_time_stamp": db_time_stamp,
+            "time_stamp_type": time_stamp_type,
             "primary_key_column": primary_key_column
         })
 
@@ -515,6 +516,40 @@ def get_mapped_value(sl_id: str, doc_type: str, fieldname: str) -> str:
     
     else: 
         return ""
+
+#*## TIMESTAMP CONVERSION ####################################################################
+
+def convert_timestamp_to_string(value: any, column_type: str = "datetime") -> str:
+    """Converts timestamp value to string format for storage.
+    
+    Args:
+        value: The timestamp value from database (datetime or bytes for rowversion)
+        column_type: "datetime" or "rowversion"
+    
+    Returns:
+        str: Formatted timestamp string (ISO format for datetime, hex for rowversion)
+    """
+    if value is None:
+        return ""
+    
+    if column_type == "rowversion":
+        # Handle SQL Server timestamp/rowversion (8-byte binary)
+        if isinstance(value, bytes):
+            # Convert bytes to hex string with 0x prefix (SQL Server style)
+            hex_string = value.hex().upper()
+            return f"0x{hex_string}"
+        elif isinstance(value, str):
+            # If already a string, ensure it has 0x prefix
+            if not value.startswith("0x"):
+                return f"0x{value.upper()}"
+            return value.upper()
+        else:
+            # Try to convert to string
+            return str(value)
+    else:
+        # datetime type - convert to string
+        return str(value)
+
 
 #*## TESTS ##################################################################################
 

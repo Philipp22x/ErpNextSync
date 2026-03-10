@@ -176,12 +176,19 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                         make_log(f"Could not add tags: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         
         # create new mapping doc --------------------------------------------------------------------------
+        # Get timestamp value and convert it based on column type
+        timestamp_col_name = table_mapping_row.timestamp_column_name
+        timestamp_col_type = getattr(table_mapping_row, 'timestamp_column_type', 'datetime')
+        raw_timestamp = fetched_obj.get(timestamp_col_name)
+        time_stamp = controller.convert_timestamp_to_string(raw_timestamp, timestamp_col_type)
+        
         new_mapping_result: Document | None = create_mapping(
             instance=instance,
             new_mapping_data=obj_mapping_data,
             table_mapping_row=table_mapping_row,
             obj_id=obj_id,
-            time_stamp=fetched_obj.get(table_mapping_row.timestamp_column_name) or ""
+            time_stamp=time_stamp,
+            time_stamp_type=timestamp_col_type
         )
         
         # if mapping not created -> delete all docs in mapping
@@ -451,11 +458,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
 
 
 # create mapping for object
-def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: dict, obj_id: str, time_stamp: str = "") -> dict:
+def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: dict, obj_id: str, time_stamp: str = "", time_stamp_type: str = "datetime") -> dict:
 
     try:
         # create new mapping doc with empty mapping
-        new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, primary_key_column=table_mapping_row.primary_key, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type, db_time_stamp=time_stamp)
+        new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, primary_key_column=table_mapping_row.primary_key, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type, db_time_stamp=time_stamp, time_stamp_type=time_stamp_type)
         if not new_mapping_doc:
             raise Exception("Creating new mapping doc was aborted")
 
@@ -526,25 +533,24 @@ def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_ro
 
 
 #* UTILS #########################################################################################
-
 # set doctype flags
 def set_doctype_flags(doc: Document, mapped_doctype: dict) -> None:
     try:
-        doctypte_flags = mapped_doctype.get("doctype_flags")
+        doctype_flags = mapped_doctype.get("doctype_flags")
 
-        if not doctypte_flags:
+        if not doctype_flags:
             return
         
-        if type(doctypte_flags) != list:
+        if type(doctype_flags) != list:
             make_log(f"Invalid doctype flags: not a list", "ERROR", controller.APP_NAME, with_traceback=True)
             return
         
-        for key, value in doctypte_flags:
+        for flag in doctype_flags:
+            key, value = next(iter(flag.items()))
             setattr(doc.flags, key, value)
 
     except Exception as e:
         make_log(f"Could not set doctype flag: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
-
 
 
 # check if mapping has entries in mapping table
