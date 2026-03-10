@@ -106,6 +106,9 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
         if not ts_col:
             return "test2"
 
+        # get the timestamp column type from mapping
+        time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
+
         # sql command for fetching timestamp from db
         sql: str = f"""
             SELECT {ts_col}
@@ -122,10 +125,12 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
         if len(fetched_ts) > 1:
             raise Exception("Got more than one timestamp")
 
-        # cast fetched datime to str
-        date_as_str_result: str = str(fetched_ts[0].get(ts_col))
-        if not date_as_str_result:
-            raise Exception(f"Unvalid timestamp result: {date_as_str_result} ({type(date_as_str_result)})")
+        # convert timestamp value based on column type
+        raw_timestamp = fetched_ts[0].get(ts_col)
+        timestamp_str: str = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
+        
+        if not timestamp_str:
+            raise Exception(f"Invalid timestamp result: {timestamp_str} (raw: {raw_timestamp}, type: {time_stamp_type})")
 
         # get stored timestamp in mapping
         mapped_timestamp = frappe.db.get_value("Sync Mapping", mapping_name, "db_time_stamp")
@@ -133,7 +138,7 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
             raise Exception(f"No timestamp in mapping {mapping_name}")
 
         # check timestamp strings
-        if date_as_str_result == mapped_timestamp:
+        if timestamp_str == mapped_timestamp:
             make_log(f"Mapping {mapping_name} up to date", "INFO", controller.APP_NAME)
             return None
         else:
@@ -213,7 +218,10 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
                 else:
                     frappe.db.set_value(row.mapping_doctype, row.docname, row.fieldname, fetched_data[0].get(row.selectline_column))
 
-                mapping_doc.db_time_stamp = fetched_data[0].get(time_stamp_col_name)
+                # Convert and store timestamp based on column type
+                raw_timestamp = fetched_data[0].get(time_stamp_col_name)
+                time_stamp_type = mapping_doc.time_stamp_type or "datetime"
+                mapping_doc.db_time_stamp = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
                 mapping_doc.last_update = datetime.datetime.now()
                 mapping_doc.save()
 
