@@ -553,5 +553,88 @@ def convert_timestamp_to_string(value: any, column_type: str = "datetime") -> st
 
 #*## TESTS ##################################################################################
 
+def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None) -> list:
+    """Fetch multiple rows from a related table for dynamic child table creation.
+    
+    Args:
+        instance (str): Name of the Sync Instance doc
+        table (str): Table name to query
+        condition (str): SQL WHERE condition (may include WHERE keyword which will be stripped)
+        schema (str): Database schema (optional)
+        parent_data (dict): Parent row data for placeholder replacement (e.g., {ColumnName: value})
+    
+    Returns:
+        list: List of row dictionaries, empty list if no results or error
+    """
+    conn: pymssql.Connection | None = None
+    conn = db_connect(instance=instance)
+    
+    if conn is None:
+        return []
+    
+    try:
+        # Build schema prefix
+        schema_prefix = f"{schema}." if schema else ""
+        
+        # Strip WHERE from condition if present (case-insensitive)
+        condition_clean = condition.strip()
+        if condition_clean.upper().startswith("WHERE "):
+            condition_clean = condition_clean[6:].strip()
+        
+        # Replace placeholders with parent data values
+        # Format: TableAlias.ColumnName -> replaced with actual value from parent_data
+        if parent_data:
+            import re
+            # Find patterns like A1.Id, table.column, etc.
+            placeholder_pattern = r'([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)'
+            
+            def replace_placeholder(match):
+                alias = match.group(1)
+                column = match.group(2)
+                # Try to find the value in parent_data
+                # Check for exact match first (e.g., "Id")
+                if column in parent_data:
+                    value = parent_data[column]
+                    # Quote string values, leave numbers as-is
+                    if isinstance(value, str):
+                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
+                    return str(value)
+                # Check for alias.column format (e.g., "A1.Id")
+                full_key = f"{alias}.{column}"
+                if full_key in parent_data:
+                    value = parent_data[full_key]
+                    if isinstance(value, str):
+                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
+                    return str(value)
+                # If not found, return original
+                return match.group(0)
+            
+            condition_clean = re.sub(placeholder_pattern, replace_placeholder, condition_clean)
+        
+        # Build SQL query
+        sql = f"""
+        SELECT *
+        FROM {schema_prefix}{table}
+        WHERE {condition_clean}
+        """
+        
+        make_log(f"Multiple rows SQL: {sql}", "INFO", APP_NAME)
+        
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+            return rows if rows else []
+    
+    except pymssql.Error as e:
+        make_log(f"Fetching multiple rows failed for {instance}.{table}: {e}", "ERROR", APP_NAME)
+        return []
+    
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def test():
     pass
