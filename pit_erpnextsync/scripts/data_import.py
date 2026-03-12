@@ -305,81 +305,167 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
         elif field.get("table_fields"):
 
             try:
-
                 # get child doctype from table field
                 child_doctype: str = frappe.get_meta(mapped_doctype["doctype"]).get_field(field["fieldname"]).options
                 if not child_doctype:
-                    raise Exception(f"Could not get child doctype from {mapped_doctype['doctype'].get_field(field['fieldname'])}")
+                    raise Exception(f"Could not get child doctype from {mapped_doctype['doctype']}.{field['fieldname']}")
 
-                child_name = frappe.generate_hash(length=8)
+                # check if this is a multiple child rows field
+                if field.get("multiple_query"):
+                    # fetch multiple rows from different table
+                    multiple_table = field.get("multiple_query_table")
+                    multiple_condition = field.get("multiple_query_condition")
+                    
+                    if multiple_table and multiple_condition:
+                        # get schema from instance
+                        schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+                        
+                        # fetch multiple rows with parent data for placeholder replacement
+                        multiple_rows = controller.fetch_multiple_rows(
+                            instance=instance,
+                            table=multiple_table,
+                            condition=multiple_condition,
+                            schema=schema,
+                            parent_data=fetched_obj
+                        )
+                        
+                        # create child row for each fetched row
+                        for row_data in multiple_rows:
+                            child_name = frappe.generate_hash(length=8)
+                            
+                            new_child_row: Document = frappe.get_doc({
+                                "doctype": child_doctype,
+                                "parenttype": mapped_doctype["doctype"],
+                                "name": child_name,
+                                "parentfield": field.get("fieldname")
+                            })
+                            
+                            # process table fields for this child row
+                            row_has_data = False
+                            for table_field in field["table_fields"]:
+                                # fetched child row fields
+                                if table_field.get("sl_column"):
+                                    if table_field.get("alt_key"):
+                                        field_value = str(row_data[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else row_data[table_field["alt_key"]]
+                                    else:
+                                        field_value = str(row_data[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else row_data[table_field["sl_column"]]
 
-                new_child_row: Document = frappe.get_doc({
-                    "doctype": child_doctype,
-                    "parenttype": mapped_doctype["doctype"],
-                    "name": child_name,
-                    "parentfield": field.get("fieldname")
-                })
+                                    if table_field.get("mapped_value"):
+                                        mapped_value: any = controller.get_mapped_value(
+                                            sl_id=f"{instance}:{table_field.get('mapped_value').get('table_name')}:{row_data[table_field['mapped_value']['sl_id']]}",
+                                            doc_type=table_field.get("mapped_value").get("doc_type"),
+                                            fieldname=table_field.get("mapped_value").get("fieldname")
+                                        )
+                                        field_value = str(mapped_value) if table_field.get("force_str_type") == 1 else mapped_value
 
-                child_doc_list.append(new_child_row)
+                                    # check if field value is empty and reqd
+                                    if field_value in ["", None] and table_field.get("reqd") == 1:
+                                        if doc_is_reqd in [0, None]:
+                                            return {"code": 101}
+                                        else:
+                                            return {"code": 102}
+                                    else:
+                                        new_child_row.set(table_field["table_fieldname"], field_value)
+                                        if field_value not in ["", None]:
+                                            row_has_data = True
+
+                                    # create new mapping doc row data for every field
+                                    data: dict = {
+                                        "mapping_doctype": new_doc.doctype,
+                                        "fieldname": field["fieldname"],
+                                        "selectline_column": table_field["sl_column"],
+                                        "child_row_fieldname": table_field["table_fieldname"],
+                                        "child_row_name": new_child_row.name,
+                                        "child_row_doctype": new_child_row.doctype
+                                    }
+                                    doc_mapping_data.append(data)
+
+                                elif table_field.get("default"):
+                                    new_child_row.set(table_field["table_fieldname"], table_field["default"])
+                                    row_has_data = True
+
+                                # field vars
+                                elif table_field.get("field_var"):
+                                    var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
+                                    if var_value:
+                                        new_child_row.set(table_field["table_fieldname"], var_value)
+                                        row_has_data = True
+                            
+                            # only add child row if it has data
+                            if row_has_data:
+                                child_doc_list.append(new_child_row)
+                    
+                else:
+                    # original single child row logic
+                    child_name = frappe.generate_hash(length=8)
+
+                    new_child_row: Document = frappe.get_doc({
+                        "doctype": child_doctype,
+                        "parenttype": mapped_doctype["doctype"],
+                        "name": child_name,
+                        "parentfield": field.get("fieldname")
+                    })
+
+                    child_doc_list.append(new_child_row)
+
+                    # child row fields
+                    for table_field in field["table_fields"]:
+
+                        # fetched child row fields
+                        if table_field.get("sl_column"):
+                            if table_field.get("alt_key"):
+                                field_value = str(fetched_obj[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["alt_key"]]
+                            else:
+                                field_value = str(fetched_obj[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["sl_column"]]
+
+                            if table_field.get("mapped_value"):
+                                mapped_value: any = controller.get_mapped_value(
+                                    sl_id=f"{instance}:{table_field.get('mapped_value').get('table_name')}:{fetched_obj[table_field['mapped_value']['sl_id']]}",
+                                    doc_type=table_field.get("mapped_value").get("doc_type"),
+                                    fieldname=table_field.get("mapped_value").get("fieldname")
+                                )
+                                field_value = str(mapped_value) if table_field.get("force_str_type") == 1 else mapped_value
+
+                            # check if field value is empty and reqd
+                            if field_value in ["", None] and field.get("reqd") == 1:
+                                return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
+                            else:
+                                new_child_row.set(table_field["table_fieldname"], field_value)
+
+                            # create new mapping doc row data for every field
+                            data: dict = {
+                                "mapping_doctype": new_doc.doctype,
+                                "fieldname": field["fieldname"],
+                                "selectline_column": table_field["sl_column"],
+                                "child_row_fieldname": table_field["table_fieldname"],
+                                "child_row_name": new_child_row.name,
+                                "child_row_doctype": new_child_row.doctype
+                            }
+                            doc_mapping_data.append(data)
+
+                            # remove empty row if no
+                            if table_field.get("sl_column"):
+                                if table_field.get("alt_key"):
+                                    if fetched_obj[table_field["alt_key"]] in ["", None]:
+                                        child_doc_list.remove(new_child_row)
+                                else:
+                                    if fetched_obj[table_field["sl_column"]] in ["", None]:
+                                        child_doc_list.remove(new_child_row)
+
+                        elif table_field.get("default"):
+                            new_child_row.set(table_field["table_fieldname"], table_field["default"])
+
+                        # field vars
+                        elif table_field.get("field_var"):
+                            var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
+                            if var_value:
+                                new_child_row.set(table_field["table_fieldname"], var_value)
+                            else:
+                                continue
 
             except Exception as e:
                 make_log(f"Could not create child doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
                 continue
-
-            # child row fields
-            for table_field in field["table_fields"]:
-
-                # fetched child row fields
-                if table_field.get("sl_column"):
-                    if table_field.get("alt_key"):
-                        field_value = str(fetched_obj[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["alt_key"]]
-                    else:
-                        field_value = str(fetched_obj[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["sl_column"]]
-
-                    if table_field.get("mapped_value"):
-                        mapped_value: any = controller.get_mapped_value(
-                            sl_id=f"{instance}:{table_field.get('mapped_value').get('table_name')}:{fetched_obj[table_field['mapped_value']['sl_id']]}",
-                            doc_type=table_field.get("mapped_value").get("doc_type"),
-                            fieldname=table_field.get("mapped_value").get("fieldname")
-                        )
-                        field_value = str(mapped_value) if table_field.get("force_str_type") == 1 else mapped_value
-
-                    # check if field value is empty and reqd
-                    if field_value in ["", None] and field.get("reqd") == 1:
-                        return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
-                    else:
-                        new_child_row.set(table_field["table_fieldname"], field_value)
-
-                    # create new mapping doc row data for every field
-                    data: dict = {
-                        "mapping_doctype": new_doc.doctype,
-                        "fieldname": field["fieldname"],
-                        "selectline_column": table_field["sl_column"],
-                        "child_row_fieldname": table_field["table_fieldname"],
-                        "child_row_name": new_child_row.name,
-                        "child_row_doctype": new_child_row.doctype
-                    }
-                    doc_mapping_data.append(data)
-
-                    # remove empty row if no
-                    if table_field.get("sl_column"):
-                        if table_field.get("alt_key"):
-                            if fetched_obj[table_field["alt_key"]] in ["", None]:
-                                child_doc_list.remove(new_child_row)
-                        else:
-                            if fetched_obj[table_field["sl_column"]] in ["", None]:
-                                child_doc_list.remove(new_child_row)
-
-                elif table_field.get("default"):
-                    new_child_row.set(table_field["table_fieldname"], table_field["default"])
-
-                # field vars
-                elif table_field.get("field_var"):
-                    var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
-                    if var_value:
-                        new_child_row.set(table_field["table_fieldname"], var_value)
-                    else:
-                        continue
 
     # set doctype flags
     set_doctype_flags(doc=new_doc, mapped_doctype=mapped_doctype)
@@ -465,6 +551,8 @@ def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: dic
         new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, primary_key_column=table_mapping_row.primary_key, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type, db_time_stamp=time_stamp, time_stamp_type=time_stamp_type)
         if not new_mapping_doc:
             raise Exception("Creating new mapping doc was aborted")
+
+        make_log(f"new_mapping_data: {new_mapping_data} inserted successfully", "ERROR", controller.APP_NAME) #!DEBUG
 
         # fill mapping table in mapping doc
         for doc_data in new_mapping_data:
@@ -595,6 +683,9 @@ def get_fields_to_import(mapping: list) -> list:
         for element in mapping:
             for field in element["fields"]:
                 if field.get("table_fields"):
+                    # skip table_fields if multiple_query is set - those columns come from a different table
+                    if field.get("multiple_query"):
+                        continue
                     for x in field["table_fields"]:
                         y_field: str | None = x.get("sl_column")
                         if y_field:
