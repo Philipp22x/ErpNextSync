@@ -113,10 +113,13 @@ def connection_test(instance: str) -> bool:
                 cur.execute("SELECT 1")
                 cur.fetchone()
         else:  # python4DBI
-            cursor = conn.cursor()
-            cursor.execute(query="SELECT 1")
-            cursor.fetch_one()
-            cursor.close()
+            # For 4D, we can't use SELECT 1 without FROM clause
+            # Instead, check if connection is alive by checking connected() status
+            if hasattr(conn, 'connected') and conn.connected():
+                make_log(f"Connection successfully tested for instance: {instance}", "INFO", APP_NAME)
+                return True
+            else:
+                return False
 
         make_log(f"Connection successfully tested for instance: {instance}", "INFO", APP_NAME)
         return True
