@@ -38,11 +38,11 @@ def db_connect(instance: str) -> db_connection | None:
         make_log(f"Database credentials for instance {instance} not valid", "ERROR", APP_NAME)
         return None
 
-    driver: str = db_cred.get("driver", "mssql")
+    driver: str = db_cred.get("driver", "pymssql")
 
-    if driver == "mssql":
+    if driver == "pymssql":
         return _connect_mssql(db_cred, instance)
-    elif driver == "4D":
+    elif driver == "python4DBI":
         return _connect_4d(db_cred, instance)
     else:
         make_log(f"Unknown driver '{driver}' for instance {instance}", "ERROR", APP_NAME)
@@ -101,18 +101,18 @@ def connection_test(instance: str) -> bool:
     if not db_cred:
         return False
 
-    driver: str = db_cred.get("driver", "mssql")
+    driver: str = db_cred.get("driver", "pymssql")
     conn: db_connection | None = db_connect(instance=instance)
 
     if conn is None:
         return False
 
     try:
-        if driver == "mssql":
+        if driver == "pymssql":
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 cur.fetchone()
-        else:  # 4D
+        else:  # python4DBI
             cursor = conn.cursor()
             cursor.execute(query="SELECT 1")
             cursor.fetch_one()
@@ -142,16 +142,16 @@ def fetch_data(instance: str, sql: str) -> list | None:
     if not db_cred:
         return None
 
-    driver: str = db_cred.get("driver", "mssql")
+    driver: str = db_cred.get("driver", "pymssql")
     conn: db_connection | None = db_connect(instance=instance)
 
     if conn is None:
         return None
 
     try:
-        if driver == "mssql":
+        if driver == "pymssql":
             return _fetch_data_mssql(conn, sql, instance)
-        else:  # 4D
+        else:  # python4DBI
             return _fetch_data_4d(conn, sql, instance)
 
     except Exception as e:
@@ -222,7 +222,7 @@ def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str =
     if not db_cred:
         return []
 
-    driver: str = db_cred.get("driver", "mssql")
+    driver: str = db_cred.get("driver", "pymssql")
     conn: db_connection | None = db_connect(instance=instance)
     
     if conn is None:
@@ -308,12 +308,12 @@ def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str =
         
         make_log(f"Multiple rows SQL: {sql}", "INFO", APP_NAME)
         
-        if driver == "mssql":
+        if driver == "pymssql":
             with conn.cursor(as_dict=True) as cur:
                 cur.execute(sql)
                 rows = cur.fetchall()
                 return rows if rows else []
-        else:  # 4D
+        else:  # python4DBI
             cursor = conn.cursor()
             cursor.execute(query=sql)
             
@@ -702,15 +702,15 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
         col_to_fetch.append(db_ts_col_name)
 
     # get driver type for SQL syntax differences
-    driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "mssql"
+    driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 
     # set amount to fetch
     top_str: str = ""
     limit_str: str = ""
     if top > 0:
-        if driver == "mssql":
+        if driver == "pymssql":
             top_str = f"TOP ({top})"
-        else:  # 4D uses LIMIT
+        else:  # python4DBI uses LIMIT
             limit_str = f"LIMIT {top}"
 
     # handle filters if exists in mapping
@@ -732,14 +732,14 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
         order_by = mapping_row_data.order_by
 
     # sql command - driver specific syntax
-    if driver == "mssql":
+    if driver == "pymssql":
         fetch_sql: str = f"""
         SELECT {top_str} {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}
         {query_filter_command}
         ORDER BY {order_by}
         """
-    else:  # 4D - uses LIMIT instead of TOP
+    else:  # python4DBI - uses LIMIT instead of TOP
         fetch_sql: str = f"""
         SELECT {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}
