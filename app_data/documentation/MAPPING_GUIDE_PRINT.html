@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIT ERPNextSync - JSON Mapping Documentation</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1.5cm 1.5cm 1.5cm 1.5cm;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.4;
+            color: #333;
+            font-size: 10pt;
+            background: white;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 6px;
+            font-size: 18pt;
+            margin: 0 0 10px 0;
+        }
+        
+        h2 {
+            color: #34495e;
+            border-bottom: 1px solid #bdc3c7;
+            padding-bottom: 4px;
+            margin: 12px 0 8px 0;
+            font-size: 13pt;
+            page-break-after: avoid;
+        }
+        
+        h3 {
+            color: #2980b9;
+            margin: 10px 0 6px 0;
+            font-size: 11pt;
+            page-break-after: avoid;
+        }
+        
+        h4 {
+            color: #27ae60;
+            margin: 8px 0 4px 0;
+            font-size: 10pt;
+            page-break-after: avoid;
+        }
+        
+        p {
+            margin: 4px 0;
+            text-align: left;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 6px 0;
+            font-size: 9pt;
+            page-break-inside: auto;
+        }
+        
+        tr {
+            page-break-inside: avoid;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            padding: 4px 6px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        td {
+            padding: 3px 6px;
+            border-bottom: 1px solid #ddd;
+            vertical-align: top;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        code {
+            background-color: #f4f4f4;
+            padding: 1px 3px;
+            border-radius: 2px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 8pt;
+            color: #c0392b;
+        }
+        
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 6px 8px;
+            border-radius: 3px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 7.5pt;
+            line-height: 1.3;
+            margin: 6px 0;
+            page-break-inside: avoid;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+            font-size: 7.5pt;
+        }
+        
+        .highlight-box {
+            background-color: #fff3cd;
+            border-left: 3px solid #ffc107;
+            padding: 6px 8px;
+            margin: 6px 0;
+            font-size: 9pt;
+        }
+        
+        .tip-box {
+            background-color: #d1ecf1;
+            border-left: 3px solid #17a2b8;
+            padding: 6px 8px;
+            margin: 6px 0;
+            font-size: 9pt;
+        }
+        
+        .warning-box {
+            background-color: #f8d7da;
+            border-left: 3px solid #dc3545;
+            padding: 6px 8px;
+            margin: 6px 0;
+            font-size: 9pt;
+        }
+        
+        .success-box {
+            background-color: #d4edda;
+            border-left: 3px solid #28a745;
+            padding: 6px 8px;
+            margin: 6px 0;
+            font-size: 9pt;
+        }
+        
+        ul, ol {
+            margin: 4px 0;
+            padding-left: 16px;
+        }
+        
+        li {
+            margin: 2px 0;
+        }
+        
+        .toc {
+            background-color: #f8f9fa;
+            padding: 8px 10px;
+            border-radius: 3px;
+            margin: 8px 0;
+            page-break-inside: avoid;
+        }
+        
+        .toc h2 {
+            margin: 0 0 6px 0;
+            border-bottom: none;
+            font-size: 11pt;
+        }
+        
+        .toc ul {
+            list-style-type: none;
+            padding-left: 0;
+            margin: 0;
+        }
+        
+        .toc li {
+            padding: 2px 0;
+            border-bottom: 1px dotted #ccc;
+            font-size: 9pt;
+        }
+        
+        .toc a {
+            color: #2980b9;
+            text-decoration: none;
+        }
+        
+        .page-break {
+            page-break-before: always;
+        }
+        
+        .required {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .optional {
+            color: #7f8c8d;
+        }
+        
+        @media print {
+            .no-print {
+                display: none;
+            }
+            
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            
+            h2, h3, h4 {
+                page-break-after: avoid;
+            }
+            
+            pre, table, .highlight-box, .tip-box, .warning-box, .success-box {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="text-align: center; margin-bottom: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 3px; font-size: 9pt;">
+        <strong>Print Instructions:</strong> Press Ctrl+P to print. Enable "Background graphics" in print settings for best results.
+    </div>
+
+    <h1>PIT ERPNextSync - JSON Mapping Documentation</h1>
+    
+    <p style="font-size: 9pt; color: #666; margin-bottom: 10px;">
+        <strong>Version 1.0</strong> | A comprehensive guide for creating SelectLine to ERPNext data mappings
+    </p>
+
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ul>
+            <li><a href="#overview">1. Overview</a></li>
+            <li><a href="#structure">2. Top-Level Structure</a></li>
+            <li><a href="#document-keywords">3. Document-Level Keywords</a></li>
+            <li><a href="#field-keywords">4. Field-Level Keywords</a></li>
+            <li><a href="#value-sources">5. Value Sources</a></li>
+            <li><a href="#child-tables">6. Child Tables</a></li>
+            <li><a href="#post-field-vars">7. Post Field Variables</a></li>
+            <li><a href="#doctype-flags">8. DocType Flags</a></li>
+            <li><a href="#examples">9. Complete Examples</a></li>
+            <li><a href="#best-practices">10. Best Practices</a></li>
+            <li><a href="#troubleshooting">11. Troubleshooting</a></li>
+            <li><a href="#quick-reference">12. Quick Reference Card</a></li>
+        </ul>
+    </div>
+
+    <h2 id="overview">1. Overview</h2>
+    
+    <p>The JSON mapping defines how data from <strong>SelectLine</strong> (SQL Server) transforms into <strong>ERPNext</strong> documents. It's stored in the <strong>Selectline Table Mapping</strong> DocType within each Sync Instance.</p>
+    
+    <div class="highlight-box">
+        <strong>Key Concept:</strong> You can create multiple related documents from a single SelectLine row. For example, one row might create both a Customer and their primary Address.
+    </div>
+
+    <h2 id="structure">2. Top-Level Structure</h2>
+    
+    <p>The mapping is a JSON array where each element represents one ERPNext DocType to create:</p>
+    
+    <pre><code>[{
+  "doctype": "Customer",
+  "reqd": 1,
+  "fields": [...],
+  "post_field_vars": [...]
+},{
+  "doctype": "Address",
+  "reqd": 0,
+  "fields": [...]
+}]</code></pre>
+
+    <h2 id="document-keywords">3. Document-Level Keywords</h2>
+    
+    <table>
+        <thead>
+            <tr>
+                <th style="width:25%">Keyword</th>
+                <th style="width:10%">Required</th>
+                <th style="width:10%">Type</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>doctype</code></td>
+                <td><span class="required">Yes</span></td>
+                <td>string</td>
+                <td>ERPNext DocType to create (e.g., "Customer", "Item", "Address")</td>
+            </tr>
+            <tr>
+                <td><code>reqd</code></td>
+                <td><span class="optional">No</span></td>
+                <td>0 or 1</td>
+                <td>If <code>1</code>, document is required. If creation fails, entire import stops</td>
+            </tr>
+            <tr>
+                <td><code>fields</code></td>
+                <td><span class="required">Yes</span></td>
+                <td>array</td>
+                <td>List of field mappings</td>
+            </tr>
+            <tr>
+                <td><code>post_field_vars</code></td>
+                <td><span class="optional">No</span></td>
+                <td>array</td>
+                <td>Capture field values after creation for use in subsequent documents</td>
+            </tr>
+            <tr>
+                <td><code>doctype_flags</code></td>
+                <td><span class="optional">No</span></td>
+                <td>array</td>
+                <td>Special Frappe flags to set on the document</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Example</h3>
+    
+    <pre><code>{
+  "doctype": "Customer",
+  "reqd": 1,
+  "fields": [...]
+}</code></pre>
+
+    <h2 id="field-keywords">4. Field-Level Keywords</h2>
+    
+    <p>Each field object must specify an ERPNext <code>fieldname</code> and ONE value source.</p>
+    
+    <table>
+        <thead>
+            <tr>
+                <th style="width:25%">Keyword</th>
+                <th style="width:10%">Required</th>
+                <th style="width:15%">Type</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>fieldname</code></td>
+                <td><span class="required">Yes</span></td>
+                <td>string</td>
+                <td>ERPNext field name to populate</td>
+            </tr>
+            <tr>
+                <td><code>reqd</code></td>
+                <td><span class="optional">No</span></td>
+                <td>0, 1, or 2</td>
+                <td>0=optional, 1=skip doc if empty, 2=abort import if empty</td>
+            </tr>
+            <tr>
+                <td><code>force_str_type</code></td>
+                <td><span class="optional">No</span></td>
+                <td>0 or 1</td>
+                <td>If <code>1</code>, convert the value to string</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Value Source Keywords (use only one per field)</h3>
+    
+    <table>
+        <thead>
+            <tr>
+                <th style="width:25%">Keyword</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td><code>sl_column</code></td><td>SelectLine column name to fetch value from</td></tr>
+            <tr><td><code>alt_key</code></td><td>Alternative column name if <code>sl_column</code> is empty/null</td></tr>
+            <tr><td><code>default</code></td><td>Static default value</td></tr>
+            <tr><td><code>field_var</code></td><td>Reference to a dynamic field variable</td></tr>
+            <tr><td><code>mapped_value</code></td><td>Cross-reference to another mapping's field value</td></tr>
+            <tr><td><code>table_fields</code></td><td>Child table field definitions (for Table-type fields)</td></tr>
+        </tbody>
+    </table>
+
+    <h2 id="value-sources">5. Value Sources</h2>
+
+    <h3>5.1 Direct Column Mapping (<code>sl_column</code>)</h3>
+    
+    <p>Maps a SelectLine column directly to an ERPNext field.</p>
+    
+    <pre><code>{
+  "fieldname": "customer_name",
+  "sl_column": "CompanyName",
+  "alt_key": "Name2",
+  "reqd": 1
+}</code></pre>
+
+    <div class="tip-box">
+        <strong>How it works:</strong> Fetches value from <code>CompanyName</code> column. If empty, tries <code>Name2</code> (alt_key). If both empty and <code>reqd: 1</code>, skips document. If <code>reqd: 2</code>, aborts import.
+    </div>
+
+    <h3>5.2 Alternative Key (<code>alt_key</code>)</h3>
+    
+    <p>Provides a fallback column when the primary column is empty.</p>
+    
+    <pre><code>{
+  "fieldname": "email_id",
+  "sl_column": "Email",
+  "alt_key": "Email2"
+}</code></pre>
+
+    <h3>5.3 Static Default Value (<code>default</code>)</h3>
+    
+    <p>Use when you want a fixed value regardless of SelectLine data.</p>
+    
+    <pre><code>{
+  "fieldname": "customer_type",
+  "default": "Company"
+}
+{
+  "fieldname": "country",
+  "default": "Germany"
+}</code></pre>
+
+    <h3>5.4 Dynamic Field Variable (<code>field_var</code>)</h3>
+    
+    <p>References a value captured earlier in the import process.</p>
+    
+    <pre><code>{
+  "fieldname": "territory",
+  "field_var": "default_territory"
+}</code></pre>
+
+    <div class="success-box">
+        <strong>Setting field variables:</strong> Use <code>post_field_vars</code> to capture values after document creation. Global settings in Sync Instance can also define field variables.
+    </div>
+
+    <h3>5.5 Cross-Reference Mapping (<code>mapped_value</code>)</h3>
+    
+    <p>Looks up a value from another already-imported document.</p>
+    
+    <pre><code>{
+  "fieldname": "customer_primary_contact",
+  "mapped_value": {
+    "table_name": "CONTACTS",
+    "sl_id": "ContactId",
+    "doc_type": "Contact",
+    "fieldname": "name"
+  }
+}</code></pre>
+
+    <div class="highlight-box">
+        <strong>How it works:</strong> (1) Takes value from <code>ContactId</code> column, (2) Looks up Sync Mapping for <code>CONTACTS</code> table with that ID, (3) Finds related ERPNext <code>Contact</code>, (4) Gets <code>name</code> field, (5) Sets as value for <code>customer_primary_contact</code>.
+    </div>
+
+    <p><strong>Use case:</strong> Linking a Customer to their primary Contact that was imported separately.</p>
+
+    <h2 id="child-tables">6. Child Tables</h2>
+    
+    <p>Child tables in ERPNext (like Contact's email list, Customer's addresses) require special handling.</p>
+
+    <h3>6.1 Simple Child Table (same row)</h3>
+    
+    <p>When child data is in the same SelectLine row:</p>
+    
+    <pre><code>{
+  "fieldname": "email_ids",
+  "table_fields": [{
+    "table_fieldname": "email_id",
+    "sl_column": "Email",
+    "reqd": 1
+  },{
+    "table_fieldname": "is_primary",
+    "default": 1
+  }]
+}</code></pre>
+
+    <h3>6.2 Multiple Child Rows (different table)</h3>
+    
+    <p>When child data is in a separate table (e.g., multiple contacts per customer):</p>
+    
+    <pre><code>{
+  "fieldname": "contacts",
+  "multiple_query": true,
+  "multiple_query_table": "CONTACTS",
+  "multiple_query_condition": "CustomerId = {sl_column:CustomerId}",
+  "table_fields": [{
+    "table_fieldname": "first_name",
+    "sl_column": "FirstName"
+  },{
+    "table_fieldname": "last_name",
+    "sl_column": "LastName"
+  }]
+}</code></pre>
+
+    <h4>Child Table Keywords</h4>
+    
+    <table>
+        <thead>
+            <tr>
+                <th style="width:30%">Keyword</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td><code>table_fieldname</code></td><td>Field name within the child table</td></tr>
+            <tr><td><code>sl_column</code></td><td>SelectLine column (same as parent level)</td></tr>
+            <tr><td><code>alt_key</code></td><td>Alternative column</td></tr>
+            <tr><td><code>default</code></td><td>Static default</td></tr>
+            <tr><td><code>field_var</code></td><td>Field variable reference</td></tr>
+            <tr><td><code>mapped_value</code></td><td>Cross-reference</td></tr>
+            <tr><td><code>reqd</code></td><td>Required level</td></tr>
+            <tr><td><code>force_str_type</code></td><td>Force string conversion</td></tr>
+        </tbody>
+    </table>
+
+    <h4>Multiple Query Keywords</h4>
+    
+    <table>
+        <thead>
+            <tr>
+                <th style="width:35%">Keyword</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td><code>multiple_query</code></td><td>Set to <code>true</code> to enable separate child table query</td></tr>
+            <tr><td><code>multiple_query_table</code></td><td>SelectLine table containing child rows</td></tr>
+            <tr><td><code>multiple_query_condition</code></td><td>SQL WHERE clause to filter child rows</td></tr>
+        </tbody>
+    </table>
+
+    <div class="tip-box">
+        <strong>Condition syntax:</strong> Use <code>{sl_column:ColumnName}</code> to reference parent row values.
+    </div>
+
+    <h2 id="post-field-vars">7. Post Field Variables</h2>
+    
+    <p>Capture values from created documents to use in subsequent mappings within the same import.</p>
+    
+    <pre><code>{
+  "doctype": "Customer",
+  "reqd": 1,
+  "fields": [...],
+  "post_field_vars": [{
+    "var_name": "customer_id",
+    "field_name": "name"
+  },{
+    "var_name": "customer_group",
+    "field_name": "customer_group"
+  }]
+}</code></pre>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width:25%">Keyword</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td><code>var_name</code></td><td>Name to store the value under for later reference</td></tr>
+            <tr><td><code>field_name</code></td><td>ERPNext field to capture from the created document</td></tr>
+        </tbody>
+    </table>
+
+    <div class="success-box">
+        <strong>Example workflow:</strong> (1) Create Customer → capture <code>name</code> as <code>customer_id</code>, (2) Create Address → use <code>field_var: "customer_id"</code> to link to Customer.
+    </div>
+
+    <h2 id="doctype-flags">8. DocType Flags</h2>
+    
+    <p>Special Frappe document flags for advanced scenarios.</p>
+    
+    <pre><code>{
+  "doctype": "Customer",
+  "fields": [...],
+  "doctype_flags": [
+    {"name_set": true},
+    {"ignore_links": true}
+  ]
+}</code></pre>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width:25%">Flag</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td><code>name_set</code></td><td>Document name is already set, don't auto-generate</td></tr>
+            <tr><td><code>ignore_links</code></td><td>Skip link validation during insert (useful for circular references)</td></tr>
+        </tbody>
+    </table>
+
+    <h2 id="examples">9. Complete Examples</h2>
+
+    <h3>Example 1: Simple Customer Import</h3>
+    
+    <pre><code>[{
+  "doctype": "Customer",
+  "reqd": 1,
+  "fields": [{
+    "fieldname": "customer_name",
+    "sl_column": "CompanyName",
+    "reqd": 1
+  },{
+    "fieldname": "customer_type",
+    "default": "Company"
+  },{
+    "fieldname": "territory",
+    "field_var": "default_territory"
+  },{
+    "fieldname": "customer_group",
+    "default": "Commercial"
+  }],
+  "post_field_vars": [{
+    "var_name": "erp_customer_id",
+    "field_name": "name"
+  }]
+}]</code></pre>
+
+    <h3>Example 2: Customer with Address</h3>
+    
+    <pre><code>[{
+  "doctype": "Customer",
+  "reqd": 1,
+  "fields": [{
+    "fieldname": "customer_name",
+    "sl_column": "CompanyName",
+    "reqd": 1
+  },{
+    "fieldname": "customer_type",
+    "default": "Company"
+  }],
+  "post_field_vars": [{
+    "var_name": "erp_customer_id",
+    "field_name": "name"
+  }]
+},{
+  "doctype": "Address",
+  "reqd": 0,
+  "fields": [{
+    "fieldname": "address_title",
+    "sl_column": "CompanyName"
+  },{
+    "fieldname": "address_line1",
+    "sl_column": "Street",
+    "reqd": 1
+  },{
+    "fieldname": "city",
+    "sl_column": "City"
+  },{
+    "fieldname": "country",
+    "default": "Germany"
+  },{
+    "fieldname": "links",
+    "table_fields": [{
+      "table_fieldname": "link_doctype",
+      "default": "Customer"
+    },{
+      "table_fieldname": "link_name",
+      "field_var": "erp_customer_id"
+    }]
+  }]
+}]</code></pre>
+
+    <h3>Example 3: Customer with Multiple Contacts</h3>
+    
+    <pre><code>[{
+  "doctype": "Customer",
+  "reqd": 1,
+  "fields": [{
+    "fieldname": "customer_name",
+    "sl_column": "CompanyName",
+    "reqd": 1
+  }],
+  "post_field_vars": [{
+    "var_name": "erp_customer_id",
+    "field_name": "name"
+  }]
+},{
+  "doctype": "Contact",
+  "reqd": 0,
+  "multiple_query": true,
+  "multiple_query_table": "CONTACTS",
+  "multiple_query_condition": "CustomerId = {sl_column:CustomerId}",
+  "fields": [{
+    "fieldname": "first_name",
+    "sl_column": "FirstName"
+  },{
+    "fieldname": "last_name",
+    "sl_column": "LastName"
+  },{
+    "fieldname": "email_ids",
+    "table_fields": [{
+      "table_fieldname": "email_id",
+      "sl_column": "Email"
+    },{
+      "table_fieldname": "is_primary",
+      "default": 1
+    }]
+  },{
+    "fieldname": "links",
+    "table_fields": [{
+      "table_fieldname": "link_doctype",
+      "default": "Customer"
+    },{
+      "table_fieldname": "link_name",
+      "field_var": "erp_customer_id"
+    }]
+  }]
+}]</code></pre>
+
+    <h3>Example 4: Item with Cross-Reference</h3>
+    
+    <pre><code>[{
+  "doctype": "Item",
+  "reqd": 1,
+  "fields": [{
+    "fieldname": "item_code",
+    "sl_column": "ArticleNumber",
+    "reqd": 1
+  },{
+    "fieldname": "item_name",
+    "sl_column": "Description"
+  },{
+    "fieldname": "item_group",
+    "mapped_value": {
+      "table_name": "ARTICLE_GROUPS",
+      "sl_id": "GroupId",
+      "doc_type": "Item Group",
+      "fieldname": "name"
+    }
+  },{
+    "fieldname": "stock_uom",
+    "default": "Nos"
+  }]
+}]</code></pre>
+
+    <h2>Value Resolution Priority</h2>
+    
+    <p>For each field, the system resolves the value in this order:</p>
+    
+    <ol>
+        <li><strong>Check <code>alt_key</code></strong> - If specified and has a value, use it</li>
+        <li><strong>Use <code>sl_column</code></strong> - Get value from the specified column</li>
+        <li><strong>Apply <code>mapped_value</code></strong> - If defined, lookup the referenced document</li>
+        <li><strong>Use <code>field_var</code></strong> - Get value from the variable store</li>
+        <li><strong>Use <code>default</code></strong> - Use the static default value</li>
+        <li><strong>Apply <code>force_str_type</code></strong> - Convert to string if flag is set</li>
+    </ol>
+
+    <h2 id="best-practices">10. Best Practices</h2>
+
+    <h4>1. Always Set Required Fields</h4>
+    <p>Mark essential fields with <code>"reqd": 1</code> to prevent incomplete data.</p>
+
+    <h4>2. Use Post Field Variables for Linking</h4>
+    <p>Capture document names to link related documents.</p>
+
+    <h4>3. Test with Small Batches</h4>
+    <p>Before running large imports, test with a small subset using the <code>top</code> parameter.</p>
+
+    <h4>4. Handle Child Tables Properly</h4>
+    <p>Use simple <code>table_fields</code> when data is in the same row. Use <code>multiple_query</code> when child data is in a separate table. Always include the <code>links</code> child table for Address/Contact linking.</p>
+
+    <h4>5. Use Alternative Keys for Fallback Data</h4>
+    <pre><code>{
+  "fieldname": "email",
+  "sl_column": "Email",
+  "alt_key": "Email2"
+}</code></pre>
+
+    <h4>6. Leverage Field Variables for Global Settings</h4>
+    <p>Set common values in the Sync Instance's field variables: <code>default_territory</code>, <code>default_customer_group</code>, <code>default_company</code>.</p>
+
+    <h4>7. Use Cross-References for Relationships</h4>
+    <p>When you need to link to documents imported in other mappings.</p>
+
+    <h4>8. Debugging Tips</h4>
+    <ul>
+        <li>Check <strong>Error Log</strong> in ERPNext (search for "pit_erpnextsync")</li>
+        <li>Enable <strong>Debug Mode</strong> in Sync Instance for verbose logging</li>
+        <li>Use <strong>Test Connection</strong> button to verify database connectivity</li>
+        <li>Validate JSON syntax before saving (use a JSON validator)</li>
+    </ul>
+
+    <h2 id="troubleshooting">11. Troubleshooting</h2>
+
+    <h4>Import fails with "Required field missing"</h4>
+    <ul>
+        <li>Check that all fields with <code>"reqd": 1</code> have values</li>
+        <li>Verify <code>sl_column</code> names match SelectLine exactly</li>
+        <li>Consider adding <code>alt_key</code> for fallback values</li>
+    </ul>
+
+    <h4>Documents not linking properly</h4>
+    <ul>
+        <li>Ensure you're capturing the field in <code>post_field_vars</code></li>
+        <li>Verify the <code>field_var</code> name matches exactly</li>
+        <li>Check that the linked document is created first (order matters in the JSON array)</li>
+    </ul>
+
+    <h4>Child tables not populating</h4>
+    <ul>
+        <li>For <code>multiple_query</code>, verify the condition syntax</li>
+        <li>Ensure <code>multiple_query_table</code> exists and is accessible</li>
+        <li>Check that <code>table_fieldname</code> matches the ERPNext child table field names</li>
+    </ul>
+
+    <h4>Cross-reference returns null</h4>
+    <ul>
+        <li>Verify the target mapping exists and was imported</li>
+        <li>Check that <code>table_name</code> matches the source SelectLine table</li>
+        <li>Ensure <code>sl_id</code> column contains valid foreign keys</li>
+    </ul>
+
+    <h2 id="quick-reference">12. Quick Reference Card</h2>
+
+    <div class="highlight-box" style="background-color: #f8f9fa; border: 1px solid #3498db;">
+        <h3 style="margin-top: 0; font-size: 11pt;">Complete Template</h3>
+        <pre style="margin-bottom: 0;"><code>{
+  "doctype": "DocTypeName",
+  "reqd": 1,
+  "fields": [{
+    "fieldname": "erp_field",
+    "sl_column": "SL_Column",
+    "alt_key": "Alt_Column",
+    "reqd": 1,
+    "force_str_type": 0
+  },{
+    "fieldname": "erp_field2",
+    "default": "static_value"
+  },{
+    "fieldname": "erp_field3",
+    "field_var": "variable_name"
+  },{
+    "fieldname": "erp_field4",
+    "mapped_value": {
+      "table_name": "SL_TABLE",
+      "sl_id": "ForeignKeyColumn",
+      "doc_type": "TargetDocType",
+      "fieldname": "target_field"
+    }
+  },{
+    "fieldname": "child_table_field",
+    "multiple_query": true,
+    "multiple_query_table": "CHILD_TABLE",
+    "multiple_query_condition": "ParentId = {sl_column:Id}",
+    "table_fields": [{
+      "table_fieldname": "child_field",
+      "sl_column": "ChildColumn"
+    }]
+  }],
+  "post_field_vars": [{
+    "var_name": "var_name",
+    "field_name": "erp_field_to_capture"
+  }]
+}</code></pre>
+    </div>
+
+    <h3>Keyword Quick List</h3>
+    
+    <table>
+        <thead>
+            <tr>
+                <th style="width:25%">Keyword</th>
+                <th style="width:50%">Purpose</th>
+                <th style="width:25%">Required</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td><code>doctype</code></td><td>ERPNext DocType to create</td><td>Yes</td></tr>
+            <tr><td><code>fields</code></td><td>List of field mappings</td><td>Yes</td></tr>
+            <tr><td><code>fieldname</code></td><td>ERPNext field name</td><td>Yes</td></tr>
+            <tr><td><code>reqd</code></td><td>Required level (0/1/2)</td><td>No</td></tr>
+            <tr><td><code>sl_column</code></td><td>SelectLine column name</td><td>No*</td></tr>
+            <tr><td><code>alt_key</code></td><td>Alternative column</td><td>No</td></tr>
+            <tr><td><code>default</code></td><td>Static default value</td><td>No</td></tr>
+            <tr><td><code>field_var</code></td><td>Dynamic variable reference</td><td>No</td></tr>
+            <tr><td><code>mapped_value</code></td><td>Cross-reference lookup</td><td>No</td></tr>
+            <tr><td><code>table_fields</code></td><td>Child table definitions</td><td>No</td></tr>
+            <tr><td><code>post_field_vars</code></td><td>Capture values after creation</td><td>No</td></tr>
+            <tr><td><code>doctype_flags</code></td><td>Special Frappe flags</td><td>No</td></tr>
+        </tbody>
+    </table>
+
+    <p style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #bdc3c7; color: #7f8c8d; font-size: 8pt; text-align: center;">
+        <strong>PIT ERPNextSync - JSON Mapping Documentation v1.0</strong><br>
+        For support, check the Error Log in ERPNext or contact your system administrator.
+    </p>
+
+</body>
+</html>

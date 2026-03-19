@@ -12,6 +12,11 @@
   "column_break_onzb",
   "column_break_hges",
   "column_break_fbbs",
+  "monitor_section",
+  "current_active_jobs",
+  "column_break_eqzw",
+  "column_break_fuba",
+  "column_break_pcfd",
   "database_section",
   "server",
   "database",
@@ -21,6 +26,7 @@
   "column_break_fgdy",
   "port",
   "schema",
+  "driver",
   "column_break_szea",
   "column_break_ahli",
   "table_mapping_section",
@@ -40,13 +46,17 @@
   "reset",
   "column_break_ifrk",
   "column_break_ximu",
+  "section_break_pwqo",
+  "hooks",
   "scheduler_section",
   "enable_scheduler",
   "repetition",
   "column_break_pozb",
   "column_break_jrhk",
   "column_break_dras",
-  "column_break_snqx"
+  "column_break_snqx",
+  "section_break_iqim",
+  "job_ids_json"
  ],
  "fields": [
   {
@@ -56,6 +66,7 @@
    "label": "Enabled"
   },
   {
+   "collapsible": 1,
    "fieldname": "database_section",
    "fieldtype": "Section Break",
    "label": "Database"
@@ -250,6 +261,60 @@
    "fieldtype": "Select",
    "label": "Repetition",
    "options": "all\ndaily\nhourly\nweekly\nmonthly"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_pwqo",
+   "fieldtype": "Section Break",
+   "label": "Hooks"
+  },
+  {
+   "fieldname": "hooks",
+   "fieldtype": "Table",
+   "label": "Hooks",
+   "options": "Sync Instance Hooks"
+  },
+  {
+   "fieldname": "section_break_iqim",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "job_ids_json",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Job Ids Json"
+  },
+  {
+   "fieldname": "monitor_section",
+   "fieldtype": "Section Break",
+   "label": "Monitor"
+  },
+  {
+   "fieldname": "current_active_jobs",
+   "fieldtype": "Int",
+   "label": "Current Active Jobs",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_eqzw",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_fuba",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_pcfd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "mssql",
+   "fieldname": "driver",
+   "fieldtype": "Select",
+   "label": "Driver",
+   "options": "mssql\n4D",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
@@ -260,7 +325,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-03-04 14:18:57.776427",
+ "modified": "2026-03-19 12:30:28.510570",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",

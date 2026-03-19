@@ -1,9 +1,9 @@
-// Copyright (c) 2025, PIT IT GmbH and contributors
-// For license information, please see license.txt
+
 
 frappe.ui.form.on("Sync Instance", {
 	refresh(frm) {
         custom_action_buttons(frm);
+        update_monitor(frm);
 	},
     test_connection(frm) {
         connection_test(frm);
@@ -16,6 +16,17 @@ frappe.ui.form.on("Sync Instance", {
         frm.set_value("amount_of_data_rows", 0);
     }
 });
+
+
+// update monitor data in realtime
+function update_monitor(frm){
+    frappe.realtime.on("job_count_update", (data) => {
+        if (data.doctype === frm.doc.doctype && data.docname === frm.doc.name) {
+            frm.set_value("job_ids_json", data.job_count);
+            frm.refresh_field("job_ids_json");
+        }
+    });
+}
 
 
 function custom_action_buttons(frm){

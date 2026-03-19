@@ -123,6 +123,121 @@ def fetch_data(instance: str, sql: str) -> list:
         except Exception:
             pass
 
+    
+def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None) -> list:
+    """Fetch multiple rows from a related table for dynamic child table creation.
+    
+    Args:
+        instance (str): Name of the Sync Instance doc
+        table (str): Table name to query
+        condition (str): SQL WHERE condition (may include WHERE keyword which will be stripped)
+        schema (str): Database schema (optional)
+        parent_data (dict): Parent row data for placeholder replacement (e.g., {ColumnName: value})
+    
+    Returns:
+        list: List of row dictionaries, empty list if no results or error
+    """
+    conn: pymssql.Connection | None = None
+    conn = db_connect(instance=instance)
+    
+    if conn is None:
+        return []
+    
+    try:
+        # Build schema prefix
+        schema_prefix = f"{schema}." if schema else ""
+        
+        # Strip WHERE from condition if present (case-insensitive)
+        condition_clean = condition.strip()
+        if condition_clean.upper().startswith("WHERE "):
+            condition_clean = condition_clean[6:].strip()
+        
+        # Replace placeholders with parent data values
+        # Format 1: TableAlias.ColumnName -> replaced with actual value from parent_data
+        # Format 2: {ColumnName} -> replaced with actual value from parent_data (explicit placeholder)
+        if parent_data:
+            import re
+            
+            # First, handle explicit placeholders like {ColumnName}
+            explicit_placeholder_pattern = r'\{([A-Za-z_][A-Za-z0-9_]*)\}'
+            
+            def replace_explicit_placeholder(match):
+                column = match.group(1)
+                if column in parent_data:
+                    value = parent_data[column]
+                    # Quote string values, leave numbers as-is
+                    if isinstance(value, str):
+                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
+                    return str(value)
+                # If not found, return original
+                return match.group(0)
+            
+            condition_clean = re.sub(explicit_placeholder_pattern, replace_explicit_placeholder, condition_clean)
+            
+            # Then, handle table.column patterns like A1.Id, table.column, etc.
+            # Only replace if the alias is NOT the table being queried (to avoid replacing column references)
+            placeholder_pattern = r'([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)'
+            
+            # Extract table name/alias from the table parameter
+            # Handle cases like "ARTVARI", "ARTVARI A1", "table alias", etc.
+            table_parts = table.split()
+            table_name = table_parts[0] if table_parts else table
+            table_aliases = [table_name]
+            if len(table_parts) >= 2:
+                table_aliases.append(table_parts[-1])  # Last part might be an alias
+            
+            def replace_placeholder(match):
+                alias = match.group(1)
+                column = match.group(2)
+                
+                # Skip replacement if this is the table being queried (it's a column reference, not a value)
+                if alias in table_aliases or alias.upper() == table_name.upper():
+                    return match.group(0)
+                
+                # Try to find the value in parent_data
+                # Check for exact match first (e.g., "Id")
+                if column in parent_data:
+                    value = parent_data[column]
+                    # Quote string values, leave numbers as-is
+                    if isinstance(value, str):
+                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
+                    return str(value)
+                # Check for alias.column format (e.g., "A1.Id")
+                full_key = f"{alias}.{column}"
+                if full_key in parent_data:
+                    value = parent_data[full_key]
+                    if isinstance(value, str):
+                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
+                    return str(value)
+                # If not found, return original
+                return match.group(0)
+            
+            condition_clean = re.sub(placeholder_pattern, replace_placeholder, condition_clean)
+        
+        # Build SQL query
+        sql = f"""
+        SELECT *
+        FROM {schema_prefix}{table}
+        WHERE {condition_clean}
+        """
+        
+        make_log(f"Multiple rows SQL: {sql}", "INFO", APP_NAME)
+        
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+            return rows if rows else []
+    
+    except pymssql.Error as e:
+        make_log(f"Fetching multiple rows failed for {instance}.{table}: {e}", "ERROR", APP_NAME)
+        return []
+    
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 
 #*## MAPPING ##################################################################################
 
@@ -292,7 +407,73 @@ def change_mapping_id(mapping_doc_name: str, new_id: str) -> None:
 #     pass
 
 
+#*## IMPORT/UPDATE HOOKS ####################################################################
+
+def get_instance_hooks(instance: str, before_after: str, import_update: str) -> list | None:
+
+    try:
+        instance_doc: Document = frappe.get_doc("Sync Instance", instance)
+
+        if not instance_doc:
+            raise Exception(instance_doc)
+    
+    except Exception as e:
+        make_log(f"Could not get instance {instance} doc for trigger hooks: {e}", "ERROR", APP_NAME, with_traceback=True)
+        return None
+    
+    scripts_to_call: list = []
+
+    for row in instance_doc.hooks:
+        if row.trigger == before_after:
+            if row.action == import_update or row.action == "Both":
+                # api_method: str = frappe.get_value("Server Script", row.server_script, "api_method")
+                
+                # if not api_method:
+                #     continue
+                
+                scripts_to_call.append(row.server_script)
+
+    return scripts_to_call
+    
+
+def trigger_hooks(instance: str, before_after: str, import_update: str) -> None:
+    scripts_to_call: list | None = get_instance_hooks(instance=instance, before_after=before_after, import_update=import_update)
+
+    if not scripts_to_call:
+        return None
+    
+    for script in scripts_to_call:
+        
+        try:
+            server_script_doc: Document = frappe.get_doc("Server Script", script)
+            server_script_doc.execute_method()
+
+        except Exception as e:
+            make_log(f"Could not get server script {script}: {e}", "ERROR", APP_NAME, with_traceback=True)
+            return None
+
+
 #*## UTILS ##################################################################################
+
+# update job count in instance
+def fupdate_jobs(instance: str) -> None:
+    try:
+        jobs_list: list = json.loads(frappe.get_value("Sync Instance", instance, "job_ids_json"))
+        job_count: int = len(jobs_list) 
+
+        frappe.publish_realtime(
+            "job_count_update",
+            {
+                "doctype": "Sync Instance",
+                "docname": instance,
+                "job_count": job_count
+            }
+        )
+
+    except Exception as e:
+        make_log(f"Could not update active job count: {e}", "ERROR", APP_NAME, with_traceback=True)
+        return
+    
 
 # create object mapping id
 def create_object_id(instance: str, table_name: str, primary_key: str) -> str:
@@ -549,92 +730,8 @@ def convert_timestamp_to_string(value: any, column_type: str = "datetime") -> st
     else:
         # datetime type - convert to string
         return str(value)
-
+    
 
 #*## TESTS ##################################################################################
-
-def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None) -> list:
-    """Fetch multiple rows from a related table for dynamic child table creation.
-    
-    Args:
-        instance (str): Name of the Sync Instance doc
-        table (str): Table name to query
-        condition (str): SQL WHERE condition (may include WHERE keyword which will be stripped)
-        schema (str): Database schema (optional)
-        parent_data (dict): Parent row data for placeholder replacement (e.g., {ColumnName: value})
-    
-    Returns:
-        list: List of row dictionaries, empty list if no results or error
-    """
-    conn: pymssql.Connection | None = None
-    conn = db_connect(instance=instance)
-    
-    if conn is None:
-        return []
-    
-    try:
-        # Build schema prefix
-        schema_prefix = f"{schema}." if schema else ""
-        
-        # Strip WHERE from condition if present (case-insensitive)
-        condition_clean = condition.strip()
-        if condition_clean.upper().startswith("WHERE "):
-            condition_clean = condition_clean[6:].strip()
-        
-        # Replace placeholders with parent data values
-        # Format: TableAlias.ColumnName -> replaced with actual value from parent_data
-        if parent_data:
-            import re
-            # Find patterns like A1.Id, table.column, etc.
-            placeholder_pattern = r'([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)'
-            
-            def replace_placeholder(match):
-                alias = match.group(1)
-                column = match.group(2)
-                # Try to find the value in parent_data
-                # Check for exact match first (e.g., "Id")
-                if column in parent_data:
-                    value = parent_data[column]
-                    # Quote string values, leave numbers as-is
-                    if isinstance(value, str):
-                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
-                    return str(value)
-                # Check for alias.column format (e.g., "A1.Id")
-                full_key = f"{alias}.{column}"
-                if full_key in parent_data:
-                    value = parent_data[full_key]
-                    if isinstance(value, str):
-                        return f"'{value.replace(chr(39), chr(39)+chr(39))}'"
-                    return str(value)
-                # If not found, return original
-                return match.group(0)
-            
-            condition_clean = re.sub(placeholder_pattern, replace_placeholder, condition_clean)
-        
-        # Build SQL query
-        sql = f"""
-        SELECT *
-        FROM {schema_prefix}{table}
-        WHERE {condition_clean}
-        """
-        
-        make_log(f"Multiple rows SQL: {sql}", "INFO", APP_NAME)
-        
-        with conn.cursor(as_dict=True) as cur:
-            cur.execute(sql)
-            rows = cur.fetchall()
-            return rows if rows else []
-    
-    except pymssql.Error as e:
-        make_log(f"Fetching multiple rows failed for {instance}.{table}: {e}", "ERROR", APP_NAME)
-        return []
-    
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
 def test():
     pass

@@ -2,10 +2,11 @@ import json
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils.background_jobs import get_job_status
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
-from pit_erpnextsync.scripts.classes.field_vars import FieldVars
+#from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 
 #* test ##############################################################################################
 def test():
@@ -25,7 +26,9 @@ def test3():
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
 def start_import(instance: str, top: int, types_str: str = "") -> None:
-    make_log(f"start_import", "INFO", controller.DEBUG_LOG_NAME)
+
+    # before import hooks
+    controller.trigger_hooks(instance=instance, before_after="before", import_update="import")
 
     # get instance doc
     try:
@@ -48,7 +51,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
         return None
 
     # init field vars object
-    field_vars_obj: FieldVars = FieldVars()
+    #! field_vars_obj: FieldVars = FieldVars() CHANGE FIELDVARS TO REDIS
 
     # fetch db data for every row
     for row in types_rows_to_import:
@@ -70,7 +73,9 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
             make_log(f"Fetched data: {fetched_data}", "ERROR", controller.APP_NAME)
 
-            for fetched_obj in fetched_data:
+            job_ids: list = []
+
+            for i, fetched_obj in enumerate(fetched_data):
                 # get new mapping id
                 obj_id: str = controller.create_object_id(
                     instance=instance,
@@ -84,17 +89,25 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                     make_log(f"Mapping {obj_id} already exists", "INFO", controller.APP_NAME)
 
                 else:
+                    job_id: str = f"pit_erpnextsync_import_{i}"
+
                     # set background job for import object
                     frappe.enqueue(
                         "pit_erpnextsync.scripts.data_import.import_fetched_object",
                         queue="long",
                         timeout=600,
+                        job_id=job_id,
                         instance=instance,
                         fetched_obj=fetched_obj,
                         table_mapping_row=row,
-                        field_vars_obj=field_vars_obj,
+                        #! CHANGE FIELDVARS TO REDIS field_vars_obj=field_vars_obj,
                         obj_id=obj_id
                     )
+                    job_ids.append(job_id)
+
+            # store job ids
+            if len(job_ids) > 0:
+                instance_doc.db_set("job_ids_json", json.dumps(job_ids))
 
             if not fetched_data:
                 raise Exception
@@ -105,14 +118,13 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 #* IMPORT #########################################################################################
 
 # new object
-def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, field_vars_obj: FieldVars, obj_id: str) -> None:
+def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str, job_id: str) -> None:
     try:
         # validate args
         if (
             not instance or
             not fetched_obj or
             not table_mapping_row or
-            not field_vars_obj or
             not obj_id
         ):
             raise Exception("Args invalid")
@@ -136,7 +148,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
             # try to create doc and check result code
             try:
-                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, field_vars_obj=field_vars_obj, table_mapping_row=table_mapping_row)
+                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row)
 
             except Exception as e:
                 make_log(f"Could not create new doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -213,6 +225,10 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         make_log(f"Could not import fetched oject: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         raise
 
+    finally:
+        controller.update_jobs(instance=instance)
+        make_log(f"job_status: {get_job_status(job_id)}", "ERROR", controller.APP_NAME, with_traceback=True)
+
 
 # delete doc from doc list
 def delete_docs(created_docs: list) -> None:
@@ -229,7 +245,7 @@ def delete_docs(created_docs: list) -> None:
 
 
 # create doc
-def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_vars_obj: FieldVars, table_mapping_row: dict) -> dict:
+def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_mapping_row: dict) -> dict:
 
     #? _____return codes:_____
     #
@@ -294,12 +310,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
             new_doc.set(field["fieldname"], field["default"])
 
         # field vars
-        elif field.get("field_var"):
-            var_value = field_vars_obj.get_field_var_value(field.get("field_var"))
-            if var_value:
-                new_doc.set(field["fieldname"], var_value)
-            else:
-                continue
+        # elif field.get("field_var"):
+        #     var_value = field_vars_obj.get_field_var_value(field.get("field_var"))
+        #     if var_value:
+        #         new_doc.set(field["fieldname"], var_value)
+        #     else:
+        #         continue
 
         # tables
         elif field.get("table_fields"):
@@ -329,8 +345,19 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                             parent_data=fetched_obj
                         )
                         
+                        # Track unique attribute values to prevent duplicates
+                        seen_attributes = set()
+                        
                         # create child row for each fetched row
                         for row_data in multiple_rows:
+                            # Check for duplicates based on the first table field (usually 'attribute')
+                            first_field = field["table_fields"][0] if field["table_fields"] else None
+                            if first_field and first_field.get("sl_column"):
+                                attr_value = row_data.get(first_field["sl_column"])
+                                if attr_value in seen_attributes:
+                                    continue  # Skip duplicate
+                                seen_attributes.add(attr_value)
+                            
                             child_name = frappe.generate_hash(length=8)
                             
                             new_child_row: Document = frappe.get_doc({
@@ -385,11 +412,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                                     row_has_data = True
 
                                 # field vars
-                                elif table_field.get("field_var"):
-                                    var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
-                                    if var_value:
-                                        new_child_row.set(table_field["table_fieldname"], var_value)
-                                        row_has_data = True
+                                # elif table_field.get("field_var"):
+                                #     var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
+                                #     if var_value:
+                                #         new_child_row.set(table_field["table_fieldname"], var_value)
+                                #         row_has_data = True
                             
                             # only add child row if it has data
                             if row_has_data:
@@ -456,12 +483,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
                             new_child_row.set(table_field["table_fieldname"], table_field["default"])
 
                         # field vars
-                        elif table_field.get("field_var"):
-                            var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
-                            if var_value:
-                                new_child_row.set(table_field["table_fieldname"], var_value)
-                            else:
-                                continue
+                        # elif table_field.get("field_var"):
+                        #     var_value = field_vars_obj.get_field_var_value(table_field.get("field_var"))
+                        #     if var_value:
+                        #         new_child_row.set(table_field["table_fieldname"], var_value)
+                        #     else:
+                        #         continue
 
             except Exception as e:
                 make_log(f"Could not create child doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -525,11 +552,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, field_var
         entry["docname"] = mapping_doc_name
 
     # check for post field var
-    doc_field_var_list: list | None = mapped_doctype.get("post_field_vars")
-    if doc_field_var_list:
-        for field_var in doc_field_var_list:
-            field_var["value"] = new_doc.get(field_var.get("field_name"))
-            field_vars_obj.add_field_var(field_var=field_var)
+    # doc_field_var_list: list | None = mapped_doctype.get("post_field_vars")
+    # if doc_field_var_list:
+    #     for field_var in doc_field_var_list:
+    #         field_var["value"] = new_doc.get(field_var.get("field_name"))
+    #         field_vars_obj.add_field_var(field_var=field_var)
 
     make_log(f"{new_doc.doctype} {new_doc.name} inserted successfully", "INFO", controller.APP_NAME)
     
@@ -551,8 +578,6 @@ def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: dic
         new_mapping_doc: Document = controller.create_mapping_doc(instance=instance, primary_key_column=table_mapping_row.primary_key, mapping_obj_id=obj_id, mapping_type=table_mapping_row.type, db_time_stamp=time_stamp, time_stamp_type=time_stamp_type)
         if not new_mapping_doc:
             raise Exception("Creating new mapping doc was aborted")
-
-        make_log(f"new_mapping_data: {new_mapping_data} inserted successfully", "ERROR", controller.APP_NAME) #!DEBUG
 
         # fill mapping table in mapping doc
         for doc_data in new_mapping_data:
@@ -618,7 +643,6 @@ def before_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_r
 def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
     pass
     
-
 
 #* UTILS #########################################################################################
 # set doctype flags

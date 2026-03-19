@@ -4,6 +4,9 @@
 
 **PIT ERPNextSync** is an ERPNext app that serves as a connector between **SelectLine** (a German ERP system) and **ERPNext**. It synchronizes data from SelectLine's SQL Server database into ERPNext.
 
+## Documentation
+- **Mapping Guide** Check the MAPPING_GUIDE.md in app_data/documentation to understand the structure of mapping
+
 ## Architecture
 
 ### Core Components
