@@ -309,11 +309,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "mssql",
+   "default": "pymssql",
    "fieldname": "driver",
    "fieldtype": "Select",
    "label": "Driver",
-   "options": "mssql\n4D",
+   "options": "pymssql\npython4DBI",
    "reqd": 1
   }
  ],
@@ -325,7 +325,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-03-19 12:30:28.510570",
+ "modified": "2026-03-19 13:32:03.371352",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",

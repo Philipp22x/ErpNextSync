@@ -1,6 +1,7 @@
 
 import json
 import pymssql
+from python4DBI.python4DBI import python4DBI
 from pprint import pprint
 
 import frappe
@@ -13,19 +14,22 @@ from pit_erpnext.scripts.logger import make_log
 APP_NAME: str = "pit_erpnextsync"
 DEBUG_LOG_NAME: str = f"{APP_NAME}_DEBUG"
 
+# Type alias for database connection
+db_connection = pymssql.Connection | python4DBI
+
 
 
 #*## CONNECTION ##################################################################################
 
 # create connection to db
-def db_connect(instance: str) -> pymssql.Connection | None:
+def db_connect(instance: str) -> db_connection | None:
     """Connects to a SQL database
 
     Args:
         instance (str): Name of the Sync Instance doc
 
     Returns:
-        pymysql.Connection | None: Database connection or None if fails
+        db_connection | None: Database connection or None if fails
     """
 
     db_cred: dict = get_instance_data(instance=instance)
@@ -34,6 +38,19 @@ def db_connect(instance: str) -> pymssql.Connection | None:
         make_log(f"Database credentials for instance {instance} not valid", "ERROR", APP_NAME)
         return None
 
+    driver: str = db_cred.get("driver", "mssql")
+
+    if driver == "mssql":
+        return _connect_mssql(db_cred, instance)
+    elif driver == "4D":
+        return _connect_4d(db_cred, instance)
+    else:
+        make_log(f"Unknown driver '{driver}' for instance {instance}", "ERROR", APP_NAME)
+        return None
+
+
+def _connect_mssql(db_cred: dict, instance: str) -> pymssql.Connection | None:
+    """Connect to MSSQL database"""
     try:
         conn: pymssql.Connection = pymssql.connect(
             server=db_cred["server"],
@@ -47,7 +64,24 @@ def db_connect(instance: str) -> pymssql.Connection | None:
         return conn
 
     except pymssql.Error as e:
-        make_log(f"Could not connect to instance {instance}: {e}", "ERROR", APP_NAME)
+        make_log(f"Could not connect to MSSQL instance {instance}: {e}", "ERROR", APP_NAME)
+        return None
+
+
+def _connect_4d(db_cred: dict, instance: str) -> python4DBI | None:
+    """Connect to 4D database"""
+    try:
+        conn = python4DBI()
+        conn.connect(
+            host=db_cred["server"],
+            port=int(db_cred["port"]),
+            user=db_cred["user"],
+            password=db_cred["password"]
+        )
+        return conn
+
+    except Exception as e:
+        make_log(f"Could not connect to 4D instance {instance}: {e}", "ERROR", APP_NAME)
         return None
 
 
@@ -63,20 +97,31 @@ def connection_test(instance: str) -> bool:
         bool: success = True, fail = False
     """
 
-    conn: pymssql.Connection | None = None
-    conn = db_connect(instance=instance)
+    db_cred: dict = get_instance_data(instance=instance)
+    if not db_cred:
+        return False
+
+    driver: str = db_cred.get("driver", "mssql")
+    conn: db_connection | None = db_connect(instance=instance)
 
     if conn is None:
         return False
 
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.fetchone()
-            make_log(f"Connection successfully tested for instance: {instance}", "INFO", APP_NAME)
+        if driver == "mssql":
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        else:  # 4D
+            cursor = conn.cursor()
+            cursor.execute(query="SELECT 1")
+            cursor.fetch_one()
+            cursor.close()
+
+        make_log(f"Connection successfully tested for instance: {instance}", "INFO", APP_NAME)
         return True
 
-    except pymssql.Error as e:
+    except Exception as e:
         make_log(f"Connection test failed for {instance}: {e}", "ERROR", APP_NAME)
         return False
 
@@ -90,30 +135,26 @@ def connection_test(instance: str) -> bool:
 #*## GET DATA ##################################################################################
 
 # fetch data from db
-def fetch_data(instance: str, sql: str) -> list:
+def fetch_data(instance: str, sql: str) -> list | None:
+    """Fetch data from database using appropriate driver"""
 
-    conn: pymssql.Connection | None = None
-    conn = db_connect(instance=instance)
+    db_cred: dict = get_instance_data(instance=instance)
+    if not db_cred:
+        return None
+
+    driver: str = db_cred.get("driver", "mssql")
+    conn: db_connection | None = db_connect(instance=instance)
 
     if conn is None:
         return None
 
-    fetched: list = []
-
     try:
-        with conn.cursor(as_dict=True) as cur:
-            cur.execute(sql)
+        if driver == "mssql":
+            return _fetch_data_mssql(conn, sql, instance)
+        else:  # 4D
+            return _fetch_data_4d(conn, sql, instance)
 
-            while True:
-                rows = cur.fetchall()
-                if not rows:
-                    break
-                for r in rows:
-                    fetched.append(r)
-
-        return fetched
-
-    except pymssql.Error as e:
+    except Exception as e:
         make_log(f"Fetching Data failed for {instance}: {e} {frappe.get_traceback()}", "ERROR", APP_NAME)
         return None
 
@@ -122,6 +163,46 @@ def fetch_data(instance: str, sql: str) -> list:
             conn.close()
         except Exception:
             pass
+
+
+def _fetch_data_mssql(conn: pymssql.Connection, sql: str, instance: str) -> list:
+    """Fetch data from MSSQL database"""
+    fetched: list = []
+    with conn.cursor(as_dict=True) as cur:
+        cur.execute(sql)
+
+        while True:
+            rows = cur.fetchall()
+            if not rows:
+                break
+            for r in rows:
+                fetched.append(r)
+
+    return fetched
+
+
+def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
+    """Fetch data from 4D database and convert to dict format"""
+    cursor = conn.cursor()
+    cursor.execute(query=sql)
+
+    if cursor.row_count == 0:
+        cursor.close()
+        return []
+
+    # Convert list of lists to list of dicts using column names
+    rows = cursor.fetch_all()
+    headers = [desc[0] for desc in cursor.description]
+
+    result: list = []
+    for row in rows:
+        row_dict: dict = {}
+        for i, value in enumerate(row):
+            row_dict[headers[i]] = value
+        result.append(row_dict)
+
+    cursor.close()
+    return result
 
     
 def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None) -> list:
@@ -137,8 +218,12 @@ def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str =
     Returns:
         list: List of row dictionaries, empty list if no results or error
     """
-    conn: pymssql.Connection | None = None
-    conn = db_connect(instance=instance)
+    db_cred: dict = get_instance_data(instance=instance)
+    if not db_cred:
+        return []
+
+    driver: str = db_cred.get("driver", "mssql")
+    conn: db_connection | None = db_connect(instance=instance)
     
     if conn is None:
         return []
@@ -223,12 +308,34 @@ def fetch_multiple_rows(instance: str, table: str, condition: str, schema: str =
         
         make_log(f"Multiple rows SQL: {sql}", "INFO", APP_NAME)
         
-        with conn.cursor(as_dict=True) as cur:
-            cur.execute(sql)
-            rows = cur.fetchall()
-            return rows if rows else []
+        if driver == "mssql":
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+                return rows if rows else []
+        else:  # 4D
+            cursor = conn.cursor()
+            cursor.execute(query=sql)
+            
+            if cursor.row_count == 0:
+                cursor.close()
+                return []
+            
+            # Convert list of lists to list of dicts using column names
+            rows = cursor.fetch_all()
+            headers = [desc[0] for desc in cursor.description]
+            
+            result: list = []
+            for row in rows:
+                row_dict: dict = {}
+                for i, value in enumerate(row):
+                    row_dict[headers[i]] = value
+                result.append(row_dict)
+            
+            cursor.close()
+            return result
     
-    except pymssql.Error as e:
+    except Exception as e:
         make_log(f"Fetching multiple rows failed for {instance}.{table}: {e}", "ERROR", APP_NAME)
         return []
     
@@ -502,7 +609,8 @@ def get_instance_data(instance: str) -> dict | None:
         "database": instance_doc.database,
         "user": instance_doc.user,
         "password": instance_doc.password,
-        "port": int(instance_doc.port)
+        "port": int(instance_doc.port),
+        "driver": instance_doc.driver
     }
 
     # validate instance data
@@ -593,10 +701,17 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
     if db_ts_col_name:
         col_to_fetch.append(db_ts_col_name)
 
+    # get driver type for SQL syntax differences
+    driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "mssql"
+
     # set amount to fetch
     top_str: str = ""
+    limit_str: str = ""
     if top > 0:
-        top_str = f"TOP ({top})"
+        if driver == "mssql":
+            top_str = f"TOP ({top})"
+        else:  # 4D uses LIMIT
+            limit_str = f"LIMIT {top}"
 
     # handle filters if exists in mapping
     query_filter: str = mapping_row_data.get("query_filter")
@@ -616,13 +731,22 @@ def make_sql_string(instance: str, db_ts_col_name: str, mapping_row_data: Docume
     if mapping_row_data.order_by:
         order_by = mapping_row_data.order_by
 
-    # sql command
-    fetch_sql: str = f"""
-    SELECT {top_str} {col_string}
-    FROM {schema}{shema_dot}{mapping_row_data.table_name}
-    {query_filter_command}
-    ORDER BY {order_by}
-    """
+    # sql command - driver specific syntax
+    if driver == "mssql":
+        fetch_sql: str = f"""
+        SELECT {top_str} {col_string}
+        FROM {schema}{shema_dot}{mapping_row_data.table_name}
+        {query_filter_command}
+        ORDER BY {order_by}
+        """
+    else:  # 4D - uses LIMIT instead of TOP
+        fetch_sql: str = f"""
+        SELECT {col_string}
+        FROM {schema}{shema_dot}{mapping_row_data.table_name}
+        {query_filter_command}
+        ORDER BY {order_by}
+        {limit_str}
+        """
 
     make_log(f"SQL string:{fetch_sql}", "INFO", APP_NAME)
     return fetch_sql
