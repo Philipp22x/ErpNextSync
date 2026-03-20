@@ -1,4 +1,7 @@
 import json
+import uuid
+import os
+import time
 
 import frappe
 from frappe.model.document import Document
@@ -53,6 +56,8 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
     # init field vars object
     #! field_vars_obj: FieldVars = FieldVars() CHANGE FIELDVARS TO REDIS
 
+    job_ids: list = []
+
     # fetch db data for every row
     for row in types_rows_to_import:
         try:
@@ -73,9 +78,8 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 
             make_log(f"Fetched data: {fetched_data}", "ERROR", controller.APP_NAME)
 
-            job_ids: list = []
-
-            for i, fetched_obj in enumerate(fetched_data):
+            for fetched_obj in fetched_data:
+                
                 # get new mapping id
                 obj_id: str = controller.create_object_id(
                     instance=instance,
@@ -89,7 +93,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                     make_log(f"Mapping {obj_id} already exists", "INFO", controller.APP_NAME)
 
                 else:
-                    job_id: str = f"pit_erpnextsync_import_{i}"
+                    job_id: str = f"pes:{frappe.get_value("Sync Instance", instance, "runs")}:{uuid.uuid4().hex[:16]}"
 
                     # set background job for import object
                     frappe.enqueue(
@@ -100,14 +104,13 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                         instance=instance,
                         fetched_obj=fetched_obj,
                         table_mapping_row=row,
-                        #! CHANGE FIELDVARS TO REDIS field_vars_obj=field_vars_obj,
-                        obj_id=obj_id
+                        obj_id=obj_id,
+                        _job_id=job_id,
                     )
+
                     job_ids.append(job_id)
 
-            # store job ids
-            if len(job_ids) > 0:
-                instance_doc.db_set("job_ids_json", json.dumps(job_ids))
+            
 
             if not fetched_data:
                 raise Exception
@@ -115,10 +118,14 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
         except Exception as e:
             make_log(f"Could not fetch data from {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
 
+
 #* IMPORT #########################################################################################
 
 # new object
-def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str, job_id: str) -> None:
+def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str, _job_id: str) -> None:
+
+    make_log(f"Job {obj_id} - PID: {os.getpid()} - Time: {time.time()}", "INFO", controller.APP_NAME)
+
     try:
         # validate args
         if (
@@ -227,7 +234,6 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
     finally:
         controller.update_jobs(instance=instance)
-        make_log(f"job_status: {get_job_status(job_id)}", "ERROR", controller.APP_NAME, with_traceback=True)
 
 
 # delete doc from doc list
@@ -597,8 +603,11 @@ def create_mapping(instance: str, new_mapping_data: list, table_mapping_row: dic
 
     except Exception as e:
         make_log(f"Could not create mapping: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
-        frappe.delete_doc(new_mapping_doc.doctype, new_mapping_doc.name)
-        frappe.db.commit()
+
+        if new_mapping_doc:
+            frappe.delete_doc(new_mapping_doc.doctype, new_mapping_doc.name)
+            frappe.db.commit()
+        
         return {
             "result": False
         }

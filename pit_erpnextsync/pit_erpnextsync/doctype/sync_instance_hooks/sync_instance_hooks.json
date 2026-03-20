@@ -31,12 +31,12 @@
   },
   {
    "columns": 1,
-   "default": "Import",
+   "default": "import",
    "fieldname": "action",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Import\nUpdate\nBoth",
+   "options": "import\nupdate\nboth",
    "reqd": 1
   }
  ],
@@ -44,7 +44,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-03-18 14:45:30.712047",
+ "modified": "2026-03-20 10:42:27.105265",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance Hooks",

@@ -20,14 +20,32 @@ frappe.ui.form.on("Sync Instance", {
 
 // update monitor data in realtime
 function update_monitor(frm){
+
+    // Remove any existing listeners to prevent duplicates
+    frappe.realtime.off("job_count_update");
+
     frappe.realtime.on("job_count_update", (data) => {
         if (data.doctype === frm.doc.doctype && data.docname === frm.doc.name) {
-            frm.set_value("job_ids_json", data.job_count);
-            frm.refresh_field("job_ids_json");
+            let html = `
+                <div class="row">
+                    <div class="col-xs-4 text-center">
+                        <span class="badge badge-primary">${data.queued_jobs || 0}</span>
+                        <div>Queued</div>
+                    </div>
+                    <div class="col-xs-4 text-center">
+                        <span class="badge badge-success">${data.finished_jobs || 0}</span>
+                        <div>Finished</div>
+                    </div>
+                    <div class="col-xs-4 text-center">
+                        <span class="badge badge-danger">${data.failed_jobs || 0}</span>
+                        <div>Failed</div>
+                    </div>
+                </div>
+            `;
+            $(frm.fields_dict.current_run_stats_html.wrapper).html(html);
         }
     });
 }
-
 
 function custom_action_buttons(frm){
     if (!frm.is_new()) {
@@ -48,34 +66,32 @@ function custom_action_buttons(frm){
 }
 
 
-// start import button action
 function start_import_action(frm){
+    // Increment runs
+    frm.set_value("runs", frm.doc.runs + 1);
     
-    // check types
-    let types_str = frm.doc.types_to_import
-    let types_list = [];
-    if (types_str){
-        types_list = types_str.split(",");
-    }
+    // Save and wait for completion, then start import
+    frm.save().then(() => {
+        // Now the doc is saved, continue with import
+        let types_str = frm.doc.types_to_import;
+        let types_list = types_str ? types_str.split(",") : [];
+        let data_rows_int = frm.doc.amount_of_data_rows;
 
-    let data_rows_int = frm.doc.amount_of_data_rows
-
-    // call import
-    frappe.dom.freeze(__("creating background jobs for import..."));
-    frappe.call({
-        method: "pit_erpnextsync.scripts.data_import.start_import",
-        args:{
-            "instance": frm.doc.name,
-            "types_str": types_list,
-            "top": data_rows_int
-        },
-        callback: function(r){
-            frappe.dom.unfreeze();
-            frappe.msgprint("Background jobs were created. Import runs in background.")
-        }
+        frappe.dom.freeze(__("creating background jobs for import..."));
+        frappe.call({
+            method: "pit_erpnextsync.scripts.data_import.start_import",
+            args:{
+                "instance": frm.doc.name,
+                "types_str": types_list,
+                "top": data_rows_int
+            },
+            callback: function(r){
+                frappe.dom.unfreeze();
+                frappe.msgprint("Background jobs were created. Import runs in background.");
+            }
+        });
     });
 }
-
 
 // start update button action
 function start_update_action(frm){
