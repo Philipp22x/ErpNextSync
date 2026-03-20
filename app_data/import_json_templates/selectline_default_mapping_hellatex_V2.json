@@ -253,6 +253,11 @@
                                 "table_fieldname": "attribute_value",
                                 "sl_column": "Bezeichnung",
                                 "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "variant_of",
+                                "sl_column": "Variantenartikel",
+                                "reqd": 1
                             }
                         ]
                     }

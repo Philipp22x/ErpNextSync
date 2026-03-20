@@ -581,7 +581,7 @@ def update_jobs(instance: str) -> None:
 	try:
 		queue = get_queue("long")
 		run_number = frappe.get_value("Sync Instance", instance, "runs")
-		job_prefix = f"erp-dev.pit-it.at::pes:{run_number}"
+		job_prefix = f"{frappe.local.site}::pes:{run_number}"
 
 		queued_jobs = [j for j in queue.get_jobs() if j.id.startswith(job_prefix)]
 
@@ -599,7 +599,6 @@ def update_jobs(instance: str) -> None:
 	
 		if len(queued_jobs) <= 0:
 			# after hooks
-			make_log(f"AFTER TRIGGER TEST ____________________________________________", "ERROR", APP_NAME)
 			trigger_hooks(instance=instance, before_after="after", import_update="import")
 			
 	
