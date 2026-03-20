@@ -1,0 +1,58 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-18 13:54:03.482544",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "server_script",
+  "trigger",
+  "action"
+ ],
+ "fields": [
+  {
+   "fieldname": "server_script",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Server Script",
+   "link_filters": "[[\"Server Script\",\"script_type\",\"=\",\"API\"]]",
+   "options": "Server Script",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "trigger",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Trigger",
+   "options": "before\nafter",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "import",
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Action",
+   "options": "import\nupdate\nboth",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-20 10:42:27.105265",
+ "modified_by": "Administrator",
+ "module": "PIT ERPNextSync",
+ "name": "Sync Instance Hooks",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

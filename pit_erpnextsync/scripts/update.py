@@ -1,9 +1,8 @@
 import json
 from pprint import pprint
 import frappe
-from frappe.model.document import Document
 import datetime
-
+from frappe.model.document import Document
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
@@ -12,6 +11,10 @@ from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 
 @frappe.whitelist()
 def run_bulk_update(instance: str, types_str: str) -> None:
+
+    # before import hooks
+    controller.trigger_hooks(instance=instance, before_after="before", import_update="update")
+
     # get instance doc
     try:
         instance_doc: Document = frappe.get_doc("Sync Instance", instance)

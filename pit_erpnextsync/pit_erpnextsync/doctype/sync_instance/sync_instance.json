@@ -12,6 +12,13 @@
   "column_break_onzb",
   "column_break_hges",
   "column_break_fbbs",
+  "monitor_section",
+  "general_column",
+  "runs",
+  "column_break_eqzw",
+  "current_run_stats_html",
+  "column_break_fuba",
+  "column_break_pcfd",
   "database_section",
   "server",
   "database",
@@ -21,6 +28,7 @@
   "column_break_fgdy",
   "port",
   "schema",
+  "driver",
   "column_break_szea",
   "column_break_ahli",
   "table_mapping_section",
@@ -40,6 +48,8 @@
   "reset",
   "column_break_ifrk",
   "column_break_ximu",
+  "section_break_pwqo",
+  "hooks",
   "scheduler_section",
   "enable_scheduler",
   "repetition",
@@ -56,6 +66,7 @@
    "label": "Enabled"
   },
   {
+   "collapsible": 1,
    "fieldname": "database_section",
    "fieldtype": "Section Break",
    "label": "Database"
@@ -250,6 +261,61 @@
    "fieldtype": "Select",
    "label": "Repetition",
    "options": "all\ndaily\nhourly\nweekly\nmonthly"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_pwqo",
+   "fieldtype": "Section Break",
+   "label": "Hooks"
+  },
+  {
+   "fieldname": "hooks",
+   "fieldtype": "Table",
+   "label": "Hooks",
+   "options": "Sync Instance Hooks"
+  },
+  {
+   "fieldname": "monitor_section",
+   "fieldtype": "Section Break",
+   "label": "Monitor"
+  },
+  {
+   "fieldname": "column_break_eqzw",
+   "fieldtype": "Column Break",
+   "label": "Current Run"
+  },
+  {
+   "fieldname": "column_break_fuba",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_pcfd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "pymssql",
+   "fieldname": "driver",
+   "fieldtype": "Select",
+   "label": "Driver",
+   "options": "pymssql\npython4DBI",
+   "reqd": 1
+  },
+  {
+   "fieldname": "general_column",
+   "fieldtype": "Column Break",
+   "label": "General"
+  },
+  {
+   "description": "Scheduled updates not included",
+   "fieldname": "runs",
+   "fieldtype": "Int",
+   "label": "Runs",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_run_stats_html",
+   "fieldtype": "HTML"
   }
  ],
  "grid_page_length": 50,
@@ -260,7 +326,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-03-04 14:18:57.776427",
+ "modified": "2026-03-20 07:54:13.870957",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",

@@ -1,0 +1,263 @@
+[
+    {
+        "idx": 1,
+        "type": "Item Attribute",
+        "doc_type": "Item Attribute",
+        "table_name": "MERKMAL A1",
+        "timestamp_column_name": "TS",
+        "timestamp_column_type": "rowversion",
+        "primary_key": "Id",
+        "mapping": [
+            {
+                "doctype": "Item Attribute",
+                "doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "name",
+                        "sl_column": "Id",
+                        "force_str_type": 1
+                    },
+                    {
+                        "fieldname": "attribute_name",
+                        "sl_column": "Bezeichnung"
+                    },
+                    {
+                        "fieldname": "item_attribute_values",
+                        "multiple_query": 1,
+                        "multiple_query_table": "MERKMALD A2",
+                        "multiple_query_condition": "WHERE A2.idMerkmal = A1.Id",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "attribute_value",
+                                "sl_column": "Bezeichnung"
+                            },
+                            {
+                                "table_fieldname": "abbr",
+                                "sl_column": "Kuerzel"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 2,
+        "type": "ItemVarParent",
+        "doc_type": "Item",
+        "table_name": "ART",
+        "timestamp_column_name": "TS",
+        "timestamp_column_type": "rowversion",
+        "primary_key": "ART_ID",
+        "query_filter": "Stueckliste = 'V' AND Artikelnummer = 'HTX31'",
+        "mapping": [
+            {
+                "doctype": "Item Group",
+                "fields": [
+                    {
+                        "fieldname": "item_group_name",
+                        "sl_column": "Artikelgruppe"
+                    }
+                ]
+            },
+            {
+                "doctype": "UOM",
+                "fields": [
+                    {
+                        "fieldname": "uom_name",
+                        "default": "Stk."
+                    }
+                ]
+            },
+            {
+                "doctype": "Item",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1,
+                        "create_website_item": 0
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "Artikelnummer"
+                    },
+                    {
+                        "fieldname": "is_stock_item",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "item_name",
+                        "sl_column": "Bezeichnung"
+                    },
+                    {
+                        "fieldname": "description",
+                        "sl_column": "Zusatz"
+                    },
+                    {
+                        "fieldname": "custom_matchcode",
+                        "sl_column": "Matchcode"
+                    },
+                    {
+                        "fieldname": "item_group",
+                        "sl_column": "Artikelgruppe"
+                    },
+                    {
+                        "fieldname": "stock_uom",
+                        "sl_column": "Mengeneinheit"
+                    },
+                    {
+                        "fieldname": "has_variants",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "EANNummer"
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "EAN"
+                            },
+                            {
+                                "table_fieldname": "uom",
+                                "sl_column": "Mengeneinheit"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "attributes",
+                        "multiple_query": true,
+                        "multiple_query_table": "ARTVARI",
+                        "multiple_query_condition": "Artikelnummer = {Artikelnummer}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "attribute",
+                                "sl_column": "IdMerkmal",
+                                "force_str_type": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 3,
+        "type": "ItemVarChild",
+        "doc_type": "Item",
+        "table_name": "ART",
+        "timestamp_column_name": "TS",
+        "timestamp_column_type": "rowversion",
+        "primary_key": "ART_ID",
+        "query_filter": "Variantenartikel IS NOT NULL AND Artikelnummer LIKE '%HTX-31%'",
+        "mapping": [
+            {
+                "doctype": "Item Group",
+                "fields": [
+                    {
+                        "fieldname": "item_group_name",
+                        "sl_column": "Artikelgruppe"
+                    }
+                ]
+            },
+            {
+                "doctype": "UOM",
+                "fields": [
+                    {
+                        "fieldname": "uom_name",
+                        "default": "Stk."
+                    }
+                ]
+            },
+            {
+                "doctype": "Item",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "Artikelnummer"
+                    },
+                    {
+                        "fieldname": "is_stock_item",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "item_name",
+                        "sl_column": "Bezeichnung"
+                    },
+                    {
+                        "fieldname": "description",
+                        "sl_column": "Zusatz"
+                    },
+                    {
+                        "fieldname": "custom_matchcode",
+                        "sl_column": "Matchcode"
+                    },
+                    {
+                        "fieldname": "item_group",
+                        "sl_column": "Artikelgruppe"
+                    },
+                    {
+                        "fieldname": "stock_uom",
+                        "sl_column": "Mengeneinheit"
+                    },
+                    {
+                        "fieldname": "has_variants",
+                        "default": 0
+                    },
+                    {
+                        "fieldname": "variant_of",
+                        "sl_column": "Variantenartikel"
+                    },
+                    {
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "EANNummer"
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "EAN"
+                            },
+                            {
+                                "table_fieldname": "uom",
+                                "sl_column": "Mengeneinheit"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "attributes",
+                        "multiple_query": true,
+                        "multiple_query_table": "ARTVARI INNER JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id",
+                        "multiple_query_condition": "ARTVARI.Artikelnummer = {Artikelnummer}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "attribute",
+                                "sl_column": "IdMerkmal",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "attribute_value",
+                                "sl_column": "Bezeichnung",
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]
