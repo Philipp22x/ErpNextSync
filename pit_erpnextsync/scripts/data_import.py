@@ -104,8 +104,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                         instance=instance,
                         fetched_obj=fetched_obj,
                         table_mapping_row=row,
-                        obj_id=obj_id,
-                        _job_id=job_id,
+                        obj_id=obj_id
                     )
 
                     job_ids.append(job_id)
@@ -122,7 +121,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
 #* IMPORT #########################################################################################
 
 # new object
-def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str, _job_id: str) -> None:
+def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str) -> None:
 
     make_log(f"Job {obj_id} - PID: {os.getpid()} - Time: {time.time()}", "INFO", controller.APP_NAME)
 
