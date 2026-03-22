@@ -1,0 +1,744 @@
+[
+    {
+        "idx": 1,
+        "type": "Customer",
+        "doc_type": "Customer",
+        "table_name": "KUNDEN",
+        "primary_key": "KUNDENNR",
+        "timestamp_column_name": "LETZTEAENDERUNGAM",
+        "mapping": [
+            {
+                "doctype": "Customer",
+                "reqd": 1,
+                "fields": [
+                    {
+                        "fieldname": "name",
+                        "sl_column": "KUNDENNR",
+                        "reqd": 1,
+                        "set_redis": "erp_customer_id"
+                    },
+                    {
+                        "fieldname": "customer_name",
+                        "sl_column": "NAMEZEILE1",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "customer_type",
+                        "default": "Company"
+                    },
+                    {
+                        "fieldname": "tax_id",
+                        "sl_column": "UIDNR"
+                    },
+                    {
+                        "fieldname": "website",
+                        "sl_column": "WWW"
+                    },
+                    {
+                        "fieldname": "territory",
+                        "sl_column": "LAND"
+                    },
+                    {
+                        "fieldname": "customer_group",
+                        "default": "Commercial"
+                    }
+                ]
+            },
+            {
+                "doctype": "Address",
+                "fields": [
+                    {
+                        "fieldname": "address_title",
+                        "sl_column": "NAMEZEILE1"
+                    },
+                    {
+                        "fieldname": "address_line1",
+                        "sl_column": "STRASSE"
+                    },
+                    {
+                        "fieldname": "pincode",
+                        "sl_column": "PLZ"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "ORT"
+                    },
+                    {
+                        "fieldname": "country",
+                        "sl_column": "LAND"
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_customer_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "doctype": "Contact",
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "ANREDE"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "BEZUGSPERSON"
+                    },
+                    {
+                        "fieldname": "is_primary_contact",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON"
+                            },
+                            {
+                                "table_fieldname": "is_primary_phone",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON2"
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_customer_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 2,
+        "type": "AdditionalContacts",
+        "doc_type": "Contact",
+        "table_name": "AnsprechKunde",
+        "primary_key": "PRIMARYKEY",
+        "mapping": [
+            {
+                "doctype": "Salutation",
+                "fields": [
+                    {
+                        "fieldname": "salutation",
+                        "sl_column": "ANREDEBRIEF"
+                    }
+                ]
+            },
+            {
+                "doctype": "Contact",
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "VORNAME"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "NACHNAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "salutation",
+                        "sl_column": "ANREDEBRIEF"
+                    },
+                    {
+                        "fieldname": "designation",
+                        "sl_column": "FUNKTION"
+                    },
+                    {
+                        "fieldname": "department",
+                        "sl_column": "ABTEILUNG"
+                    },
+                    {
+                        "fieldname": "is_primary_contact",
+                        "default": 0
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL2"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL3"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFONNUMMER"
+                            },
+                            {
+                                "table_fieldname": "is_primary_phone",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON2"
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON3"
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "sl_column": "KUNDENNR",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 3,
+        "type": "Supplier",
+        "doc_type": "Supplier",
+        "table_name": "Lieferant",
+        "primary_key": "LIEFERANTENNR",
+        "timestamp_column_name": "LETZTEAENDERUNG",
+        "mapping": [
+            {
+                "doctype": "Supplier",
+                "reqd": 1,
+                "fields": [
+                    {
+                        "fieldname": "name",
+                        "sl_column": "LIEFERANTENNR",
+                        "reqd": 1,
+                        "set_redis": "erp_supplier_id"
+                    },
+                    {
+                        "fieldname": "supplier_name",
+                        "sl_column": "NAMEZEILE1",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "supplier_type",
+                        "default": "Company"
+                    },
+                    {
+                        "fieldname": "tax_id",
+                        "sl_column": "UIDNR"
+                    },
+                    {
+                        "fieldname": "website",
+                        "sl_column": "WWW_ADRESSE"
+                    },
+                    {
+                        "fieldname": "country",
+                        "sl_column": "LAND"
+                    },
+                    {
+                        "fieldname": "supplier_group",
+                        "default": "All Supplier Groups"
+                    }
+                ]
+            },
+            {
+                "doctype": "Address",
+                "fields": [
+                    {
+                        "fieldname": "address_title",
+                        "sl_column": "NAMEZEILE1"
+                    },
+                    {
+                        "fieldname": "address_line1",
+                        "sl_column": "STRASSE"
+                    },
+                    {
+                        "fieldname": "pincode",
+                        "sl_column": "PLZ"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "ORT"
+                    },
+                    {
+                        "fieldname": "country",
+                        "sl_column": "LAND"
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Supplier"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_supplier_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "doctype": "Contact",
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "ANREDE"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "ZUHANDEN"
+                    },
+                    {
+                        "fieldname": "is_primary_contact",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON"
+                            },
+                            {
+                                "table_fieldname": "is_primary_phone",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON2"
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Supplier"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_supplier_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 4,
+        "type": "SupplierContacts",
+        "doc_type": "Contact",
+        "table_name": "AnsprechLiefera",
+        "primary_key": "PRIMARYKEY",
+        "mapping": [
+            {
+                "doctype": "Salutation",
+                "fields": [
+                    {
+                        "fieldname": "salutation",
+                        "sl_column": "ANREDEBRIEF"
+                    }
+                ]
+            },
+            {
+                "doctype": "Contact",
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "VORNAME"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "NACHNAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "salutation",
+                        "sl_column": "ANREDEBRIEF"
+                    },
+                    {
+                        "fieldname": "designation",
+                        "sl_column": "FUNKTION"
+                    },
+                    {
+                        "fieldname": "department",
+                        "sl_column": "ABTEILUNG"
+                    },
+                    {
+                        "fieldname": "is_primary_contact",
+                        "default": 0
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL2"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL3"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFONNUMMER"
+                            },
+                            {
+                                "table_fieldname": "is_primary_phone",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON2"
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "TELEFON3"
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Supplier"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "sl_column": "LIEFERANTENNR",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 5,
+        "type": "Item",
+        "doc_type": "Item",
+        "table_name": "Artikel",
+        "primary_key": "ARTIKELNR",
+        "timestamp_column_name": "LETZTEAENDERUNG",
+        "mapping": [
+            {
+                "doctype": "Item Group",
+                "fields": [
+                    {
+                        "fieldname": "item_group_name",
+                        "sl_column": "WARENGRUPPE"
+                    }
+                ]
+            },
+            {
+                "doctype": "UOM",
+                "fields": [
+                    {
+                        "fieldname": "uom_name",
+                        "sl_column": "MENGENEINHEIT"
+                    }
+                ]
+            },
+            {
+                "doctype": "Item",
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "ARTIKELNR",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "custom_matchcode",
+                        "sl_column": "SUCHNAME"
+                    },
+                    {
+                        "fieldname": "item_name",
+                        "sl_column": "BEZEICHNUNG"
+                    },
+                    {
+                        "fieldname": "description",
+                        "sl_column": "ANGEBOTSTEXT"
+                    },
+                    {
+                        "fieldname": "item_group",
+                        "sl_column": "WARENGRUPPE"
+                    },
+                    {
+                        "fieldname": "stock_uom",
+                        "sl_column": "MENGENEINHEIT"
+                    },
+                    {
+                        "fieldname": "is_stock_item",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "BARCODE",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "CODE-39"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "EAN",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "EAN"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "EAN2",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "EAN"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "EAN3",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "EAN"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "weight_per_unit",
+                        "sl_column": "GEWICHT_BRUTTO"
+                    },
+                    {
+                        "fieldname": "disabled",
+                        "sl_column": "ARCHIV"
+                    },
+                    {
+                        "fieldname": "supplier_items",
+                        "multiple_query": true,
+                        "multiple_query_table": "Artikel_Lieferant",
+                        "multiple_query_condition": "ArtikelNr = {ARTIKELNR}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "supplier",
+                                "sl_column": "LIEFERANTENNR",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "supplier_part_no",
+                                "sl_column": "ARTLIEFNR"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]
