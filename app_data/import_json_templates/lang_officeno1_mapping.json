@@ -712,10 +712,6 @@
                         ]
                     },
                     {
-                        "fieldname": "weight_per_unit",
-                        "sl_column": "GEWICHT_BRUTTO"
-                    },
-                    {
                         "fieldname": "disabled",
                         "sl_column": "ARCHIV"
                     },
