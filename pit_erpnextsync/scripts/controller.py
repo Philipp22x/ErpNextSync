@@ -184,24 +184,51 @@ def _fetch_data_mssql(conn: pymssql.Connection, sql: str, instance: str) -> list
 
 
 def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
-	"""Fetch data from 4D database and convert to dict format"""
+	"""Fetch data from 4D database and convert to dict format.
+	Fetches row-by-row to handle problematic rows gracefully.
+	If execute fails with encoding errors, retries with smaller page size."""
 	cursor = conn.cursor()
-	cursor.execute(query=sql)
+
+	make_log(f"4D SQL execute: {sql[:500]}", "DEBUG", APP_NAME)
+
+	# Try with progressively smaller page sizes if encoding errors occur
+	for page_size in [100, 50, 10]:
+		try:
+			cursor = conn.cursor()
+			cursor.execute(query=sql, page_size=page_size)
+			break
+		except UnicodeDecodeError as e:
+			make_log(f"4D execute failed with page_size={page_size}: {e}", "WARNING", APP_NAME)
+			if page_size == 10:
+				raise
+			continue
 
 	if cursor.row_count == 0:
 		cursor.close()
 		return []
 
-	# Convert list of lists to list of dicts using column names
-	rows = cursor.fetch_all()
 	headers = [desc[0] for desc in cursor.description]
-
 	result: list = []
-	for row in rows:
-		row_dict: dict = {}
-		for i, value in enumerate(row):
-			row_dict[headers[i]] = value
-		result.append(row_dict)
+	skipped: int = 0
+
+	# Fetch row-by-row to skip problematic rows instead of aborting entire fetch
+	while True:
+		try:
+			row = cursor.fetch_one()
+			if row is None:
+				break
+			row_dict: dict = {}
+			for i, value in enumerate(row):
+				row_dict[headers[i]] = value
+			result.append(row_dict)
+		except Exception as e:
+			skipped += 1
+			if skipped <= 10:
+				make_log(f"Skipped row due to 4D driver error: {e}", "WARNING", APP_NAME)
+			continue
+
+	if skipped > 0:
+		make_log(f"Fetched {len(result)} rows, skipped {skipped} problematic rows for {instance}", "WARNING", APP_NAME)
 
 	cursor.close()
 	return result
