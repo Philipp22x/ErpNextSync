@@ -640,6 +640,10 @@
                         "sl_column": "BEZEICHNUNG"
                     },
                     {
+                        "fieldname": "description",
+                        "sl_column": "ANGEBOTSTEXT"
+                    },
+                    {
                         "fieldname": "item_group",
                         "sl_column": "WARENGRUPPE"
                     },

@@ -186,17 +186,55 @@ def _fetch_data_mssql(conn: pymssql.Connection, sql: str, instance: str) -> list
 def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 	"""Fetch data from 4D database and convert to dict format.
 	Fetches row-by-row to handle problematic rows gracefully.
-	If execute fails with encoding errors, falls back to batched fetching with LIMIT/OFFSET."""
-	cursor = conn.cursor()
+	If execute fails due to unsupported column types, automatically removes
+	the problematic column and retries (up to 10 columns)."""
+	import re
 
-	make_log(f"4D SQL execute: {sql[:500]}", "INFO", APP_NAME)
+	excluded_columns: list = []
+	current_sql = sql
+	max_retries = 10
 
-	try:
-		cursor.execute(query=sql)
-	except (UnicodeDecodeError, Exception) as e:
-		make_log(f"4D execute failed, falling back to batched fetch: {e}", "WARNING", APP_NAME)
-		cursor.close()
-		return _fetch_data_4d_batched(conn, sql, instance)
+	for attempt in range(max_retries + 1):
+		cursor = conn.cursor()
+
+		if attempt == 0:
+			make_log(f"4D SQL execute: {current_sql[:500]}", "INFO", APP_NAME)
+
+		try:
+			cursor.execute(query=current_sql)
+		except Exception as e:
+			error_msg = str(e)
+			try:
+				cursor.close()
+			except Exception:
+				pass
+
+			# Try to extract problematic column name from error message
+			# Pattern: "Status code XX not supported in data at row NNcolumn COLNAME"
+			col_match = re.search(r'column\s+(\S+)', error_msg)
+			if col_match and attempt < max_retries:
+				bad_col = col_match.group(1).strip(" !")
+				excluded_columns.append(bad_col)
+				make_log(
+					f"4D column '{bad_col}' has unsupported data type, excluding and retrying "
+					f"(excluded so far: {excluded_columns})", "WARNING", APP_NAME
+				)
+				# Remove the bad column from the SELECT clause
+				# Match the column name as a whole word in the SELECT, with optional comma
+				current_sql = re.sub(
+					r',?\s*\b' + re.escape(bad_col) + r'\b\s*,?', ',', current_sql, count=1
+				)
+				# Clean up double commas or leading/trailing commas in SELECT
+				current_sql = re.sub(r',\s*,', ',', current_sql)
+				current_sql = re.sub(r'SELECT\s+,', 'SELECT ', current_sql)
+				continue
+			else:
+				# Can't extract column name or too many retries - fall back to batched
+				make_log(f"4D execute failed, falling back to batched fetch: {e}", "WARNING", APP_NAME)
+				return _fetch_data_4d_batched(conn, current_sql, instance, excluded_columns)
+
+		# Execute succeeded
+		break
 
 	if cursor.row_count == 0:
 		cursor.close()
@@ -215,6 +253,9 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			row_dict: dict = {}
 			for i, value in enumerate(row):
 				row_dict[headers[i]] = value
+			# Add excluded columns as None so downstream code doesn't break on missing keys
+			for col in excluded_columns:
+				row_dict[col] = None
 			result.append(row_dict)
 		except Exception as e:
 			skipped += 1
@@ -224,25 +265,32 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 
 	if skipped > 0:
 		make_log(f"Fetched {len(result)} rows, skipped {skipped} problematic rows for {instance}", "WARNING", APP_NAME)
+	if excluded_columns:
+		make_log(f"Excluded columns with unsupported types: {excluded_columns} (values set to None)", "WARNING", APP_NAME)
 
 	cursor.close()
 	return result
 
 
-def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, batch_size: int = 500) -> list:
+def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_columns: list = None) -> list:
 	"""Fallback: fetch data from 4D in batches using LIMIT/OFFSET to work around
 	python4DBI protocol errors on large result sets."""
+	import re
+
+	if excluded_columns is None:
+		excluded_columns = []
+
 	result: list = []
 	offset: int = 0
 	skipped_batches: int = 0
 
 	# Strip trailing whitespace/semicolons and any existing LIMIT clause
 	base_sql = sql.strip().rstrip(";")
-	import re
 	base_sql = re.sub(r'\s+LIMIT\s+\d+\s*$', '', base_sql, flags=re.IGNORECASE)
 
-	make_log(f"4D batched fetch starting with batch_size={batch_size}", "INFO", APP_NAME)
+	make_log(f"4D batched fetch starting with batch_size=500", "INFO", APP_NAME)
 
+	batch_size = 500
 	while True:
 		batch_sql = f"{base_sql} LIMIT {batch_size} OFFSET {offset}"
 		try:
@@ -264,6 +312,8 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, batch_size
 					row_dict: dict = {}
 					for i, value in enumerate(row):
 						row_dict[headers[i]] = value
+					for col in excluded_columns:
+						row_dict[col] = None
 					result.append(row_dict)
 					batch_count += 1
 				except Exception as e:
@@ -272,15 +322,12 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, batch_size
 
 			cursor.close()
 
-			# If we got fewer rows than batch_size, we've reached the end
 			if batch_count < batch_size:
 				break
 
 			offset += batch_size
-			make_log(f"4D batched fetch: {len(result)} rows so far (offset={offset})", "DEBUG", APP_NAME)
 
-		except (UnicodeDecodeError, Exception) as e:
-			# This batch failed - skip it and try next batch
+		except Exception as e:
 			skipped_batches += 1
 			make_log(f"4D batch at offset={offset} failed, skipping: {e}", "WARNING", APP_NAME)
 			try:
@@ -288,7 +335,6 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, batch_size
 			except Exception:
 				pass
 			offset += batch_size
-			# Safety: stop after too many consecutive failures
 			if skipped_batches > 20:
 				make_log(f"Too many batch failures ({skipped_batches}), stopping", "ERROR", APP_NAME)
 				break
