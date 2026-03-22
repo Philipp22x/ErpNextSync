@@ -195,6 +195,17 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 	max_retries = 10
 
 	for attempt in range(max_retries + 1):
+		# Get a fresh connection for each retry - failed executes corrupt the connection
+		if attempt > 0:
+			try:
+				conn.close()
+			except Exception:
+				pass
+			conn = db_connect(instance=instance)
+			if conn is None:
+				make_log(f"Could not reconnect to 4D for retry attempt {attempt}", "ERROR", APP_NAME)
+				return []
+
 		cursor = conn.cursor()
 
 		if attempt == 0:
@@ -220,7 +231,6 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 					f"(excluded so far: {excluded_columns})", "WARNING", APP_NAME
 				)
 				# Remove the bad column from the SELECT clause
-				# Match the column name as a whole word in the SELECT, with optional comma
 				current_sql = re.sub(
 					r',?\s*\b' + re.escape(bad_col) + r'\b\s*,?', ',', current_sql, count=1
 				)
@@ -229,9 +239,16 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 				current_sql = re.sub(r'SELECT\s+,', 'SELECT ', current_sql)
 				continue
 			else:
-				# Can't extract column name or too many retries - fall back to batched
+				# Can't extract column name or too many retries - fall back to batched with fresh conn
 				make_log(f"4D execute failed, falling back to batched fetch: {e}", "WARNING", APP_NAME)
-				return _fetch_data_4d_batched(conn, current_sql, instance, excluded_columns)
+				try:
+					conn.close()
+				except Exception:
+					pass
+				fresh_conn = db_connect(instance=instance)
+				if fresh_conn is None:
+					return []
+				return _fetch_data_4d_batched(fresh_conn, current_sql, instance, excluded_columns)
 
 		# Execute succeeded
 		break
@@ -329,11 +346,20 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 
 		except Exception as e:
 			skipped_batches += 1
-			make_log(f"4D batch at offset={offset} failed, skipping: {e}", "WARNING", APP_NAME)
+			make_log(f"4D batch at offset={offset} failed, reconnecting: {e}", "WARNING", APP_NAME)
 			try:
 				cursor.close()
 			except Exception:
 				pass
+			# Get fresh connection - the old one is likely corrupt
+			try:
+				conn.close()
+			except Exception:
+				pass
+			conn = db_connect(instance=instance)
+			if conn is None:
+				make_log(f"Could not reconnect to 4D after batch failure", "ERROR", APP_NAME)
+				break
 			offset += batch_size
 			if skipped_batches > 20:
 				make_log(f"Too many batch failures ({skipped_batches}), stopping", "ERROR", APP_NAME)
