@@ -91,7 +91,7 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                     make_log(f"Mapping {obj_id} already exists", "INFO", controller.APP_NAME)
 
                 else:
-                    job_id: str = f"pes:{frappe.get_value("Sync Instance", instance, "runs")}:{uuid.uuid4().hex[:16]}"
+                    job_id: str = f"pes:{frappe.get_value('Sync Instance', instance, 'runs')}:{uuid.uuid4().hex[:16]}"
 
                     # set background job for import object
                     frappe.enqueue(
