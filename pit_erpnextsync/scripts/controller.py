@@ -186,22 +186,17 @@ def _fetch_data_mssql(conn: pymssql.Connection, sql: str, instance: str) -> list
 def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 	"""Fetch data from 4D database and convert to dict format.
 	Fetches row-by-row to handle problematic rows gracefully.
-	If execute fails with encoding errors, retries with smaller page size."""
+	If execute fails with encoding errors, falls back to batched fetching with LIMIT/OFFSET."""
 	cursor = conn.cursor()
 
-	make_log(f"4D SQL execute: {sql[:500]}", "DEBUG", APP_NAME)
+	make_log(f"4D SQL execute: {sql[:500]}", "INFO", APP_NAME)
 
-	# Try with progressively smaller page sizes if encoding errors occur
-	for page_size in [100, 50, 10]:
-		try:
-			cursor = conn.cursor()
-			cursor.execute(query=sql, page_size=page_size)
-			break
-		except UnicodeDecodeError as e:
-			make_log(f"4D execute failed with page_size={page_size}: {e}", "WARNING", APP_NAME)
-			if page_size == 10:
-				raise
-			continue
+	try:
+		cursor.execute(query=sql)
+	except (UnicodeDecodeError, Exception) as e:
+		make_log(f"4D execute failed, falling back to batched fetch: {e}", "WARNING", APP_NAME)
+		cursor.close()
+		return _fetch_data_4d_batched(conn, sql, instance)
 
 	if cursor.row_count == 0:
 		cursor.close()
@@ -231,6 +226,75 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 		make_log(f"Fetched {len(result)} rows, skipped {skipped} problematic rows for {instance}", "WARNING", APP_NAME)
 
 	cursor.close()
+	return result
+
+
+def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, batch_size: int = 500) -> list:
+	"""Fallback: fetch data from 4D in batches using LIMIT/OFFSET to work around
+	python4DBI protocol errors on large result sets."""
+	result: list = []
+	offset: int = 0
+	skipped_batches: int = 0
+
+	# Strip trailing whitespace/semicolons and any existing LIMIT clause
+	base_sql = sql.strip().rstrip(";")
+	import re
+	base_sql = re.sub(r'\s+LIMIT\s+\d+\s*$', '', base_sql, flags=re.IGNORECASE)
+
+	make_log(f"4D batched fetch starting with batch_size={batch_size}", "INFO", APP_NAME)
+
+	while True:
+		batch_sql = f"{base_sql} LIMIT {batch_size} OFFSET {offset}"
+		try:
+			cursor = conn.cursor()
+			cursor.execute(query=batch_sql)
+
+			if cursor.row_count == 0:
+				cursor.close()
+				break
+
+			headers = [desc[0] for desc in cursor.description]
+
+			batch_count = 0
+			while True:
+				try:
+					row = cursor.fetch_one()
+					if row is None:
+						break
+					row_dict: dict = {}
+					for i, value in enumerate(row):
+						row_dict[headers[i]] = value
+					result.append(row_dict)
+					batch_count += 1
+				except Exception as e:
+					make_log(f"Skipped row at offset {offset}: {e}", "WARNING", APP_NAME)
+					continue
+
+			cursor.close()
+
+			# If we got fewer rows than batch_size, we've reached the end
+			if batch_count < batch_size:
+				break
+
+			offset += batch_size
+			make_log(f"4D batched fetch: {len(result)} rows so far (offset={offset})", "DEBUG", APP_NAME)
+
+		except (UnicodeDecodeError, Exception) as e:
+			# This batch failed - skip it and try next batch
+			skipped_batches += 1
+			make_log(f"4D batch at offset={offset} failed, skipping: {e}", "WARNING", APP_NAME)
+			try:
+				cursor.close()
+			except Exception:
+				pass
+			offset += batch_size
+			# Safety: stop after too many consecutive failures
+			if skipped_batches > 20:
+				make_log(f"Too many batch failures ({skipped_batches}), stopping", "ERROR", APP_NAME)
+				break
+			continue
+
+	make_log(f"4D batched fetch complete: {len(result)} rows, {skipped_batches} skipped batches", "INFO", APP_NAME)
 	return result
 
 

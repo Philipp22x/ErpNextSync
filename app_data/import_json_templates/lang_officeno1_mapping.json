@@ -640,10 +640,6 @@
                         "sl_column": "BEZEICHNUNG"
                     },
                     {
-                        "fieldname": "description",
-                        "sl_column": "ANGEBOTSTEXT"
-                    },
-                    {
                         "fieldname": "item_group",
                         "sl_column": "WARENGRUPPE"
                     },
@@ -710,6 +706,10 @@
                                 "default": "EAN"
                             }
                         ]
+                    },
+                    {
+                        "fieldname": "weight_per_unit",
+                        "sl_column": "GEWICHT_BRUTTO"
                     },
                     {
                         "fieldname": "disabled",
