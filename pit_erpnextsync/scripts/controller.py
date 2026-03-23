@@ -239,15 +239,15 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			if col_match and attempt < max_retries:
 				bad_col = col_match.group(1).strip(" !")
 				
-				# NEVER exclude the primary key column - it's required for the import
+				# NEVER exclude the primary key column - try batched fetch instead
 				if primary_key and bad_col == primary_key:
 					make_log(
-						f"4D column '{bad_col}' is the PRIMARY KEY and cannot be excluded. "
-						f"Cannot fetch data without primary key. Aborting.",
-						"ERROR",
+						f"4D column '{bad_col}' is the PRIMARY KEY with unsupported type. "
+						f"Falling back to batched fetch to skip problematic rows individually.",
+						"WARNING",
 						APP_NAME
 					)
-					return []
+					break  # Break out of retry loop to fall back to batched
 				
 				if bad_col not in excluded_columns:
 					excluded_columns.append(bad_col)
@@ -431,15 +431,19 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 			if col_match:
 				bad_col = col_match.group(1).strip(" !")
 				
-				# NEVER exclude the primary key (order_col) - it's required for pagination and import
+				# NEVER exclude the primary key (order_col) - skip this batch and continue with next
 				if bad_col == order_col:
 					make_log(
-						f"4D column '{bad_col}' is the PRIMARY KEY and cannot be excluded. "
-						f"Cannot fetch data without primary key. Aborting batch fetch.",
-						"ERROR",
+						f"4D column '{bad_col}' is the PRIMARY KEY with unsupported type in this batch. "
+						f"Skipping batch and continuing with next.",
+						"WARNING",
 						APP_NAME
 					)
-					break
+					# Advance last_value to skip this problematic batch
+					if result:
+						last_value = result[-1].get(order_col, last_value)
+					consecutive_failures = 0
+					continue
 				
 				if bad_col not in excluded_columns:
 					excluded_columns.append(bad_col)

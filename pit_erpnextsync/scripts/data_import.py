@@ -166,6 +166,19 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
                 # if error code
                 if new_doc_result["code"] in [101, 103]:
+                    # Log that this doctype was skipped but don't abort whole import
+                    make_log(
+                        f"Skipping {mapped_doctype['doctype']} creation for {obj_id} due to validation/error (code {new_doc_result['code']})",
+                        "WARNING",
+                        controller.APP_NAME
+                    )
+                    # Add a placeholder mapping entry so we don't retry this record indefinitely
+                    obj_mapping_data.append([{
+                        "mapping_doctype": mapped_doctype["doctype"],
+                        "fieldname": "_skipped",
+                        "selectline_column": "_error_code_" + str(new_doc_result["code"]),
+                        "error": True
+                    }])
                     continue
 
                 if new_doc_result["code"] == 102:
