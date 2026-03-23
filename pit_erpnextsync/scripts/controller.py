@@ -285,7 +285,16 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 	if excluded_columns:
 		make_log(f"Excluded columns with unsupported types: {excluded_columns} (values set to None)", "WARNING", APP_NAME)
 
-	cursor.close()
+	try:
+		cursor.close()
+	except Exception:
+		pass  # Don't lose fetched data because cursor.close() fails
+
+	try:
+		conn.close()
+	except Exception:
+		pass
+
 	return result
 
 
