@@ -201,6 +201,12 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 	current_sql = sql
 	max_retries = 10
 
+	# Extract primary key from ORDER BY - never exclude it
+	pk_match = re.search(r'ORDER\s+BY\s+(\S+)', sql, re.IGNORECASE)
+	primary_key = pk_match.group(1) if pk_match else None
+	if primary_key:
+		make_log(f"4D primary key detected: {primary_key} - will not be excluded", "DEBUG", APP_NAME)
+
 	for attempt in range(max_retries + 1):
 		# Get a fresh connection for each retry - failed executes corrupt the connection
 		if attempt > 0:
@@ -232,6 +238,17 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			col_match = re.search(r'column\s+(\S+)', error_msg)
 			if col_match and attempt < max_retries:
 				bad_col = col_match.group(1).strip(" !")
+				
+				# NEVER exclude the primary key column - it's required for the import
+				if primary_key and bad_col == primary_key:
+					make_log(
+						f"4D column '{bad_col}' is the PRIMARY KEY and cannot be excluded. "
+						f"Cannot fetch data without primary key. Aborting.",
+						"ERROR",
+						APP_NAME
+					)
+					return []
+				
 				if bad_col not in excluded_columns:
 					excluded_columns.append(bad_col)
 				make_log(
@@ -413,6 +430,17 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 			col_match = re.search(r'column\s+(\S+)', error_msg)
 			if col_match:
 				bad_col = col_match.group(1).strip(" !")
+				
+				# NEVER exclude the primary key (order_col) - it's required for pagination and import
+				if bad_col == order_col:
+					make_log(
+						f"4D column '{bad_col}' is the PRIMARY KEY and cannot be excluded. "
+						f"Cannot fetch data without primary key. Aborting batch fetch.",
+						"ERROR",
+						APP_NAME
+					)
+					break
+				
 				if bad_col not in excluded_columns:
 					excluded_columns.append(bad_col)
 					make_log(
