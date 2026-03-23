@@ -225,7 +225,8 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			make_log(f"4D SQL execute: {current_sql[:500]}", "INFO", APP_NAME)
 
 		try:
-			cursor.execute(query=current_sql)
+			# Use small page_size to avoid utf-16 encoding errors on large result sets
+			cursor.execute(query=current_sql, page_size=10)
 		except Exception as e:
 			error_msg = str(e)
 			try:
@@ -386,7 +387,8 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 
 		try:
 			cursor = conn.cursor()
-			cursor.execute(query=batch_sql)
+			# Use small page_size to avoid utf-16 encoding errors on large result sets
+			cursor.execute(query=batch_sql, page_size=10)
 
 			if cursor.row_count == 0:
 				cursor.close()
