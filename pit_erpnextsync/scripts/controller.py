@@ -819,14 +819,15 @@ def make_sql_string(
         ORDER BY {order_by}
         """
 	else:  # p4d - 4D SQL uses LIMIT after ORDER BY
-		# Use table alias 't' to avoid ambiguity when column name matches table name
-		# and to safely reference reserved keywords as column names (e.g. TEXT)
-		col_string: str = ",\n".join([f"t.{col}" for col in col_to_fetch])
+		# Use table alias 't' and bracket-quote all column names to avoid:
+		# - ambiguity when column name matches table name (e.g. ZAHLUNGSBED.ZAHLUNGSBED)
+		# - reserved keyword conflicts (e.g. TEXT)
+		col_string: str = ",\n".join([f"t.[{col}]" for col in col_to_fetch])
 		fetch_sql: str = f"""
         SELECT {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name} t
         {query_filter_command}
-        ORDER BY t.{order_by}
+        ORDER BY t.[{order_by}]
         {limit_str}
         """
 
