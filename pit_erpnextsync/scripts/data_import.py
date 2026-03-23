@@ -74,7 +74,11 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                 make_log(f"No data fetched: {fetched_data}", "ERROR", controller.APP_NAME)
                 continue
 
-            make_log(f"Fetched data: {fetched_data}", "ERROR", controller.APP_NAME)
+            make_log(
+                f"Fetched {len(fetched_data)} rows for {row.type} from {row.table_name}",
+                "INFO",
+                controller.APP_NAME,
+            )
 
             for fetched_obj in fetched_data:
                 
@@ -855,6 +859,5 @@ def get_fields_to_import(mapping: list) -> list:
 
     except Exception as e:
         make_log(f"Could not get fields for import: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
-
 
 
