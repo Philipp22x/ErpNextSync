@@ -30,6 +30,20 @@ def test3():
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
 def start_import(instance: str, top: int, types_str: str = "") -> None:
+    """Entry point - enqueues the actual import as a long-running background job."""
+    frappe.enqueue(
+        "pit_erpnextsync.scripts.data_import._run_import",
+        queue="long",
+        timeout=3600,
+        job_id=f"pes_import:{instance}:{uuid.uuid4().hex[:8]}",
+        instance=instance,
+        top=top,
+        types_str=types_str
+    )
+
+
+def _run_import(instance: str, top: int, types_str: str = "") -> None:
+    """Actual import logic - runs as a long background job."""
 
     # before import hooks
     controller.trigger_hooks(instance=instance, before_after="before", import_update="import")
@@ -80,7 +94,10 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                 controller.APP_NAME,
             )
 
-            for fetched_obj in fetched_data:
+            # Cache the runs value - avoid repeated DB queries for every row
+            instance_runs = frappe.get_value('Sync Instance', instance, 'runs')
+
+            for idx, fetched_obj in enumerate(fetched_data):
                 
                 # get new mapping id
                 obj_id: str = controller.create_object_id(
@@ -92,10 +109,10 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                 # check if mapping already exists
                 mapping_exists: str | None = controller.check_mapping_exists(obj_id)
                 if mapping_exists:
-                    make_log(f"Mapping {obj_id} already exists", "INFO", controller.APP_NAME)
+                    continue
 
                 else:
-                    job_id: str = f"pes:{frappe.get_value('Sync Instance', instance, 'runs')}:{uuid.uuid4().hex[:16]}"
+                    job_id: str = f"pes:{instance_runs}:{uuid.uuid4().hex[:16]}"
 
                     # set background job for import object
                     frappe.enqueue(
@@ -110,6 +127,10 @@ def start_import(instance: str, top: int, types_str: str = "") -> None:
                     )
 
                     job_ids.append(job_id)
+
+                # Log progress every 1000 rows
+                if (idx + 1) % 1000 == 0:
+                    make_log(f"Enqueued {idx + 1}/{len(fetched_data)} jobs for {row.type}", "INFO", controller.APP_NAME)
 
             
 
