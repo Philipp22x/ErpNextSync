@@ -227,11 +227,11 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "link_doctype",
-                                "default": "Customer"
+                                "default": "Supplier"
                             },
                             {
                                 "table_fieldname": "link_name",
-                                "sl_column": "KUNDENNR",
+                                "sl_column": "LIEFERANTENNR",
                                 "force_str_type": 1,
                                 "reqd": 1
                             }

@@ -190,6 +190,13 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 	the problematic column and retries (up to 10 columns)."""
 	import re
 
+	def _cleanup_select_sql(sql_text: str) -> str:
+		sql_text = re.sub(r',\s*,', ',', sql_text)
+		sql_text = re.sub(r'SELECT\s+,', 'SELECT ', sql_text, flags=re.IGNORECASE)
+		sql_text = re.sub(r',\s*FROM\b', ' FROM', sql_text, flags=re.IGNORECASE)
+		sql_text = re.sub(r',\s*ORDER\s+BY\b', ' ORDER BY', sql_text, flags=re.IGNORECASE)
+		return sql_text
+
 	excluded_columns: list = []
 	current_sql = sql
 	max_retries = 10
@@ -225,7 +232,8 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			col_match = re.search(r'column\s+(\S+)', error_msg)
 			if col_match and attempt < max_retries:
 				bad_col = col_match.group(1).strip(" !")
-				excluded_columns.append(bad_col)
+				if bad_col not in excluded_columns:
+					excluded_columns.append(bad_col)
 				make_log(
 					f"4D column '{bad_col}' has unsupported data type, excluding and retrying "
 					f"(excluded so far: {excluded_columns})", "WARNING", APP_NAME
@@ -234,9 +242,7 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 				current_sql = re.sub(
 					r',?\s*\b' + re.escape(bad_col) + r'\b\s*,?', ',', current_sql, count=1
 				)
-				# Clean up double commas or leading/trailing commas in SELECT
-				current_sql = re.sub(r',\s*,', ',', current_sql)
-				current_sql = re.sub(r'SELECT\s+,', 'SELECT ', current_sql)
+				current_sql = _cleanup_select_sql(current_sql)
 				continue
 			else:
 				# Can't extract column name or too many retries - fall back to batched with fresh conn
@@ -254,7 +260,10 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 		break
 
 	if cursor.row_count == 0:
-		cursor.close()
+		try:
+			cursor.close()
+		except Exception:
+			pass
 		return []
 
 	headers = [desc[0] for desc in cursor.description]
@@ -303,6 +312,13 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 	Uses WHERE pk > last_pk with LIMIT for each batch."""
 	import re
 
+	def _cleanup_select_sql(sql_text: str) -> str:
+		sql_text = re.sub(r',\s*,', ',', sql_text)
+		sql_text = re.sub(r'SELECT\s+,', 'SELECT ', sql_text, flags=re.IGNORECASE)
+		sql_text = re.sub(r',\s*FROM\b', ' FROM', sql_text, flags=re.IGNORECASE)
+		sql_text = re.sub(r',\s*ORDER\s+BY\b', ' ORDER BY', sql_text, flags=re.IGNORECASE)
+		return sql_text
+
 	if excluded_columns is None:
 		excluded_columns = []
 
@@ -310,6 +326,8 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 	skipped_batches: int = 0
 	consecutive_failures: int = 0
 	batch_size = 500
+	limit_match = re.search(r'\bLIMIT\s+(\d+)\b', sql, re.IGNORECASE)
+	max_total = int(limit_match.group(1)) if limit_match else None
 
 	# Extract ORDER BY column (used as pagination cursor)
 	order_match = re.search(r'ORDER\s+BY\s+(\S+)', sql, re.IGNORECASE)
@@ -328,6 +346,9 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 
 	last_value = None
 	while True:
+		if max_total is not None and len(result) >= max_total:
+			break
+
 		# Build batch SQL with cursor-based pagination and LIMIT
 		if last_value is not None:
 			where_clause = f"{order_col} > '{last_value}'"
@@ -342,7 +363,9 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 		else:
 			batch_sql = base_sql
 
-		batch_sql = f"{batch_sql} LIMIT {batch_size}"
+		remaining = (max_total - len(result)) if max_total is not None else batch_size
+		effective_limit = min(batch_size, remaining) if max_total is not None else batch_size
+		batch_sql = f"{batch_sql} LIMIT {effective_limit}"
 
 		try:
 			cursor = conn.cursor()
@@ -385,6 +408,25 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 			skipped_batches += 1
 			consecutive_failures += 1
 			make_log(f"4D batch failed (last_value={last_value}), reconnecting: {e}", "WARNING", APP_NAME)
+
+			error_msg = str(e)
+			col_match = re.search(r'column\s+(\S+)', error_msg)
+			if col_match:
+				bad_col = col_match.group(1).strip(" !")
+				if bad_col not in excluded_columns:
+					excluded_columns.append(bad_col)
+					make_log(
+						f"4D column '{bad_col}' has unsupported data type in batch fetch, excluding and retrying "
+						f"(excluded so far: {excluded_columns})",
+						"WARNING",
+						APP_NAME,
+					)
+					base_sql = re.sub(
+						r',?\s*\b' + re.escape(bad_col) + r'\b\s*,?', ',', base_sql, count=1
+					)
+					base_sql = _cleanup_select_sql(base_sql)
+					consecutive_failures = 0
+
 			try:
 				cursor.close()
 			except Exception:
