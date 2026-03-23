@@ -225,8 +225,7 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			make_log(f"4D SQL execute: {current_sql[:500]}", "INFO", APP_NAME)
 
 		try:
-			# Use small page_size to avoid utf-16 encoding errors on large result sets
-			cursor.execute(query=current_sql, page_size=10)
+			cursor.execute(query=current_sql)
 		except Exception as e:
 			error_msg = str(e)
 			try:
@@ -343,7 +342,7 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 	result: list = []
 	skipped_batches: int = 0
 	consecutive_failures: int = 0
-	batch_size = 500
+	batch_size = 50
 	limit_match = re.search(r'\bLIMIT\s+(\d+)\b', sql, re.IGNORECASE)
 	max_total = int(limit_match.group(1)) if limit_match else None
 
@@ -387,8 +386,7 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 
 		try:
 			cursor = conn.cursor()
-			# Use small page_size to avoid utf-16 encoding errors on large result sets
-			cursor.execute(query=batch_sql, page_size=10)
+			cursor.execute(query=batch_sql)
 
 			if cursor.row_count == 0:
 				cursor.close()
@@ -473,7 +471,7 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 			if conn is None:
 				make_log("Could not reconnect to 4D after batch failure", "ERROR", APP_NAME)
 				break
-			if consecutive_failures > 3:
+			if consecutive_failures > 10:
 				make_log(f"Too many consecutive batch failures ({consecutive_failures}), stopping", "ERROR", APP_NAME)
 				break
 			continue
