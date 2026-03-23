@@ -46,6 +46,11 @@
             },
             {
                 "doctype": "Address",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "address_line1",
@@ -68,7 +73,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "link_doctype",
-                                "default": "Customer"
+                                "default": "Customer",
+                                "reqd": 1
                             },
                             {
                                 "table_fieldname": "link_name",
@@ -92,6 +98,11 @@
         "mapping": [
             {
                 "doctype": "Contact",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "first_name",
@@ -288,6 +299,11 @@
             },
             {
                 "doctype": "Address",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "address_title",
@@ -338,6 +354,11 @@
         "mapping": [
             {
                 "doctype": "Contact",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "first_name",
@@ -515,6 +536,11 @@
             },
             {
                 "doctype": "Item",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "item_code",
