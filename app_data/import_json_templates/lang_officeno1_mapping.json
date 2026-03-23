@@ -1,6 +1,75 @@
 [
     {
         "idx": 1,
+        "type": "Payment Term",
+        "doc_type": "Payment Term",
+        "table_name": "ZAHLUNGSBED",
+        "primary_key": "PRIMARYKEY",
+        "mapping": [
+            {
+                "doctype": "Payment Term",
+                "reqd": 1,
+                "fields": [
+                    {
+                        "fieldname": "payment_term_name",
+                        "sl_column": "ZAHLUNGSBED",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "invoice_portion",
+                        "default": "100"
+                    },
+                    {
+                        "fieldname": "mode_of_payment",
+                        "default": "Überweisung"
+                    },
+                    {
+                        "fieldname": "credit_days",
+                        "sl_column": "NETTOTAGE"
+                    },
+                    {
+                        "fieldname": "discount_validity",
+                        "sl_column": "SKONTOTAGE"
+                    },
+                    {
+                        "fieldname": "discount",
+                        "sl_column": "SKONTO"
+                    },
+                    {
+                        "fieldname": "description",
+                        "sl_column": "TEXT"
+                    },
+                    {
+                        "fieldname": "discount_type",
+                        "default": "Percentage"
+                    }
+                ]
+            },
+            {
+                "doctype": "Payment Term Template",
+                "reqd": 1,
+                "fields": [
+                    {
+                        "fieldname": "template_name",
+                        "sl_column": "ZAHLUNGSBED",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "terms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "payment_term",
+                                "sl_column": "ZAHLUNGSBED",
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 2,
         "type": "Customer",
         "doc_type": "Customer",
         "table_name": "KUNDEN",
@@ -39,8 +108,8 @@
                         "sl_column": "LAND"
                     },
                     {
-                        "fieldname": "customer_group",
-                        "default": "Commercial"
+                        "fieldname": "payment_terms",
+                        "sl_column": "ZAHLUNGSBED"
                     }
                 ]
             },
@@ -52,6 +121,10 @@
                     }
                 ],
                 "fields": [
+                    {
+                        "fieldname": "address_title",
+                        "sl_column": "NAMEZEILE1"
+                    },
                     {
                         "fieldname": "address_line1",
                         "sl_column": "STRASSE"
@@ -89,7 +162,7 @@
         ]
     },
     {
-        "idx": 2,
+        "idx": 3,
         "type": "AdditionalContacts",
         "doc_type": "Contact",
         "table_name": "AnsprechKunde",
@@ -253,7 +326,7 @@
         ]
     },
     {
-        "idx": 3,
+        "idx": 4,
         "type": "Supplier",
         "doc_type": "Supplier",
         "table_name": "Lieferant",
@@ -294,6 +367,10 @@
                     {
                         "fieldname": "supplier_group",
                         "default": "All Supplier Groups"
+                    },
+                    {
+                        "fieldname": "payment_terms",
+                        "sl_column": "ZAHLUNGSBED"
                     }
                 ]
             },
@@ -345,7 +422,7 @@
         ]
     },
     {
-        "idx": 4,
+        "idx": 5,
         "type": "SupplierContacts",
         "doc_type": "Contact",
         "table_name": "AnsprechLiefera",
@@ -509,7 +586,7 @@
         ]
     },
     {
-        "idx": 5,
+        "idx": 6,
         "type": "Item",
         "doc_type": "Item",
         "table_name": "Artikel",
