@@ -290,8 +290,8 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 
 
 def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_columns: list = None) -> list:
-	"""Fallback: fetch data from 4D in batches using SELECT TOP with cursor-based pagination.
-	4D SQL does not support LIMIT/OFFSET, so we paginate using WHERE pk > last_pk."""
+	"""Fallback: fetch data from 4D in batches using cursor-based pagination.
+	Uses WHERE pk > last_pk with LIMIT for each batch."""
 	import re
 
 	if excluded_columns is None:
@@ -299,6 +299,7 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 
 	result: list = []
 	skipped_batches: int = 0
+	consecutive_failures: int = 0
 	batch_size = 500
 
 	# Extract ORDER BY column (used as pagination cursor)
@@ -308,19 +309,17 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 		return []
 	order_col = order_match.group(1)
 
-	# Extract existing WHERE clause and FROM/table
+	# Extract existing WHERE clause
 	has_where = bool(re.search(r'\bWHERE\b', sql, re.IGNORECASE))
 
-	# Strip any existing TOP clause
-	base_sql = re.sub(r'\bTOP\s+\d+\b', '', sql, flags=re.IGNORECASE)
-	# Inject TOP into SELECT
-	base_sql = re.sub(r'SELECT\s+', f'SELECT TOP {batch_size} ', base_sql, count=1, flags=re.IGNORECASE)
+	# Strip any existing LIMIT clause from base SQL
+	base_sql = re.sub(r'\s+LIMIT\s+\d+\s*$', '', sql.strip().rstrip(";"), flags=re.IGNORECASE)
 
 	make_log(f"4D batched fetch starting with batch_size={batch_size}, order_col={order_col}", "INFO", APP_NAME)
 
 	last_value = None
 	while True:
-		# Build batch SQL with cursor-based pagination
+		# Build batch SQL with cursor-based pagination and LIMIT
 		if last_value is not None:
 			where_clause = f"{order_col} > '{last_value}'"
 			if has_where:
@@ -333,6 +332,8 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 				)
 		else:
 			batch_sql = base_sql
+
+		batch_sql = f"{batch_sql} LIMIT {batch_size}"
 
 		try:
 			cursor = conn.cursor()
@@ -357,7 +358,6 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 						row_dict[col] = None
 					result.append(row_dict)
 					batch_count += 1
-					# Track last value for cursor pagination
 					if order_col in row_dict:
 						last_value = row_dict[order_col]
 				except Exception as e:
@@ -365,14 +365,16 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 					continue
 
 			cursor.close()
+			consecutive_failures = 0  # Reset on success
 
 			if batch_count < batch_size:
 				break
 
-			make_log(f"4D batched fetch: {len(result)} rows so far (last_value={last_value})", "DEBUG", APP_NAME)
+			make_log(f"4D batched fetch: {len(result)} rows so far (last_value={last_value})", "INFO", APP_NAME)
 
 		except Exception as e:
 			skipped_batches += 1
+			consecutive_failures += 1
 			make_log(f"4D batch failed (last_value={last_value}), reconnecting: {e}", "WARNING", APP_NAME)
 			try:
 				cursor.close()
@@ -386,14 +388,16 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 			if conn is None:
 				make_log("Could not reconnect to 4D after batch failure", "ERROR", APP_NAME)
 				break
-			# Skip ahead - advance last_value to skip problematic batch
-			# This may miss some rows but prevents infinite loops
-			if skipped_batches > 20:
-				make_log(f"Too many batch failures ({skipped_batches}), stopping", "ERROR", APP_NAME)
+			if consecutive_failures > 3:
+				make_log(f"Too many consecutive batch failures ({consecutive_failures}), stopping", "ERROR", APP_NAME)
 				break
 			continue
 
 	make_log(f"4D batched fetch complete: {len(result)} rows, {skipped_batches} skipped batches", "INFO", APP_NAME)
+	try:
+		conn.close()
+	except Exception:
+		pass
 	return result
 
 
@@ -934,14 +938,14 @@ def make_sql_string(
 	# get driver type for SQL syntax differences
 	driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 
-	# set amount to fetch - both pymssql and python4DBI (4D SQL) use TOP syntax
+	# set amount to fetch
 	top_str: str = ""
 	limit_str: str = ""
 	if top > 0:
 		if driver == "pymssql":
 			top_str = f"TOP ({top})"
-		else:  # python4DBI - 4D SQL also uses TOP, not LIMIT
-			top_str = f"TOP {top}"
+		else:  # python4DBI - 4D SQL uses LIMIT (after ORDER BY)
+			limit_str = f"LIMIT {top}"
 
 	# handle filters if exists in mapping
 	query_filter: str = mapping_row_data.get("query_filter")
@@ -969,12 +973,13 @@ def make_sql_string(
         {query_filter_command}
         ORDER BY {order_by}
         """
-	else:  # python4DBI - 4D SQL uses TOP like MSSQL
+	else:  # python4DBI - 4D SQL uses LIMIT after ORDER BY
 		fetch_sql: str = f"""
-        SELECT {top_str} {col_string}
+        SELECT {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}
         {query_filter_command}
         ORDER BY {order_by}
+        {limit_str}
         """
 
 	make_log(f"SQL string:{fetch_sql}", "INFO", APP_NAME)
