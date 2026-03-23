@@ -48,10 +48,6 @@
                 "doctype": "Address",
                 "fields": [
                     {
-                        "fieldname": "address_title",
-                        "sl_column": "NAMEZEILE1"
-                    },
-                    {
                         "fieldname": "address_line1",
                         "sl_column": "STRASSE"
                     },
@@ -83,77 +79,6 @@
                         ]
                     }
                 ]
-            },
-            {
-                "doctype": "Contact",
-                "fields": [
-                    {
-                        "fieldname": "first_name",
-                        "sl_column": "ANREDE"
-                    },
-                    {
-                        "fieldname": "last_name",
-                        "sl_column": "BEZUGSPERSON"
-                    },
-                    {
-                        "fieldname": "is_primary_contact",
-                        "default": 1
-                    },
-                    {
-                        "fieldname": "email_ids",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "email_id",
-                                "sl_column": "EMAIL"
-                            },
-                            {
-                                "table_fieldname": "is_primary",
-                                "default": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "phone_nos",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "phone",
-                                "sl_column": "TELEFON"
-                            },
-                            {
-                                "table_fieldname": "is_primary_phone",
-                                "default": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "phone_nos",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "phone",
-                                "sl_column": "TELEFON2"
-                            },
-                            {
-                                "table_fieldname": "is_primary_mobile_no",
-                                "default": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "links",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "link_doctype",
-                                "default": "Customer"
-                            },
-                            {
-                                "table_fieldname": "link_name",
-                                "get_redis": "erp_customer_id",
-                                "force_str_type": 1,
-                                "reqd": 1
-                            }
-                        ]
-                    }
-                ]
             }
         ]
     },
@@ -163,16 +88,8 @@
         "doc_type": "Contact",
         "table_name": "AnsprechKunde",
         "primary_key": "PRIMARYKEY",
+        "timestamp_column_name": "GEAENDERT_AM",
         "mapping": [
-            {
-                "doctype": "Salutation",
-                "fields": [
-                    {
-                        "fieldname": "salutation",
-                        "sl_column": "ANREDEBRIEF"
-                    }
-                ]
-            },
             {
                 "doctype": "Contact",
                 "fields": [
@@ -186,20 +103,46 @@
                         "reqd": 1
                     },
                     {
-                        "fieldname": "salutation",
-                        "sl_column": "ANREDEBRIEF"
-                    },
-                    {
-                        "fieldname": "designation",
+                        "fieldname": "custom_function",
                         "sl_column": "FUNKTION"
                     },
                     {
-                        "fieldname": "department",
-                        "sl_column": "ABTEILUNG"
+                        "fieldname": "custom_language",
+                        "default": "Deutsch"
+                    },
+                    {
+                        "fieldname": "custom_academic_title",
+                        "default": "TITLE"
+                    },
+                    {
+                        "fieldname": "gender",
+                        "sl_column": "WEIBLICH",
+                        "value_map": {
+                            "True": "Female",
+                            "true": "Female",
+                            "1": "Female",
+                            "False": "Male",
+                            "false": "Male",
+                            "0": "Male"
+                        },
+                        "value_map_default": "Other"
                     },
                     {
                         "fieldname": "is_primary_contact",
                         "default": 0
+                    },
+                    {
+                        "fieldname": "custom_letter_salutations",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "letter_salutation",
+                                "sl_column": "ANREDEBRIEF"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
                     },
                     {
                         "fieldname": "email_ids",
@@ -382,77 +325,6 @@
                         ]
                     }
                 ]
-            },
-            {
-                "doctype": "Contact",
-                "fields": [
-                    {
-                        "fieldname": "first_name",
-                        "sl_column": "ANREDE"
-                    },
-                    {
-                        "fieldname": "last_name",
-                        "sl_column": "ZUHANDEN"
-                    },
-                    {
-                        "fieldname": "is_primary_contact",
-                        "default": 1
-                    },
-                    {
-                        "fieldname": "email_ids",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "email_id",
-                                "sl_column": "EMAIL"
-                            },
-                            {
-                                "table_fieldname": "is_primary",
-                                "default": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "phone_nos",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "phone",
-                                "sl_column": "TELEFON"
-                            },
-                            {
-                                "table_fieldname": "is_primary_phone",
-                                "default": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "phone_nos",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "phone",
-                                "sl_column": "TELEFON2"
-                            },
-                            {
-                                "table_fieldname": "is_primary_mobile_no",
-                                "default": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "links",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "link_doctype",
-                                "default": "Supplier"
-                            },
-                            {
-                                "table_fieldname": "link_name",
-                                "get_redis": "erp_supplier_id",
-                                "force_str_type": 1,
-                                "reqd": 1
-                            }
-                        ]
-                    }
-                ]
             }
         ]
     },
@@ -462,16 +334,8 @@
         "doc_type": "Contact",
         "table_name": "AnsprechLiefera",
         "primary_key": "PRIMARYKEY",
+        "timestamp_column_name": "GEAENDERT_AM",
         "mapping": [
-            {
-                "doctype": "Salutation",
-                "fields": [
-                    {
-                        "fieldname": "salutation",
-                        "sl_column": "ANREDEBRIEF"
-                    }
-                ]
-            },
             {
                 "doctype": "Contact",
                 "fields": [
@@ -485,20 +349,46 @@
                         "reqd": 1
                     },
                     {
-                        "fieldname": "salutation",
-                        "sl_column": "ANREDEBRIEF"
-                    },
-                    {
-                        "fieldname": "designation",
+                        "fieldname": "custom_function",
                         "sl_column": "FUNKTION"
                     },
                     {
-                        "fieldname": "department",
-                        "sl_column": "ABTEILUNG"
+                        "fieldname": "custom_language",
+                        "default": "Deutsch"
+                    },
+                    {
+                        "fieldname": "custom_academic_title",
+                        "default": "TITLE"
+                    },
+                    {
+                        "fieldname": "gender",
+                        "sl_column": "WEIBLICH",
+                        "value_map": {
+                            "True": "Female",
+                            "true": "Female",
+                            "1": "Female",
+                            "False": "Male",
+                            "false": "Male",
+                            "0": "Male"
+                        },
+                        "value_map_default": "Other"
                     },
                     {
                         "fieldname": "is_primary_contact",
                         "default": 0
+                    },
+                    {
+                        "fieldname": "custom_letter_salutations",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "letter_salutation",
+                                "sl_column": "ANREDEBRIEF"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
                     },
                     {
                         "fieldname": "email_ids",
@@ -583,11 +473,11 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "link_doctype",
-                                "default": "Supplier"
+                                "default": "Customer"
                             },
                             {
                                 "table_fieldname": "link_name",
-                                "sl_column": "LIEFERANTENNR",
+                                "sl_column": "KUNDENNR",
                                 "force_str_type": 1,
                                 "reqd": 1
                             }
@@ -710,10 +600,6 @@
                                 "default": "EAN"
                             }
                         ]
-                    },
-                    {
-                        "fieldname": "weight_per_unit",
-                        "sl_column": "GEWICHT_BRUTTO"
                     },
                     {
                         "fieldname": "disabled",

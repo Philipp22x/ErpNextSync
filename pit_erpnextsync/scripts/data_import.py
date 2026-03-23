@@ -307,6 +307,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                 except Exception as e:
                     make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
 
+            # value_map - translate source values to target values
+            if field.get("value_map") and field_value is not None:
+                field_value = field["value_map"].get(str(field_value), field.get("value_map_default", field_value))
+
             # check if field value is empty and reqd
             if field_value in ["", None] and field.get("reqd") == 1:
                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
@@ -441,6 +445,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         except Exception as e:
                                             make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
 
+                                    # value_map - translate source values to target values
+                                    if table_field.get("value_map") and field_value is not None:
+                                        field_value = table_field["value_map"].get(str(field_value), table_field.get("value_map_default", field_value))
+
                                     # check if field value is empty and reqd
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
                                         if doc_is_reqd in [0, None]:
@@ -550,6 +558,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         make_log(f"Redis cache miss for key '{redis_key}', using original value", "INFO", controller.APP_NAME)
                                 except Exception as e:
                                     make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+
+                            # value_map - translate source values to target values
+                            if table_field.get("value_map") and field_value is not None:
+                                field_value = table_field["value_map"].get(str(field_value), table_field.get("value_map_default", field_value))
 
                             # check if field value is empty and reqd
                             if field_value in ["", None] and field.get("reqd") == 1:
