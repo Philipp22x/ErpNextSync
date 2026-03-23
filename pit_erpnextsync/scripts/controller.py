@@ -219,7 +219,9 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 			make_log(f"4D SQL execute: {current_sql[:500]}", "INFO", APP_NAME)
 
 		try:
-			cursor.execute(query=current_sql)
+			# Use a very small page_size for 4D to avoid protocol truncation/encoding errors
+			# seen with larger pages on problematic datasets.
+			cursor.execute(query=current_sql, page_size=1)
 		except Exception as e:
 			error_msg = str(e)
 			try:
@@ -369,7 +371,8 @@ def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_c
 
 		try:
 			cursor = conn.cursor()
-			cursor.execute(query=batch_sql)
+			# Keep page_size tiny in batched mode too; avoids utf-16 truncation errors.
+			cursor.execute(query=batch_sql, page_size=1)
 
 			if cursor.row_count == 0:
 				cursor.close()
