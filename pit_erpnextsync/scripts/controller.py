@@ -3,10 +3,10 @@ from pprint import pprint
 
 import frappe
 import pymssql
+import p4d
 from frappe.model.document import Document
 from frappe.utils.background_jobs import get_jobs, get_queue, get_redis_conn
 from pit_erpnext.scripts.logger import make_log
-from python4DBI.python4DBI import python4DBI
 from rq.registry import FailedJobRegistry, FinishedJobRegistry
 
 # constants
@@ -14,7 +14,7 @@ APP_NAME: str = "pit_erpnextsync"
 DEBUG_LOG_NAME: str = f"{APP_NAME}_DEBUG"
 
 # Type alias for database connection
-db_connection = pymssql.Connection | python4DBI
+db_connection = pymssql.Connection | p4d.py4d_connection
 
 # *## CONNECTION ##################################################################################
 
@@ -40,7 +40,7 @@ def db_connect(instance: str) -> db_connection | None:
 
 	if driver == "pymssql":
 		return _connect_mssql(db_cred, instance)
-	elif driver == "python4DBI":
+	elif driver == "p4d":
 		return _connect_4d(db_cred, instance)
 	else:
 		make_log(f"Unknown driver '{driver}' for instance {instance}", "ERROR", APP_NAME)
@@ -66,11 +66,10 @@ def _connect_mssql(db_cred: dict, instance: str) -> pymssql.Connection | None:
 		return None
 
 
-def _connect_4d(db_cred: dict, instance: str) -> python4DBI | None:
-	"""Connect to 4D database"""
+def _connect_4d(db_cred: dict, instance: str):
+	"""Connect to 4D database using p4d driver"""
 	try:
-		conn = python4DBI()
-		conn.connect(
+		conn = p4d.connect(
 			host=db_cred["server"],
 			port=int(db_cred["port"]),
 			user=db_cred["user"],
@@ -110,14 +109,11 @@ def connection_test(instance: str) -> bool:
 			with conn.cursor() as cur:
 				cur.execute("SELECT 1")
 				cur.fetchone()
-		else:  # python4DBI
-			# For 4D, we can't use SELECT 1 without FROM clause
-			# Instead, check if connection is alive by checking connected() status
-			if hasattr(conn, "connected") and conn.connected():
-				make_log(f"Connection successfully tested for instance: {instance}", "INFO", APP_NAME)
-				return True
-			else:
-				return False
+		else:  # p4d (4D database)
+			# p4d is DB-API 2.0 compliant, test with a simple query
+			cur = conn.cursor()
+			cur.execute("SELECT 1 FROM _USER_SCHEMAS LIMIT 1")
+			cur.close()
 
 		make_log(f"Connection successfully tested for instance: {instance}", "INFO", APP_NAME)
 		return True
@@ -153,7 +149,7 @@ def fetch_data(instance: str, sql: str) -> list | None:
 	try:
 		if driver == "pymssql":
 			return _fetch_data_mssql(conn, sql, instance)
-		else:  # python4DBI
+		else:  # p4d (4D database)
 			return _fetch_data_4d(conn, sql, instance)
 
 	except Exception as e:
@@ -183,122 +179,50 @@ def _fetch_data_mssql(conn: pymssql.Connection, sql: str, instance: str) -> list
 	return fetched
 
 
-def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
-	"""Fetch data from 4D database and convert to dict format.
-	Fetches row-by-row to handle problematic rows gracefully.
-	If execute fails due to unsupported column types, automatically removes
-	the problematic column and retries (up to 10 columns)."""
-	import re
+def _fetch_data_4d(conn, sql: str, instance: str) -> list:
+	"""Fetch data from 4D database using p4d driver.
+	p4d uses a C library (lib4d_sql) which handles encoding better than python4DBI."""
 
-	def _cleanup_select_sql(sql_text: str) -> str:
-		sql_text = re.sub(r',\s*,', ',', sql_text)
-		sql_text = re.sub(r'SELECT\s+,', 'SELECT ', sql_text, flags=re.IGNORECASE)
-		sql_text = re.sub(r',\s*FROM\b', ' FROM', sql_text, flags=re.IGNORECASE)
-		sql_text = re.sub(r',\s*ORDER\s+BY\b', ' ORDER BY', sql_text, flags=re.IGNORECASE)
-		return sql_text
+	make_log(f"4D SQL execute: {sql[:500]}", "INFO", APP_NAME)
 
-	excluded_columns: list = []
-	current_sql = sql
-	max_retries = 10
-
-	# Extract primary key from ORDER BY - never exclude it
-	pk_match = re.search(r'ORDER\s+BY\s+(\S+)', sql, re.IGNORECASE)
-	primary_key = pk_match.group(1) if pk_match else None
-	if primary_key:
-		make_log(f"4D primary key detected: {primary_key} - will not be excluded", "DEBUG", APP_NAME)
-
-	for attempt in range(max_retries + 1):
-		# Get a fresh connection for each retry - failed executes corrupt the connection
-		if attempt > 0:
-			try:
-				conn.close()
-			except Exception:
-				pass
-			conn = db_connect(instance=instance)
-			if conn is None:
-				make_log(f"Could not reconnect to 4D for retry attempt {attempt}", "ERROR", APP_NAME)
-				return []
-
+	try:
 		cursor = conn.cursor()
-
-		if attempt == 0:
-			make_log(f"4D SQL execute: {current_sql[:500]}", "INFO", APP_NAME)
-
-		try:
-			cursor.execute(query=current_sql)
-		except Exception as e:
-			error_msg = str(e)
-			try:
-				cursor.close()
-			except Exception:
-				pass
-
-			# Try to extract problematic column name from error message
-			# Pattern: "Status code XX not supported in data at row NNcolumn COLNAME"
-			col_match = re.search(r'column\s+(\S+)', error_msg)
-			if col_match and attempt < max_retries:
-				bad_col = col_match.group(1).strip(" !")
-				
-				# NEVER exclude the primary key column - try batched fetch instead
-				if primary_key and bad_col == primary_key:
-					make_log(
-						f"4D column '{bad_col}' is the PRIMARY KEY with unsupported type. "
-						f"Falling back to batched fetch to skip problematic rows individually.",
-						"WARNING",
-						APP_NAME
-					)
-					break  # Break out of retry loop to fall back to batched
-				
-				if bad_col not in excluded_columns:
-					excluded_columns.append(bad_col)
-				make_log(
-					f"4D column '{bad_col}' has unsupported data type, excluding and retrying "
-					f"(excluded so far: {excluded_columns})", "WARNING", APP_NAME
-				)
-				# Remove the bad column from the SELECT clause
-				current_sql = re.sub(
-					r',?\s*\b' + re.escape(bad_col) + r'\b\s*,?', ',', current_sql, count=1
-				)
-				current_sql = _cleanup_select_sql(current_sql)
-				continue
-			else:
-				# Can't extract column name or too many retries - fall back to batched with fresh conn
-				make_log(f"4D execute failed, falling back to batched fetch: {e}", "WARNING", APP_NAME)
-				try:
-					conn.close()
-				except Exception:
-					pass
-				fresh_conn = db_connect(instance=instance)
-				if fresh_conn is None:
-					return []
-				return _fetch_data_4d_batched(fresh_conn, current_sql, instance, excluded_columns)
-
-		# Execute succeeded
-		break
-
-	if cursor.row_count == 0:
+		cursor.execute(sql)
+	except Exception as e:
+		make_log(f"4D execute failed: {e}", "ERROR", APP_NAME)
 		try:
 			cursor.close()
 		except Exception:
 			pass
 		return []
 
-	headers = [desc[0] for desc in cursor.description]
+	if cursor.rowcount == 0:
+		try:
+			cursor.close()
+		except Exception:
+			pass
+		return []
+
+	# p4d description returns (name_bytes, type, ...) - name is bytes, decode it
+	headers = []
+	for desc in cursor.description:
+		col_name = desc[0]
+		if isinstance(col_name, bytes):
+			col_name = col_name.decode("utf-8")
+		headers.append(col_name)
+
 	result: list = []
 	skipped: int = 0
 
-	# Fetch row-by-row to skip problematic rows instead of aborting entire fetch
+	# Fetch row-by-row to skip problematic rows
 	while True:
 		try:
-			row = cursor.fetch_one()
+			row = cursor.fetchone()
 			if row is None:
 				break
 			row_dict: dict = {}
 			for i, value in enumerate(row):
 				row_dict[headers[i]] = value
-			# Add excluded columns as None so downstream code doesn't break on missing keys
-			for col in excluded_columns:
-				row_dict[col] = None
 			result.append(row_dict)
 		except Exception as e:
 			skipped += 1
@@ -308,179 +232,14 @@ def _fetch_data_4d(conn: python4DBI, sql: str, instance: str) -> list:
 
 	if skipped > 0:
 		make_log(f"Fetched {len(result)} rows, skipped {skipped} problematic rows for {instance}", "WARNING", APP_NAME)
-	if excluded_columns:
-		make_log(f"Excluded columns with unsupported types: {excluded_columns} (values set to None)", "WARNING", APP_NAME)
+
+	make_log(f"Fetched {len(result)} rows from 4D for {instance}", "INFO", APP_NAME)
 
 	try:
 		cursor.close()
 	except Exception:
-		pass  # Don't lose fetched data because cursor.close() fails
-
-	try:
-		conn.close()
-	except Exception:
 		pass
 
-	return result
-
-
-def _fetch_data_4d_batched(conn: python4DBI, sql: str, instance: str, excluded_columns: list = None) -> list:
-	"""Fallback: fetch data from 4D in batches using cursor-based pagination.
-	Uses WHERE pk > last_pk with LIMIT for each batch."""
-	import re
-
-	def _cleanup_select_sql(sql_text: str) -> str:
-		sql_text = re.sub(r',\s*,', ',', sql_text)
-		sql_text = re.sub(r'SELECT\s+,', 'SELECT ', sql_text, flags=re.IGNORECASE)
-		sql_text = re.sub(r',\s*FROM\b', ' FROM', sql_text, flags=re.IGNORECASE)
-		sql_text = re.sub(r',\s*ORDER\s+BY\b', ' ORDER BY', sql_text, flags=re.IGNORECASE)
-		return sql_text
-
-	if excluded_columns is None:
-		excluded_columns = []
-
-	result: list = []
-	skipped_batches: int = 0
-	consecutive_failures: int = 0
-	batch_size = 50
-	limit_match = re.search(r'\bLIMIT\s+(\d+)\b', sql, re.IGNORECASE)
-	max_total = int(limit_match.group(1)) if limit_match else None
-
-	# Extract ORDER BY column (used as pagination cursor)
-	order_match = re.search(r'ORDER\s+BY\s+(\S+)', sql, re.IGNORECASE)
-	if not order_match:
-		make_log("4D batched fetch: no ORDER BY found, cannot paginate", "ERROR", APP_NAME)
-		return []
-	order_col = order_match.group(1)
-
-	# Extract existing WHERE clause
-	has_where = bool(re.search(r'\bWHERE\b', sql, re.IGNORECASE))
-
-	# Strip any existing LIMIT clause from base SQL
-	base_sql = re.sub(r'\s+LIMIT\s+\d+\s*$', '', sql.strip().rstrip(";"), flags=re.IGNORECASE)
-
-	make_log(f"4D batched fetch starting with batch_size={batch_size}, order_col={order_col}", "INFO", APP_NAME)
-
-	last_value = None
-	while True:
-		if max_total is not None and len(result) >= max_total:
-			break
-
-		# Build batch SQL with cursor-based pagination and LIMIT
-		if last_value is not None:
-			where_clause = f"{order_col} > '{last_value}'"
-			if has_where:
-				batch_sql = re.sub(
-					r'\bWHERE\b', f'WHERE {where_clause} AND ', base_sql, count=1, flags=re.IGNORECASE
-				)
-			else:
-				batch_sql = re.sub(
-					r'\bORDER\s+BY\b', f'WHERE {where_clause} ORDER BY', base_sql, count=1, flags=re.IGNORECASE
-				)
-		else:
-			batch_sql = base_sql
-
-		remaining = (max_total - len(result)) if max_total is not None else batch_size
-		effective_limit = min(batch_size, remaining) if max_total is not None else batch_size
-		batch_sql = f"{batch_sql} LIMIT {effective_limit}"
-
-		try:
-			cursor = conn.cursor()
-			cursor.execute(query=batch_sql)
-
-			if cursor.row_count == 0:
-				cursor.close()
-				break
-
-			headers = [desc[0] for desc in cursor.description]
-
-			batch_count = 0
-			while True:
-				try:
-					row = cursor.fetch_one()
-					if row is None:
-						break
-					row_dict: dict = {}
-					for i, value in enumerate(row):
-						row_dict[headers[i]] = value
-					for col in excluded_columns:
-						row_dict[col] = None
-					result.append(row_dict)
-					batch_count += 1
-					if order_col in row_dict:
-						last_value = row_dict[order_col]
-				except Exception as e:
-					make_log(f"Skipped row in batch (last_value={last_value}): {e}", "WARNING", APP_NAME)
-					continue
-
-			cursor.close()
-			consecutive_failures = 0  # Reset on success
-
-			if batch_count < batch_size:
-				break
-
-			make_log(f"4D batched fetch: {len(result)} rows so far (last_value={last_value})", "INFO", APP_NAME)
-
-		except Exception as e:
-			skipped_batches += 1
-			consecutive_failures += 1
-			make_log(f"4D batch failed (last_value={last_value}), reconnecting: {e}", "WARNING", APP_NAME)
-
-			error_msg = str(e)
-			col_match = re.search(r'column\s+(\S+)', error_msg)
-			if col_match:
-				bad_col = col_match.group(1).strip(" !")
-				
-				# NEVER exclude the primary key (order_col) - skip this batch and continue with next
-				if bad_col == order_col:
-					make_log(
-						f"4D column '{bad_col}' is the PRIMARY KEY with unsupported type in this batch. "
-						f"Skipping batch and continuing with next.",
-						"WARNING",
-						APP_NAME
-					)
-					# Advance last_value to skip this problematic batch
-					if result:
-						last_value = result[-1].get(order_col, last_value)
-					consecutive_failures = 0
-					continue
-				
-				if bad_col not in excluded_columns:
-					excluded_columns.append(bad_col)
-					make_log(
-						f"4D column '{bad_col}' has unsupported data type in batch fetch, excluding and retrying "
-						f"(excluded so far: {excluded_columns})",
-						"WARNING",
-						APP_NAME,
-					)
-					base_sql = re.sub(
-						r',?\s*\b' + re.escape(bad_col) + r'\b\s*,?', ',', base_sql, count=1
-					)
-					base_sql = _cleanup_select_sql(base_sql)
-					consecutive_failures = 0
-
-			try:
-				cursor.close()
-			except Exception:
-				pass
-			try:
-				conn.close()
-			except Exception:
-				pass
-			conn = db_connect(instance=instance)
-			if conn is None:
-				make_log("Could not reconnect to 4D after batch failure", "ERROR", APP_NAME)
-				break
-			if consecutive_failures > 10:
-				make_log(f"Too many consecutive batch failures ({consecutive_failures}), stopping", "ERROR", APP_NAME)
-				break
-			continue
-
-	make_log(f"4D batched fetch complete: {len(result)} rows, {skipped_batches} skipped batches", "INFO", APP_NAME)
-	try:
-		conn.close()
-	except Exception:
-		pass
 	return result
 
 
@@ -596,18 +355,23 @@ def fetch_multiple_rows(
 				cur.execute(sql)
 				rows = cur.fetchall()
 				return rows if rows else []
-		else:  # python4DBI
+		else:  # p4d (4D database)
 			cursor = conn.cursor()
-			cursor.execute(query=sql)
+			cursor.execute(sql)
 
-			if cursor.row_count == 0:
+			if cursor.rowcount == 0:
 				cursor.close()
 				return []
 
-			# Convert list of lists to list of dicts using column names
-			rows = cursor.fetch_all()
-			headers = [desc[0] for desc in cursor.description]
+			# p4d description returns (name_bytes, type, ...) - decode name
+			headers = []
+			for desc in cursor.description:
+				col_name = desc[0]
+				if isinstance(col_name, bytes):
+					col_name = col_name.decode("utf-8")
+				headers.append(col_name)
 
+			rows = cursor.fetchall()
 			result: list = []
 			for row in rows:
 				row_dict: dict = {}
@@ -1027,7 +791,7 @@ def make_sql_string(
 	if top > 0:
 		if driver == "pymssql":
 			top_str = f"TOP ({top})"
-		else:  # python4DBI - 4D SQL uses LIMIT (after ORDER BY)
+		else:  # p4d - 4D SQL uses LIMIT (after ORDER BY)
 			limit_str = f"LIMIT {top}"
 
 	# handle filters if exists in mapping
@@ -1056,7 +820,7 @@ def make_sql_string(
         {query_filter_command}
         ORDER BY {order_by}
         """
-	else:  # python4DBI - 4D SQL uses LIMIT after ORDER BY
+	else:  # p4d - 4D SQL uses LIMIT after ORDER BY
 		fetch_sql: str = f"""
         SELECT {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}

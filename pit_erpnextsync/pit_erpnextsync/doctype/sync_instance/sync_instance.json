@@ -297,7 +297,7 @@
    "fieldname": "driver",
    "fieldtype": "Select",
    "label": "Driver",
-   "options": "pymssql\npython4DBI",
+   "options": "pymssql\np4d",
    "reqd": 1
   },
   {
@@ -326,7 +326,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-03-20 07:54:13.870957",
+ "modified": "2026-03-23 20:49:43.113253",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",
