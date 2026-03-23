@@ -800,9 +800,6 @@ def make_sql_string(
 	if query_filter and type(query_filter) == str:
 		query_filter_command = f"WHERE {query_filter.replace(chr(34), '')}"
 
-	# convert columns to fetch list to str
-	col_string: str = ",\n".join(col_to_fetch)
-
 	# get db schema from instance
 	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
 	shema_dot: str = "." if schema else ""
@@ -814,6 +811,7 @@ def make_sql_string(
 
 	# sql command - driver specific syntax
 	if driver == "pymssql":
+		col_string: str = ",\n".join(col_to_fetch)
 		fetch_sql: str = f"""
         SELECT {top_str} {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}
@@ -821,11 +819,14 @@ def make_sql_string(
         ORDER BY {order_by}
         """
 	else:  # p4d - 4D SQL uses LIMIT after ORDER BY
+		# Use table alias 't' to avoid ambiguity when column name matches table name
+		# and to safely reference reserved keywords as column names (e.g. TEXT)
+		col_string: str = ",\n".join([f"t.{col}" for col in col_to_fetch])
 		fetch_sql: str = f"""
         SELECT {col_string}
-        FROM {schema}{shema_dot}{mapping_row_data.table_name}
+        FROM {schema}{shema_dot}{mapping_row_data.table_name} t
         {query_filter_command}
-        ORDER BY {order_by}
+        ORDER BY t.{order_by}
         {limit_str}
         """
 
