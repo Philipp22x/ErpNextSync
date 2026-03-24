@@ -226,12 +226,16 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         # list of all created docs
         created_docs: list = []
 
+        # local context for set_redis/get_redis - scoped to this object to prevent
+        # cross-contamination between objects in the same batch or concurrent workers
+        redis_context: dict = {}
+
         # loop mapping table for every doctype ------------------------------------------------------------
         for mapped_doctype in mapping:
 
             # try to create doc and check result code
             try:
-                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row)
+                new_doc_result: dict = create_doc(instance=instance, mapped_doctype=mapped_doctype, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row, redis_context=redis_context)
 
             except Exception as e:
                 make_log(f"Could not create new doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -342,7 +346,7 @@ def delete_docs(created_docs: list) -> None:
 
 
 # create doc
-def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_mapping_row: dict) -> dict:
+def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_mapping_row: dict, redis_context: dict | None = None) -> dict:
 
     #? _____return codes:_____
     #
@@ -385,21 +389,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                 )
                 field_value = str(mapped_value) if field.get("force_str_type") == 1 else mapped_value
 
-            # check for get_redis - retrieve value from cache instead
-            if field.get("get_redis"):
+            # check for get_redis - retrieve value from local context instead
+            if field.get("get_redis") and redis_context is not None:
                 redis_key = field["get_redis"]
-                try:
-                    cached_value = frappe.cache().get(redis_key)
-                    if cached_value:
-                        # Handle bytes to string conversion if needed
-                        if isinstance(cached_value, bytes):
-                            cached_value = cached_value.decode('utf-8')
-                        field_value = str(cached_value) if field.get("force_str_type") == 1 else cached_value
-                        make_log(f"Retrieved value from Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                    else:
-                        make_log(f"Redis cache miss for key '{redis_key}', using original value", "INFO", controller.APP_NAME)
-                except Exception as e:
-                    make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+                cached_value = redis_context.get(redis_key)
+                if cached_value is not None:
+                    field_value = str(cached_value) if field.get("force_str_type") == 1 else cached_value
 
             # value_map - translate source values to target values
             if field.get("value_map") and field_value is not None:
@@ -414,14 +409,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                 if field["fieldname"] == "_user_tags":
                     doc_tags.append(str(fetched_obj[field["sl_column"]]))
 
-            # set_redis - store value in cache for later use
-            if field.get("set_redis") and field_value not in ["", None]:
-                redis_key = field["set_redis"]
-                try:
-                    frappe.cache().set(redis_key, str(field_value))
-                    make_log(f"Stored value in Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                except Exception as e:
-                    make_log(f"Could not store value in Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+            # set_redis - store value in local context for later use within the same object
+            if field.get("set_redis") and field_value not in ["", None] and redis_context is not None:
+                redis_context[field["set_redis"]] = str(field_value)
 
             # create new mapping doc row data for every field
             data: dict = {
@@ -431,21 +421,14 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             }
             doc_mapping_data.append(data)
 
-        # get_redis standalone - retrieve value purely from cache (no sl_column needed)
+        # get_redis standalone - retrieve value purely from local context (no sl_column needed)
         elif field.get("get_redis") and not field.get("sl_column"):
             redis_key = field["get_redis"]
             field_value = None
-            try:
-                cached_value = frappe.cache().get(redis_key)
-                if cached_value:
-                    if isinstance(cached_value, bytes):
-                        cached_value = cached_value.decode('utf-8')
+            if redis_context is not None:
+                cached_value = redis_context.get(redis_key)
+                if cached_value is not None:
                     field_value = str(cached_value) if field.get("force_str_type") == 1 else cached_value
-                    make_log(f"Retrieved value from Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                else:
-                    make_log(f"Redis cache miss for key '{redis_key}'", "INFO", controller.APP_NAME)
-            except Exception as e:
-                make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
 
             if field_value in ["", None] and field.get("reqd") == 1:
                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
@@ -530,20 +513,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         )
                                         field_value = str(mapped_value) if table_field.get("force_str_type") == 1 else mapped_value
 
-                                    # check for get_redis - retrieve value from cache instead
-                                    if table_field.get("get_redis"):
+                                    # check for get_redis - retrieve value from local context instead
+                                    if table_field.get("get_redis") and redis_context is not None:
                                         redis_key = table_field["get_redis"]
-                                        try:
-                                            cached_value = frappe.cache().get(redis_key)
-                                            if cached_value:
-                                                if isinstance(cached_value, bytes):
-                                                    cached_value = cached_value.decode('utf-8')
-                                                field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
-                                                make_log(f"Retrieved value from Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                                            else:
-                                                make_log(f"Redis cache miss for key '{redis_key}', using original value", "INFO", controller.APP_NAME)
-                                        except Exception as e:
-                                            make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+                                        cached_value = redis_context.get(redis_key)
+                                        if cached_value is not None:
+                                            field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
 
                                     # value_map - translate source values to target values
                                     if table_field.get("value_map") and field_value is not None:
@@ -560,14 +535,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         if field_value not in ["", None]:
                                             row_has_data = True
 
-                                    # set_redis - store value in cache for later use
-                                    if table_field.get("set_redis") and field_value not in ["", None]:
-                                        redis_key = table_field["set_redis"]
-                                        try:
-                                            frappe.cache().set(redis_key, str(field_value))
-                                            make_log(f"Stored value in Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                                        except Exception as e:
-                                            make_log(f"Could not store value in Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+                                    # set_redis - store value in local context for later use within the same object
+                                    if table_field.get("set_redis") and field_value not in ["", None] and redis_context is not None:
+                                        redis_context[table_field["set_redis"]] = str(field_value)
 
                                     # create new mapping doc row data for every field
                                     data: dict = {
@@ -584,17 +554,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 elif table_field.get("get_redis") and not table_field.get("sl_column"):
                                     redis_key = table_field["get_redis"]
                                     field_value = None
-                                    try:
-                                        cached_value = frappe.cache().get(redis_key)
-                                        if cached_value:
-                                            if isinstance(cached_value, bytes):
-                                                cached_value = cached_value.decode('utf-8')
+                                    if redis_context is not None:
+                                        cached_value = redis_context.get(redis_key)
+                                        if cached_value is not None:
                                             field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
-                                            make_log(f"Retrieved value from Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                                        else:
-                                            make_log(f"Redis cache miss for key '{redis_key}'", "INFO", controller.APP_NAME)
-                                    except Exception as e:
-                                        make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
 
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
                                         if doc_is_reqd in [0, None]:
@@ -644,20 +607,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 )
                                 field_value = str(mapped_value) if table_field.get("force_str_type") == 1 else mapped_value
 
-                            # check for get_redis - retrieve value from cache instead
-                            if table_field.get("get_redis"):
+                            # check for get_redis - retrieve value from local context instead
+                            if table_field.get("get_redis") and redis_context is not None:
                                 redis_key = table_field["get_redis"]
-                                try:
-                                    cached_value = frappe.cache().get(redis_key)
-                                    if cached_value:
-                                        if isinstance(cached_value, bytes):
-                                            cached_value = cached_value.decode('utf-8')
-                                        field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
-                                        make_log(f"Retrieved value from Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                                    else:
-                                        make_log(f"Redis cache miss for key '{redis_key}', using original value", "INFO", controller.APP_NAME)
-                                except Exception as e:
-                                    make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+                                cached_value = redis_context.get(redis_key)
+                                if cached_value is not None:
+                                    field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
 
                             # value_map - translate source values to target values
                             if table_field.get("value_map") and field_value is not None:
@@ -669,14 +624,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             else:
                                 new_child_row.set(table_field["table_fieldname"], field_value)
 
-                            # set_redis - store value in cache for later use
-                            if table_field.get("set_redis") and field_value not in ["", None]:
-                                redis_key = table_field["set_redis"]
-                                try:
-                                    frappe.cache().set(redis_key, str(field_value))
-                                    make_log(f"Stored value in Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                                except Exception as e:
-                                    make_log(f"Could not store value in Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
+                            # set_redis - store value in local context for later use within the same object
+                            if table_field.get("set_redis") and field_value not in ["", None] and redis_context is not None:
+                                redis_context[table_field["set_redis"]] = str(field_value)
 
                             # create new mapping doc row data for every field
                             data: dict = {
@@ -702,17 +652,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                         elif table_field.get("get_redis") and not table_field.get("sl_column"):
                             redis_key = table_field["get_redis"]
                             field_value = None
-                            try:
-                                cached_value = frappe.cache().get(redis_key)
-                                if cached_value:
-                                    if isinstance(cached_value, bytes):
-                                        cached_value = cached_value.decode('utf-8')
+                            if redis_context is not None:
+                                cached_value = redis_context.get(redis_key)
+                                if cached_value is not None:
                                     field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
-                                    make_log(f"Retrieved value from Redis for key '{redis_key}': {field_value}", "INFO", controller.APP_NAME)
-                                else:
-                                    make_log(f"Redis cache miss for key '{redis_key}'", "INFO", controller.APP_NAME)
-                            except Exception as e:
-                                make_log(f"Could not get value from Redis for key '{redis_key}': {e}", "ERROR", controller.APP_NAME)
 
                             if field_value in ["", None] and table_field.get("reqd") == 1:
                                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
