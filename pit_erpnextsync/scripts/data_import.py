@@ -269,8 +269,9 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                 # add current doc mapping data to obj mapping data
                 obj_mapping_data.append(new_doc_result["doc_mapping_data"])
 
-                # add doc to created docs list
-                created_docs.append(new_doc_result["created_doc"])
+                # add doc to created docs list (skip pre-existing docs to avoid deleting them on rollback)
+                if not new_doc_result.get("existed"):
+                    created_docs.append(new_doc_result["created_doc"])
 
                 # add tags from tag list
                 doc_tags: list = new_doc_result["tags"]
@@ -762,8 +763,18 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             return {"code": 103}
 
     except frappe.exceptions.DuplicateEntryError:
-        make_log(f"{new_doc.doctype} {new_doc.name} already exists -> insert was skipped", "ERROR", controller.APP_NAME)
-        return {"code": 103}
+        make_log(f"{new_doc.doctype} {new_doc.name} already exists -> using existing", "INFO", controller.APP_NAME)
+        # Document already exists in ERPNext - treat as success and map to the existing doc
+        existing_name = new_doc.name
+        for entry in doc_mapping_data:
+            entry["docname"] = existing_name
+        return {
+            "code": 100,
+            "doc_mapping_data": doc_mapping_data,
+            "created_doc": {"dt": new_doc.doctype, "dn": existing_name},
+            "tags": doc_tags,
+            "existed": True
+        }
 
     except Exception as e:
         make_log(f"Could not insert document: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
