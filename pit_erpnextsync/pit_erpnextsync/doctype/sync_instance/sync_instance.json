@@ -47,6 +47,7 @@
   "column_break_hrbn",
   "reset",
   "column_break_ifrk",
+  "import_batch_size",
   "column_break_ximu",
   "section_break_pwqo",
   "hooks",
@@ -210,6 +211,14 @@
    "fieldname": "reset",
    "fieldtype": "Button",
    "label": "Reset"
+  },
+  {
+   "default": "10",
+   "description": "Number of rows to process per background job during import. Higher values = fewer jobs and DB connections, but longer per-job runtime. Set 1 for legacy one-row-per-job behavior.",
+   "fieldname": "import_batch_size",
+   "fieldtype": "Int",
+   "label": "Import Batch Size",
+   "non_negative": 1
   },
   {
    "fieldname": "schema",
