@@ -44,10 +44,24 @@
                         "default": "Percentage"
                     }
                 ]
-            },
+            }
+        ]
+    },
+    {
+        "idx": 2,
+        "type": "Payment Terms Template",
+        "doc_type": "Payment Terms Template",
+        "table_name": "ZAHLUNGSBED",
+        "primary_key": "ZAHLUNGSBED",
+        "mapping": [
             {
-                "doctype": "Payment Term Template",
+                "doctype": "Payment Terms Template",
                 "reqd": 1,
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "template_name",
@@ -61,6 +75,15 @@
                                 "table_fieldname": "payment_term",
                                 "sl_column": "ZAHLUNGSBED",
                                 "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "invoice_portion",
+                                "default": "100",
+                                "reqd": 1
+                            },
+                            {
+                                "fieldname": "credit_days",
+                                "sl_column": "NETTOTAGE"
                             }
                         ]
                     }
@@ -69,7 +92,7 @@
         ]
     },
     {
-        "idx": 2,
+        "idx": 3,
         "type": "Customer",
         "doc_type": "Customer",
         "table_name": "KUNDEN",
@@ -79,6 +102,11 @@
             {
                 "doctype": "Customer",
                 "reqd": 1,
+                "doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "name",
@@ -162,7 +190,7 @@
         ]
     },
     {
-        "idx": 3,
+        "idx": 4,
         "type": "AdditionalContacts",
         "doc_type": "Contact",
         "table_name": "AnsprechKunde",
@@ -326,7 +354,7 @@
         ]
     },
     {
-        "idx": 4,
+        "idx": 5,
         "type": "Supplier",
         "doc_type": "Supplier",
         "table_name": "Lieferant",
@@ -336,6 +364,11 @@
             {
                 "doctype": "Supplier",
                 "reqd": 1,
+                "doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
                 "fields": [
                     {
                         "fieldname": "name",
@@ -422,7 +455,7 @@
         ]
     },
     {
-        "idx": 5,
+        "idx": 6,
         "type": "SupplierContacts",
         "doc_type": "Contact",
         "table_name": "AnsprechLiefera",
@@ -586,7 +619,7 @@
         ]
     },
     {
-        "idx": 6,
+        "idx": 7,
         "type": "Item",
         "doc_type": "Item",
         "table_name": "Artikel",
@@ -615,7 +648,8 @@
                 "doctype": "Item",
                 "doctype_flags": [
                     {
-                        "ignore_validate": 1
+                        "ignore_validate": 1,
+                        "name_set": 1
                     }
                 ],
                 "fields": [
