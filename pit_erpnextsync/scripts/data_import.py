@@ -484,6 +484,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             parent_data=fetched_obj
                         )
                         
+                        make_log(
+                            f"Fetched {len(multiple_rows)} child rows for {mapped_doctype['doctype']}.{field['fieldname']} from {multiple_table}",
+                            "INFO",
+                            controller.APP_NAME,
+                        )
+                        
                         # Track unique attribute values to prevent duplicates
                         seen_attributes = set()
                         
@@ -867,6 +873,8 @@ def check_obj_requirements(fetched_obj: dict, mapping: list) -> list:
 def before_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
     match new_doc.doctype:
         case "Customer":
+            new_doc.flags.name_set = True
+        case "Supplier":
             new_doc.flags.name_set = True
         case "Item":
             new_doc.flags.name_set = True

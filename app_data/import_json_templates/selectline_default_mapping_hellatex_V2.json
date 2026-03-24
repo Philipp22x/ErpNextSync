@@ -134,8 +134,8 @@
                     {
                         "fieldname": "attributes",
                         "multiple_query": true,
-                        "multiple_query_table": "ARTVARI",
-                        "multiple_query_condition": "Artikelnummer = {Artikelnummer}",
+                        "multiple_query_table": "ARTVARI INNER JOIN ART ON ARTVARI.Artikelnummer = ART.Artikelnummer",
+                        "multiple_query_condition": "ART.Variantenartikel = {Artikelnummer}",
                         "table_fields": [
                             {
                                 "table_fieldname": "attribute",
