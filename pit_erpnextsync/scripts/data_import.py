@@ -94,8 +94,13 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
                 controller.APP_NAME,
             )
 
-            # Cache the runs value - avoid repeated DB queries for every row
-            instance_runs = frappe.get_value('Sync Instance', instance, 'runs')
+            # Cache the runs value and batch size - avoid repeated DB queries for every row
+            instance_values = frappe.get_value('Sync Instance', instance, ['runs', 'import_batch_size'], as_dict=True)
+            instance_runs = instance_values.get('runs')
+            batch_size: int = max(int(instance_values.get('import_batch_size') or 10), 1)
+
+            # collect items to import, then enqueue in batches
+            current_batch: list[dict] = []
 
             for idx, fetched_obj in enumerate(fetched_data):
                 
@@ -111,28 +116,47 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
                 if mapping_exists:
                     continue
 
-                else:
-                    job_id: str = f"pes:{instance_runs}:{uuid.uuid4().hex[:16]}"
+                # add to current batch
+                current_batch.append({"fetched_obj": fetched_obj, "obj_id": obj_id})
 
-                    # set background job for import object
+                # enqueue batch when full
+                if len(current_batch) >= batch_size:
+                    job_id = f"pes:{instance_runs}:{uuid.uuid4().hex[:16]}"
                     frappe.enqueue(
-                        "pit_erpnextsync.scripts.data_import.import_fetched_object",
+                        "pit_erpnextsync.scripts.data_import.import_fetched_batch",
                         queue="long",
-                        timeout=600,
+                        timeout=600 * batch_size,
                         job_id=job_id,
                         instance=instance,
-                        fetched_obj=fetched_obj,
-                        table_mapping_row=row,
-                        obj_id=obj_id
+                        batch_items=current_batch,
+                        table_mapping_row=row
                     )
-
                     job_ids.append(job_id)
+                    current_batch = []
 
                 # Log progress every 1000 rows
                 if (idx + 1) % 1000 == 0:
-                    make_log(f"Enqueued {idx + 1}/{len(fetched_data)} jobs for {row.type}", "INFO", controller.APP_NAME)
+                    make_log(f"Processed {idx + 1}/{len(fetched_data)} rows for {row.type}", "INFO", controller.APP_NAME)
 
-            
+            # enqueue remaining items in the last partial batch
+            if current_batch:
+                job_id = f"pes:{instance_runs}:{uuid.uuid4().hex[:16]}"
+                frappe.enqueue(
+                    "pit_erpnextsync.scripts.data_import.import_fetched_batch",
+                    queue="long",
+                    timeout=600 * len(current_batch),
+                    job_id=job_id,
+                    instance=instance,
+                    batch_items=current_batch,
+                    table_mapping_row=row
+                )
+                job_ids.append(job_id)
+
+            make_log(
+                f"Enqueued {len(job_ids)} batch jobs for {row.type} (batch_size={batch_size})",
+                "INFO",
+                controller.APP_NAME,
+            )
 
             if not fetched_data:
                 raise Exception
@@ -143,8 +167,38 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
 
 #* IMPORT #########################################################################################
 
+# batch import - processes multiple rows in a single background job
+def import_fetched_batch(instance: str, batch_items: list[dict], table_mapping_row: dict) -> None:
+    """Process a batch of fetched objects in a single background job.
+
+    Each item in batch_items is a dict with keys: fetched_obj, obj_id.
+    Rows are committed individually for error isolation.
+    update_jobs is called only once at the end of the batch.
+    """
+    for item in batch_items:
+        try:
+            import_fetched_object(
+                instance=instance,
+                fetched_obj=item["fetched_obj"],
+                table_mapping_row=table_mapping_row,
+                obj_id=item["obj_id"],
+                skip_job_update=True
+            )
+        except Exception as e:
+            make_log(
+                f"Batch item {item['obj_id']} failed: {e}",
+                "ERROR",
+                controller.APP_NAME,
+                with_traceback=True
+            )
+            continue
+
+    # update job counts once for the entire batch
+    controller.update_jobs(instance=instance)
+
+
 # new object
-def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str) -> None:
+def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: dict, obj_id: str, skip_job_update: bool = False) -> None:
 
     make_log(f"Job {obj_id} - PID: {os.getpid()} - Time: {time.time()}", "INFO", controller.APP_NAME)
 
@@ -268,7 +322,8 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         raise
 
     finally:
-        controller.update_jobs(instance=instance)
+        if not skip_job_update:
+            controller.update_jobs(instance=instance)
 
 
 # delete doc from doc list
