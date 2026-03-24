@@ -240,7 +240,7 @@
                     {
                         "fieldname": "attributes",
                         "multiple_query": true,
-                        "multiple_query_table": "ARTVARI INNER JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id",
+                        "multiple_query_table": "ARTVARI INNER JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id INNER JOIN ART ON ARTVARI.Artikelnummer = ART.Artikelnummer",
                         "multiple_query_condition": "ARTVARI.Artikelnummer = {Artikelnummer}",
                         "table_fields": [
                             {
