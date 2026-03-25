@@ -1299,9 +1299,26 @@ def fetch_source_data(
 		WHERE {primary_key_col} = '{primary_key}'
 		"""
 		
+		make_log(
+			f"Executing SQL for {mapping_doc.name}: {sql}",
+			"DEBUG",
+			APP_NAME
+		)
+		
 		result = controller.fetch_data(instance=instance, sql=sql)
 		
+		make_log(
+			f"Fetch result for {mapping_doc.name}: {result}",
+			"DEBUG",
+			APP_NAME
+		)
+		
 		if not result or len(result) == 0:
+			make_log(
+				f"No data returned for {mapping_doc.selectline_id}",
+				"WARNING",
+				APP_NAME
+			)
 			return None
 		
 		if len(result) > 1:
@@ -1311,7 +1328,7 @@ def fetch_source_data(
 		
 	except Exception as e:
 		make_log(
-			f"Failed to fetch source data for {mapping_doc.selectline_id}: {e}",
+			f"Failed to fetch source data for {mapping_doc.selectline_id}: {e}\nSQL: {sql}",
 			"ERROR",
 			APP_NAME,
 			with_traceback=True
