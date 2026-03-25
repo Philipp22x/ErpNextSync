@@ -1269,12 +1269,15 @@ def fetch_source_data(
 		# Remove duplicates while preserving order
 		columns = list(dict.fromkeys(columns))
 		
-		# Add timestamp column
-		ts_col = frappe.db.get_value(
-			"Sync Instance",
-			instance,
-			"db_time_stamp_column_name"
-		)
+		# Add timestamp column from table mapping (not from Sync Instance)
+		# Get the table mapping row for this mapping type
+		instance_doc = frappe.get_doc("Sync Instance", instance)
+		ts_col = None
+		for table_mapping_row in instance_doc.table_mapping:
+			if table_mapping_row.type == mapping_doc.type:
+				ts_col = table_mapping_row.timestamp_column_name
+				break
+		
 		if ts_col:
 			columns.append(ts_col)
 		

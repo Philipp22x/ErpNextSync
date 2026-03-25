@@ -134,12 +134,12 @@
                     {
                         "fieldname": "attributes",
                         "multiple_query": true,
-                        "multiple_query_table": "ARTVARI INNER JOIN ART ON ARTVARI.Artikelnummer = ART.Artikelnummer",
-                        "multiple_query_condition": "ART.Variantenartikel = {Artikelnummer}",
+                        "multiple_query_table": "MERKMAL",
+                        "multiple_query_condition": "Id IN (SELECT DISTINCT IdMerkmal FROM ARTVARI WHERE Artikelnummer IN (SELECT Artikelnummer FROM ART WHERE Variantenartikel = {Artikelnummer}))",
                         "table_fields": [
                             {
                                 "table_fieldname": "attribute",
-                                "sl_column": "IdMerkmal",
+                                "sl_column": "Id",
                                 "force_str_type": 1
                             }
                         ]
@@ -218,7 +218,8 @@
                     },
                     {
                         "fieldname": "variant_of",
-                        "sl_column": "Variantenartikel"
+                        "sl_column": "Variantenartikel",
+                        "set_redis": "current_variant_of"
                     },
                     {
                         "fieldname": "barcodes",
@@ -240,7 +241,7 @@
                     {
                         "fieldname": "attributes",
                         "multiple_query": true,
-                        "multiple_query_table": "ARTVARI INNER JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id INNER JOIN ART ON ARTVARI.Artikelnummer = ART.Artikelnummer",
+                        "multiple_query_table": "ARTVARI INNER JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id",
                         "multiple_query_condition": "ARTVARI.Artikelnummer = {Artikelnummer}",
                         "table_fields": [
                             {
@@ -256,7 +257,7 @@
                             },
                             {
                                 "table_fieldname": "variant_of",
-                                "sl_column": "Variantenartikel",
+                                "get_redis": "current_variant_of",
                                 "reqd": 1
                             }
                         ]
