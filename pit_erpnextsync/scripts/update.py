@@ -137,15 +137,25 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # get the timestamp column type from mapping
         time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
 
+        # get driver type for SQL syntax differences
+        driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+
         # Quote primary key for SQL (handle both string and numeric keys)
         quoted_primary_key = f"'{primary_key}'" if not primary_key.isdigit() else primary_key
         
-        # sql command for fetching timestamp from db
-        sql: str = f"""
-            SELECT {ts_col}
-            FROM {schema}{shema_dot}{table_name}
-            WHERE {primary_key_column} = {quoted_primary_key}
-        """
+        # Build SQL with driver-specific syntax
+        if driver == "pymssql":
+            sql: str = f"""
+                SELECT {ts_col}
+                FROM {schema}{shema_dot}{table_name}
+                WHERE {primary_key_column} = {quoted_primary_key}
+            """
+        else:  # p4d - 4D SQL uses bracket-quoted column names
+            sql: str = f"""
+                SELECT t.[{ts_col}]
+                FROM {schema}{shema_dot}{table_name} t
+                WHERE t.[{primary_key_column}] = {quoted_primary_key}
+            """
         
         make_log(f"Update check_timestamp SQL: {sql}", "INFO", controller.APP_NAME)
 
@@ -276,12 +286,25 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # Quote primary key for SQL (handle both string and numeric keys)
         quoted_primary_key_val = f"'{primary_key_val}'" if not primary_key_val.isdigit() else primary_key_val
         
-        # sql command
-        sql: str = f"""
-        SELECT {col_string}
-        FROM {schema}{shema_dot}{id_data.get("table")}
-        WHERE {primary_key_col} = {quoted_primary_key_val}
-        """
+        # get driver type for SQL syntax differences
+        driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+        
+        # Build SQL with driver-specific syntax
+        if driver == "pymssql":
+            sql: str = f"""
+            SELECT {col_string}
+            FROM {schema}{shema_dot}{id_data.get("table")}
+            WHERE {primary_key_col} = {quoted_primary_key_val}
+            """
+        else:  # p4d - 4D SQL uses bracket-quoted column names
+            # Build column string with brackets
+            col_list = [c.strip() for c in col_string.split(",") if c.strip()]
+            col_string_4d = ",\n".join([f"t.[{col}]" for col in col_list])
+            sql: str = f"""
+            SELECT {col_string_4d}
+            FROM {schema}{shema_dot}{id_data.get("table")} t
+            WHERE t.[{primary_key_col}] = {quoted_primary_key_val}
+            """
         
         make_log(f"Update mapping SQL: {sql}", "INFO", controller.APP_NAME)
 
