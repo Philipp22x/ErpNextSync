@@ -12,7 +12,14 @@ from pit_erpnextsync.scripts.data_import import format_phone_number
 
 
 @frappe.whitelist()
-def run_bulk_update(instance: str, types_str: str, ignore_ts: bool = False) -> None:
+def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
+    # Convert ignore_ts to boolean (Frappe may pass it as string)
+    if isinstance(ignore_ts, str):
+        ignore_ts = ignore_ts.lower() in ('true', '1', 'yes')
+    else:
+        ignore_ts = bool(ignore_ts)
+    
+    make_log(f"run_bulk_update called with ignore_ts={ignore_ts} (type: {type(ignore_ts)})", "INFO", controller.APP_NAME)
 
     # before import hooks
     controller.trigger_hooks(instance=instance, before_after="before", import_update="update")
@@ -104,7 +111,14 @@ def run_bulk_update(instance: str, types_str: str, ignore_ts: bool = False) -> N
 
 
 # fetch timespamp of db data object -> if changed call update
-def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number: int = None, skip_job_update: bool = False, ignore_ts: bool = False) -> None:
+def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number: int = None, skip_job_update: bool = False, ignore_ts = False) -> None:
+    # Convert ignore_ts to boolean (Frappe may pass it as string from job queue)
+    if isinstance(ignore_ts, str):
+        ignore_ts = ignore_ts.lower() in ('true', '1', 'yes')
+    else:
+        ignore_ts = bool(ignore_ts)
+    
+    make_log(f"check_timestamp called for {mapping_name} with ignore_ts={ignore_ts} (type: {type(ignore_ts)})", "INFO", controller.APP_NAME)
 
     try:
         table_name: str = id_data.get("table")
