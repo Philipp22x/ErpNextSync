@@ -1292,12 +1292,19 @@ def fetch_source_data(
 			APP_NAME
 		)
 		
-		# Build and execute SQL
-		sql = f"""
-		SELECT {col_string}
-		FROM {schema}{schema_dot}{table_name}
-		WHERE {primary_key_col} = '{primary_key}'
-		"""
+		# Escape column names that might be reserved keywords (TEXT, etc.)
+		escaped_columns = []
+		for col in columns:
+			# Wrap column names in brackets to handle reserved keywords
+			if col.upper() in ['TEXT', 'ORDER', 'GROUP', 'TABLE', 'SELECT', 'FROM', 'WHERE']:
+				escaped_columns.append(f"[{col}]")
+			else:
+				escaped_columns.append(col)
+		
+		col_string_escaped = ", ".join(escaped_columns)
+		
+		# Build and execute SQL - try with quotes first (string primary key)
+		sql = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = '{primary_key}'"""
 		
 		make_log(
 			f"Executing SQL for {mapping_doc.name}: {sql}",
@@ -1307,6 +1314,16 @@ def fetch_source_data(
 		
 		result = controller.fetch_data(instance=instance, sql=sql)
 		
+		# If no result and primary key looks numeric, try without quotes
+		if not result and primary_key.isdigit():
+			sql_numeric = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = {primary_key}"""
+			make_log(
+				f"Retrying with numeric primary key for {mapping_doc.name}: {sql_numeric}",
+				"DEBUG",
+				APP_NAME
+			)
+			result = controller.fetch_data(instance=instance, sql=sql_numeric)
+		
 		make_log(
 			f"Fetch result for {mapping_doc.name}: {result}",
 			"DEBUG",
@@ -1315,7 +1332,7 @@ def fetch_source_data(
 		
 		if not result or len(result) == 0:
 			make_log(
-				f"No data returned for {mapping_doc.selectline_id}",
+				f"No data returned for {mapping_doc.selectline_id} - record may not exist in source database",
 				"WARNING",
 				APP_NAME
 			)
