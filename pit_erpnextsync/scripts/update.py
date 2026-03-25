@@ -137,15 +137,24 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # get the timestamp column type from mapping
         time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
 
+        # Quote primary key for SQL (handle both string and numeric keys)
+        quoted_primary_key = f"'{primary_key}'" if not primary_key.isdigit() else primary_key
+        
         # sql command for fetching timestamp from db
         sql: str = f"""
             SELECT {ts_col}
             FROM {schema}{shema_dot}{table_name}
-            WHERE {primary_key_column} = {primary_key}
+            WHERE {primary_key_column} = {quoted_primary_key}
         """
+        
+        make_log(f"Update check_timestamp SQL: {sql}", "INFO", controller.APP_NAME)
 
         # result of fetching timestamp from db
-        fetched_ts: list = controller.fetch_data(instance=instance, sql=sql)
+        try:
+            fetched_ts: list = controller.fetch_data(instance=instance, sql=sql)
+        except Exception as fetch_err:
+            make_log(f"SQL execution failed for {mapping_name}: {fetch_err}\nSQL: {sql}", "ERROR", controller.APP_NAME)
+            raise
 
         if not fetched_ts or type(fetched_ts) != list:
             raise Exception("Could not fetch valid timestamp data")
@@ -260,20 +269,31 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
         # get name of primary key column from mapping doc
         primary_key_col: str = mapping_doc.primary_key_column
+        primary_key_val: str = id_data.get("primary_key")
         if not primary_key_col:
             raise Exception("Could not get primary key column name from mapping doc")
 
+        # Quote primary key for SQL (handle both string and numeric keys)
+        quoted_primary_key_val = f"'{primary_key_val}'" if not primary_key_val.isdigit() else primary_key_val
+        
         # sql command
         sql: str = f"""
         SELECT {col_string}
         FROM {schema}{shema_dot}{id_data.get("table")}
-        WHERE {primary_key_col} = {id_data.get("primary_key")}
+        WHERE {primary_key_col} = {quoted_primary_key_val}
         """
+        
+        make_log(f"Update mapping SQL: {sql}", "INFO", controller.APP_NAME)
 
         # validate fetched data
-        fetched_data: list = controller.fetch_data(instance=instance, sql=sql)
+        try:
+            fetched_data: list = controller.fetch_data(instance=instance, sql=sql)
+        except Exception as fetch_err:
+            make_log(f"SQL execution failed for {mapping_name}: {fetch_err}\nSQL: {sql}", "ERROR", controller.APP_NAME)
+            raise Exception(f"Could not fetch data: {fetch_err}")
+        
         if not fetched_data:
-            raise Exception(f"Could not fetch data: {fetched_data}")
+            raise Exception(f"Could not fetch data: no rows returned")
 
         if len(fetched_data) > 1:
             raise Exception(f"Got {len(fetched_data)} rows when fetching data from table:{id_data.get('table')} Key:{primary_key_col} ID:{id_data.get('primary_key')}")
