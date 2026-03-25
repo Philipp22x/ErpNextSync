@@ -95,25 +95,31 @@ function start_import_action(frm){
 
 // start update button action
 function start_update_action(frm){
-    // check types
-    let types_str = frm.doc.types_to_import
-    let types_list = [];
-    if (types_str){
-        types_list = types_str.split(",");
-    }
-
-    // call import
-    frappe.dom.freeze(__("creating background jobs for update..."));
-    frappe.call({
-        method: "pit_erpnextsync.scripts.update.run_bulk_update",
-        args:{
-            "instance": frm.doc.name,
-            "types_str": JSON.stringify(types_list),
-        },
-        callback: function(r){
-            frappe.dom.unfreeze();
-            frappe.msgprint("Background jobs were created. Update runs in background.")
+    // Increment runs
+    frm.set_value("runs", frm.doc.runs + 1);
+    
+    // Save and wait for completion, then start update
+    frm.save().then(() => {
+        // check types
+        let types_str = frm.doc.types_to_import
+        let types_list = [];
+        if (types_str){
+            types_list = types_str.split(",");
         }
+
+        // call update
+        frappe.dom.freeze(__("creating background jobs for update..."));
+        frappe.call({
+            method: "pit_erpnextsync.scripts.update.run_bulk_update",
+            args:{
+                "instance": frm.doc.name,
+                "types_str": JSON.stringify(types_list),
+            },
+            callback: function(r){
+                frappe.dom.unfreeze();
+                frappe.msgprint("Background jobs were created. Update runs in background.")
+            }
+        });
     });
 }
     

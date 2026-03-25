@@ -1,4 +1,5 @@
 import json
+import uuid
 from pprint import pprint
 import frappe
 import datetime
@@ -55,6 +56,13 @@ def run_bulk_update(instance: str, types_str: str) -> None:
         make_log(f"No mapping for instance {instance} found", "ERROR", controller.APP_NAME)
         return
 
+    # Get the current runs value for job naming
+    run_number = frappe.db.get_value("Sync Instance", instance, "runs")
+    if not run_number:
+        run_number = 1
+    
+    job_ids: list = []
+
     # main loop for all mappings of the given instance
     for mapping_name in mappings_list:
 
@@ -72,20 +80,30 @@ def run_bulk_update(instance: str, types_str: str) -> None:
             make_log(f"Could not get data from object id {obj_id}", "ERROR", controller.APP_NAME)
             continue
 
+        job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}"
         frappe.enqueue(
             "pit_erpnextsync.scripts.update.check_timestamp",
             queue="long",
             timeout=600,
+            job_id=job_id,
             instance=instance,
             id_data=id_data,
-            mapping_name=mapping_name
+            mapping_name=mapping_name,
+            run_number=run_number
         )
+        job_ids.append(job_id)
+
+    make_log(
+        f"Enqueued {len(job_ids)} update jobs for instance {instance} (run_number={run_number})",
+        "INFO",
+        controller.APP_NAME,
+    )
 
     return None
 
 
 # fetch timespamp of db data object -> if changed call update
-def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
+def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number: int = None, skip_job_update: bool = False) -> None:
 
     try:
         table_name: str = id_data.get("table")
@@ -150,25 +168,34 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
         # check timestamp strings
         if timestamp_str == mapped_timestamp:
             make_log(f"Mapping {mapping_name} up to date", "INFO", controller.APP_NAME)
+            if not skip_job_update:
+                controller.update_jobs(instance=instance)
             return None
         else:
+            job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}" if run_number else None
             frappe.enqueue(
                 "pit_erpnextsync.scripts.update.update_mapping",
                 queue="long",
                 timeout=600,
+                job_id=job_id,
                 instance=instance,
                 id_data=id_data,
-                mapping_name=mapping_name
+                mapping_name=mapping_name,
+                run_number=run_number
             )
+            if not skip_job_update:
+                controller.update_jobs(instance=instance)
             return None
 
     except Exception as e:
         make_log(f"Could not get timestamp from source db for {id_data}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+        if not skip_job_update:
+            controller.update_jobs(instance=instance)
         return None
 
 
 # update single mapping / called from timestamp check
-def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
+def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: int = None) -> None:
     make_log(f"run update_mapping()", "ERROR", controller.APP_NAME)
     try:
         # get mapping doc
@@ -287,10 +314,14 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
         
         frappe.db.commit()
         make_log(f"Mapping {mapping_name} updated successfully", "INFO", controller.APP_NAME)
-
+        
+        # Update job counts
+        controller.update_jobs(instance=instance)
 
     except Exception as e:
         make_log(f"Could not update mapping {mapping_name}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
+        # Update job counts even on error
+        controller.update_jobs(instance=instance)
         return None
 
 
