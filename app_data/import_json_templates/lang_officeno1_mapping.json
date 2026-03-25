@@ -493,7 +493,7 @@
                     },
                     {
                         "fieldname": "custom_academic_title",
-                        "default": "TITLE"
+                        "sl_column": "TITLE"
                     },
                     {
                         "fieldname": "gender",

@@ -11,6 +11,49 @@ from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 
 
+#* phone number formatting ##########################################################################
+def format_phone_number(phone_number: str, country_code: str = "AT") -> str:
+    """Format a phone number to Frappe's standard format.
+    
+    Args:
+        phone_number: Raw phone number string from source
+        country_code: ISO country code (default: AT for Austria)
+    
+    Returns:
+        str: Formatted phone number with + prefix and country code
+    """
+    if not phone_number:
+        return ""
+    
+    # Remove all non-numeric characters except +
+    cleaned = "".join(char for char in str(phone_number) if char.isdigit() or char == "+")
+    
+    # Remove leading zeros after +
+    if cleaned.startswith("+"):
+        return cleaned
+    
+    # Handle numbers starting with 00 (international prefix)
+    if cleaned.startswith("00"):
+        return "+" + cleaned[2:]
+    
+    # Handle numbers starting with 0 (national format)
+    if cleaned.startswith("0"):
+        country_prefix = {
+            "AT": "43",  # Austria
+            "DE": "49",  # Germany
+            "CH": "41",  # Switzerland
+            "US": "1",   # USA
+            "GB": "44",  # UK
+        }.get(country_code, "43")  # Default to Austria
+        
+        return f"+{country_prefix}{cleaned[1:]}"
+    
+    # If no prefix, assume it's already in international format without +
+    if len(cleaned) > 8:
+        return f"+{cleaned}"
+    
+    return cleaned
+
 
 #* test ##############################################################################################
 def test():
@@ -400,6 +443,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             if field.get("value_map") and field_value is not None:
                 field_value = field["value_map"].get(str(field_value), field.get("value_map_default", field_value))
 
+            # is_phone_no - format phone number for Frappe
+            if field.get("is_phone_no") == 1 and field_value is not None:
+                country_code = field.get("phone_country_code", "AT")
+                field_value = format_phone_number(field_value, country_code)
+
             # check if field value is empty and reqd
             if field_value in ["", None] and field.get("reqd") == 1:
                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
@@ -524,6 +572,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                     if table_field.get("value_map") and field_value is not None:
                                         field_value = table_field["value_map"].get(str(field_value), table_field.get("value_map_default", field_value))
 
+                                    # is_phone_no - format phone number for Frappe
+                                    if table_field.get("is_phone_no") == 1 and field_value is not None:
+                                        country_code = table_field.get("phone_country_code", "AT")
+                                        field_value = format_phone_number(field_value, country_code)
+
                                     # check if field value is empty and reqd
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
                                         if doc_is_reqd in [0, None]:
@@ -617,6 +670,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             # value_map - translate source values to target values
                             if table_field.get("value_map") and field_value is not None:
                                 field_value = table_field["value_map"].get(str(field_value), table_field.get("value_map_default", field_value))
+
+                            # is_phone_no - format phone number for Frappe
+                            if table_field.get("is_phone_no") == 1 and field_value is not None:
+                                country_code = table_field.get("phone_country_code", "AT")
+                                field_value = format_phone_number(field_value, country_code)
 
                             # check if field value is empty and reqd
                             if field_value in ["", None] and field.get("reqd") == 1:

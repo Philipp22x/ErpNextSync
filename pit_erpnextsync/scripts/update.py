@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 from pit_erpnextsync.scripts.classes.field_vars import FieldVars
+from pit_erpnextsync.scripts.data_import import format_phone_number
 
 
 @frappe.whitelist()
@@ -184,17 +185,47 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
             d["selectline_column"] for d in mapping_table_data if d.get("selectline_column")
         ))
 
-        # get timestamp column name from table mapping
+        # get timestamp column name from table mapping and load mapping JSON
         instance_doc = frappe.get_doc("Sync Instance", instance)
         time_stamp_col_name: str = None
-        for table_mapping_row in instance_doc.table_mapping:
-            if table_mapping_row.type == mapping_doc.type:
-                time_stamp_col_name = table_mapping_row.timestamp_column_name
+        mapping_json: list = []
+        table_mapping_row = None
+        for tm_row in instance_doc.table_mapping:
+            if tm_row.type == mapping_doc.type:
+                time_stamp_col_name = tm_row.timestamp_column_name
+                mapping_json = json.loads(tm_row.mapping)
+                table_mapping_row = tm_row
                 break
         if not time_stamp_col_name:
             raise Exception(f"No time stamp column name found for: {mapping_name}")
         
         col_string += f", {time_stamp_col_name}"
+        
+        # Build phone field lookup from mapping JSON
+        phone_field_lookup: dict = {}
+        for mapped_doctype in mapping_json:
+            doctype = mapped_doctype.get("doctype")
+            for field in mapped_doctype.get("fields", []):
+                fieldname = field.get("fieldname")
+                if field.get("is_phone_no") == 1:
+                    key = f"{doctype}:{fieldname}"
+                    phone_field_lookup[key] = {
+                        "country_code": field.get("phone_country_code", "AT")
+                    }
+                # Also check table_fields for phone numbers
+                if field.get("table_fields"):
+                    for table_field in field.get("table_fields", []):
+                        table_fieldname = table_field.get("table_fieldname")
+                        if table_field.get("is_phone_no") == 1:
+                            # For child table fields, use child doctype
+                            try:
+                                child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+                                key = f"{child_doctype}:{table_fieldname}"
+                                phone_field_lookup[key] = {
+                                    "country_code": table_field.get("phone_country_code", "AT")
+                                }
+                            except:
+                                pass
 
         # get db schema from instance
         schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
@@ -227,11 +258,21 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
                 if not row.mapping_doctype or not row.docname or not row.fieldname:
                     raise Exception(f"Row data validation failed: {row.mapping_doctype}, {row.docname}, {row.fieldname}")
 
+                # Get value from fetched data
+                field_value = fetched_data[0].get(row.selectline_column)
+                
+                # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
-                    frappe.db.set_value(row.child_row_doctype, row.child_row_name, row.child_row_fieldname, fetched_data[0].get(row.selectline_column))
+                    lookup_key = f"{row.child_row_doctype}:{row.child_row_fieldname}"
+                    if lookup_key in phone_field_lookup and field_value:
+                        field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
+                    frappe.db.set_value(row.child_row_doctype, row.child_row_name, row.child_row_fieldname, field_value)
                     
                 else:
-                    frappe.db.set_value(row.mapping_doctype, row.docname, row.fieldname, fetched_data[0].get(row.selectline_column))
+                    lookup_key = f"{row.mapping_doctype}:{row.fieldname}"
+                    if lookup_key in phone_field_lookup and field_value:
+                        field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
+                    frappe.db.set_value(row.mapping_doctype, row.docname, row.fieldname, field_value)
 
                 # Convert and store timestamp based on column type
                 raw_timestamp = fetched_data[0].get(time_stamp_col_name)
