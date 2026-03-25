@@ -835,6 +835,48 @@ def make_sql_string(
 	return fetch_sql
 
 
+# build sql query for fetching single row by primary key (used by update)
+def make_sql_string_single_row(
+	instance: str, table_name: str, columns: list, primary_key_col: str, primary_key_val: str, schema: str = ""
+) -> str:
+	"""Build SQL query to fetch a single row by primary key.
+	
+	Args:
+	    instance: Sync Instance name
+	    table_name: Database table name
+	    columns: List of column names to fetch
+	    primary_key_col: Primary key column name
+	    primary_key_val: Primary key value
+	    schema: Database schema (optional)
+	
+	Returns:
+	    str: SQL query string
+	"""
+	driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+	schema_dot: str = f"{schema}." if schema else ""
+	
+	# Quote primary key value if it's a string
+	quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
+	
+	if driver == "pymssql":
+		col_string = ", ".join(columns)
+		sql = f"""
+			SELECT {col_string}
+			FROM {schema_dot}{table_name}
+			WHERE {primary_key_col} = {quoted_pk}
+		"""
+	else:  # p4d - 4D SQL uses bracket-quoted column names
+		col_string = ", ".join([f"t.[{col}]" for col in columns])
+		sql = f"""
+			SELECT {col_string}
+			FROM {schema_dot}{table_name} t
+			WHERE t.[{primary_key_col}] = {quoted_pk}
+		"""
+	
+	make_log(f"Single row SQL: {sql}", "INFO", APP_NAME)
+	return sql
+
+
 # check if types are given and if given types are existing in mapping table
 def get_types_to_import(instance: str, types_args: list) -> list:
 	instance_doc: Document = frappe.get_doc("Sync Instance", instance)

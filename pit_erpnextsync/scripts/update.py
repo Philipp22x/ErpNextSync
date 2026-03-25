@@ -137,27 +137,15 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # get the timestamp column type from mapping
         time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
 
-        # get driver type for SQL syntax differences
-        driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
-
-        # Quote primary key for SQL (handle both string and numeric keys)
-        quoted_primary_key = f"'{primary_key}'" if not primary_key.isdigit() else primary_key
-        
-        # Build SQL with driver-specific syntax
-        if driver == "pymssql":
-            sql: str = f"""
-                SELECT {ts_col}
-                FROM {schema}{shema_dot}{table_name}
-                WHERE {primary_key_column} = {quoted_primary_key}
-            """
-        else:  # p4d - 4D SQL uses bracket-quoted column names
-            sql: str = f"""
-                SELECT t.[{ts_col}]
-                FROM {schema}{shema_dot}{table_name} t
-                WHERE t.[{primary_key_column}] = {quoted_primary_key}
-            """
-        
-        make_log(f"Update check_timestamp SQL: {sql}", "INFO", controller.APP_NAME)
+        # Build SQL using helper function
+        sql: str = controller.make_sql_string_single_row(
+            instance=instance,
+            table_name=table_name,
+            columns=[ts_col],
+            primary_key_col=primary_key_column,
+            primary_key_val=primary_key,
+            schema=schema
+        )
 
         # result of fetching timestamp from db
         try:
@@ -166,8 +154,18 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
             make_log(f"SQL execution failed for {mapping_name}: {fetch_err}\nSQL: {sql}", "ERROR", controller.APP_NAME)
             raise
 
-        if not fetched_ts or type(fetched_ts) != list:
-            raise Exception("Could not fetch valid timestamp data")
+        if not fetched_ts:
+            make_log(f"DEBUG: fetched_ts is empty or None: {fetched_ts}, type: {type(fetched_ts)}", "ERROR", controller.APP_NAME)
+            raise Exception(f"Could not fetch valid timestamp data - fetched_ts is empty or None: {fetched_ts}")
+        
+        if type(fetched_ts) != list:
+            make_log(f"DEBUG: fetched_ts is not a list: {type(fetched_ts)}", "ERROR", controller.APP_NAME)
+            raise Exception(f"Could not fetch valid timestamp data - fetched_ts is not a list: {type(fetched_ts)}")
+        
+        # Debug: log the keys in the first row
+        if fetched_ts and len(fetched_ts) > 0:
+            make_log(f"DEBUG: First row keys: {list(fetched_ts[0].keys()) if fetched_ts[0] else 'empty'}", "INFO", controller.APP_NAME)
+            make_log(f"DEBUG: Looking for ts_col='{ts_col}' in row: {fetched_ts[0]}", "INFO", controller.APP_NAME)
 
         if len(fetched_ts) > 1:
             raise Exception("Got more than one timestamp")
@@ -245,7 +243,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         if not time_stamp_col_name:
             raise Exception(f"No time stamp column name found for: {mapping_name}")
         
-        col_string += f", {time_stamp_col_name}"
+        # Build columns list
+        columns = [c.strip() for c in col_string.split(",") if c.strip()]
+        columns.append(time_stamp_col_name)
         
         # Build phone field lookup from mapping JSON
         phone_field_lookup: dict = {}
@@ -275,7 +275,6 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
         # get db schema from instance
         schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
-        shema_dot: str = "." if schema else ""
 
         # get name of primary key column from mapping doc
         primary_key_col: str = mapping_doc.primary_key_column
@@ -283,30 +282,15 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         if not primary_key_col:
             raise Exception("Could not get primary key column name from mapping doc")
 
-        # Quote primary key for SQL (handle both string and numeric keys)
-        quoted_primary_key_val = f"'{primary_key_val}'" if not primary_key_val.isdigit() else primary_key_val
-        
-        # get driver type for SQL syntax differences
-        driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
-        
-        # Build SQL with driver-specific syntax
-        if driver == "pymssql":
-            sql: str = f"""
-            SELECT {col_string}
-            FROM {schema}{shema_dot}{id_data.get("table")}
-            WHERE {primary_key_col} = {quoted_primary_key_val}
-            """
-        else:  # p4d - 4D SQL uses bracket-quoted column names
-            # Build column string with brackets
-            col_list = [c.strip() for c in col_string.split(",") if c.strip()]
-            col_string_4d = ",\n".join([f"t.[{col}]" for col in col_list])
-            sql: str = f"""
-            SELECT {col_string_4d}
-            FROM {schema}{shema_dot}{id_data.get("table")} t
-            WHERE t.[{primary_key_col}] = {quoted_primary_key_val}
-            """
-        
-        make_log(f"Update mapping SQL: {sql}", "INFO", controller.APP_NAME)
+        # Build SQL using helper function
+        sql: str = controller.make_sql_string_single_row(
+            instance=instance,
+            table_name=id_data.get("table"),
+            columns=columns,
+            primary_key_col=primary_key_col,
+            primary_key_val=primary_key_val,
+            schema=schema
+        )
 
         # validate fetched data
         try:
@@ -316,7 +300,12 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             raise Exception(f"Could not fetch data: {fetch_err}")
         
         if not fetched_data:
+            make_log(f"DEBUG update_mapping: fetched_data is empty or None: {fetched_data}", "ERROR", controller.APP_NAME)
             raise Exception(f"Could not fetch data: no rows returned")
+        
+        # Debug: log the keys in the first row
+        if fetched_data and len(fetched_data) > 0:
+            make_log(f"DEBUG update_mapping: First row keys: {list(fetched_data[0].keys()) if fetched_data[0] else 'empty'}", "INFO", controller.APP_NAME)
 
         if len(fetched_data) > 1:
             raise Exception(f"Got {len(fetched_data)} rows when fetching data from table:{id_data.get('table')} Key:{primary_key_col} ID:{id_data.get('primary_key')}")
