@@ -304,7 +304,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "phone",
-                                "sl_column": "TELEFONNUMMER"
+                                "sl_column": "TELEFONNUMMER",
+                                "is_phone_no": 1
                             },
                             {
                                 "table_fieldname": "is_primary_phone",
@@ -317,7 +318,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "phone",
-                                "sl_column": "TELEFON2"
+                                "sl_column": "TELEFON2",
+                                "is_phone_no": 1
                             },
                             {
                                 "table_fieldname": "is_primary_mobile_no",
@@ -330,7 +332,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "phone",
-                                "sl_column": "TELEFON3"
+                                "sl_column": "TELEFON3",
+                                "is_phone_no": 1
                             },
                             {
                                 "table_fieldname": "is_primary_mobile_no",
@@ -569,7 +572,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "phone",
-                                "sl_column": "TELEFONNUMMER"
+                                "sl_column": "TELEFONNUMMER",
+                                "is_phone_no": 1
                             },
                             {
                                 "table_fieldname": "is_primary_phone",
@@ -582,7 +586,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "phone",
-                                "sl_column": "TELEFON2"
+                                "sl_column": "TELEFON2",
+                                "is_phone_no": 1
                             },
                             {
                                 "table_fieldname": "is_primary_mobile_no",
@@ -595,7 +600,8 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "phone",
-                                "sl_column": "TELEFON3"
+                                "sl_column": "TELEFON3",
+                                "is_phone_no": 1
                             },
                             {
                                 "table_fieldname": "is_primary_mobile_no",
