@@ -104,8 +104,14 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str) -> None:
         if not primary_key_column:
             return "test1"
 
-        # get the column name where the timestamp is stored on db
-        ts_col: str = frappe.db.get_value("Sync Instance", instance, "db_time_stamp_column_name")
+        # get the column name where the timestamp is stored on db from table mapping
+        mapping_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "type")
+        instance_doc = frappe.get_doc("Sync Instance", instance)
+        ts_col: str = None
+        for table_mapping_row in instance_doc.table_mapping:
+            if table_mapping_row.type == mapping_type:
+                ts_col = table_mapping_row.timestamp_column_name
+                break
         if not ts_col:
             return "test2"
 
@@ -178,7 +184,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str) -> None:
             d["selectline_column"] for d in mapping_table_data if d.get("selectline_column")
         ))
 
-        time_stamp_col_name: str = frappe.db.get_value("Sync Instance", instance, "db_time_stamp_column_name")
+        # get timestamp column name from table mapping
+        instance_doc = frappe.get_doc("Sync Instance", instance)
+        time_stamp_col_name: str = None
+        for table_mapping_row in instance_doc.table_mapping:
+            if table_mapping_row.type == mapping_doc.type:
+                time_stamp_col_name = table_mapping_row.timestamp_column_name
+                break
         if not time_stamp_col_name:
             raise Exception(f"No time stamp column name found for: {mapping_name}")
         
