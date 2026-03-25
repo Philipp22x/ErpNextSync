@@ -53,9 +53,12 @@ function custom_action_buttons(frm){
         frm.add_custom_button(__('Import'), () => {
             start_import_action(frm);
         });
-        frm.add_custom_button(__('Update'), () => {
+        frm.add_custom_button(__('Ignore Timestamp'), () => {
+            start_update_action(frm, ignore_ts=true);
+        },__("Update"));
+        frm.add_custom_button(__('Timestamp Verification'), () => {
             start_update_action(frm);
-        });
+        },__("Update"));
         frm.add_custom_button(__('Preview'), () => {
             preview_reconciliation(frm);
         },__("Reconcile"));
@@ -94,7 +97,7 @@ function start_import_action(frm){
 }
 
 // start update button action
-function start_update_action(frm){
+function start_update_action(frm, ignore_ts=false){
     // Increment runs
     frm.set_value("runs", frm.doc.runs + 1);
     
@@ -114,6 +117,7 @@ function start_update_action(frm){
             args:{
                 "instance": frm.doc.name,
                 "types_str": JSON.stringify(types_list),
+                "ignore_ts": ignore_ts
             },
             callback: function(r){
                 frappe.dom.unfreeze();

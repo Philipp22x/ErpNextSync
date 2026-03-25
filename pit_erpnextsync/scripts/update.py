@@ -12,7 +12,7 @@ from pit_erpnextsync.scripts.data_import import format_phone_number
 
 
 @frappe.whitelist()
-def run_bulk_update(instance: str, types_str: str) -> None:
+def run_bulk_update(instance: str, types_str: str, ignore_ts: bool = False) -> None:
 
     # before import hooks
     controller.trigger_hooks(instance=instance, before_after="before", import_update="update")
@@ -89,7 +89,8 @@ def run_bulk_update(instance: str, types_str: str) -> None:
             instance=instance,
             id_data=id_data,
             mapping_name=mapping_name,
-            run_number=run_number
+            run_number=run_number,
+            ignore_ts=ignore_ts
         )
         job_ids.append(job_id)
 
@@ -103,7 +104,7 @@ def run_bulk_update(instance: str, types_str: str) -> None:
 
 
 # fetch timespamp of db data object -> if changed call update
-def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number: int = None, skip_job_update: bool = False) -> None:
+def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number: int = None, skip_job_update: bool = False, ignore_ts: bool = False) -> None:
 
     try:
         table_name: str = id_data.get("table")
@@ -113,6 +114,24 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         if not instance or not table_name or not primary_key:
             make_log(f"Some id data is missing: {id_data}", "ERROR", controller.APP_NAME)
             return
+
+        # If ignore_ts is True, skip timestamp check and directly update
+        if ignore_ts:
+            make_log(f"Timestamp check ignored for {mapping_name}, proceeding with update", "INFO", controller.APP_NAME)
+            job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}" if run_number else None
+            frappe.enqueue(
+                "pit_erpnextsync.scripts.update.update_mapping",
+                queue="long",
+                timeout=600,
+                job_id=job_id,
+                instance=instance,
+                id_data=id_data,
+                mapping_name=mapping_name,
+                run_number=run_number
+            )
+            if not skip_job_update:
+                controller.update_jobs(instance=instance)
+            return None
 
         # get db schema from instance
         schema: str = frappe.db.get_value("Sync Instance", instance, "schema")
