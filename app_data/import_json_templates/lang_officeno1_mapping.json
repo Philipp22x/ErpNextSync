@@ -82,11 +82,11 @@
                                 "reqd": 1
                             },
                             {
-                                "fieldname": "credit_days",
+                                "table_fieldname": "credit_days",
                                 "sl_column": "NETTOTAGE"
                             },
                             {
-                                "fieldname": "description",
+                                "table_fieldname": "description",
                                 "sl_column": "TEXT"
                             }
                         ]
