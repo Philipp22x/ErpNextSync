@@ -496,7 +496,7 @@
                     },
                     {
                         "fieldname": "custom_academic_title",
-                        "sl_column": "TITLE"
+                        "sl_column": "Titel"
                     },
                     {
                         "fieldname": "gender",
