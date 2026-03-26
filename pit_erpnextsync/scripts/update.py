@@ -350,9 +350,14 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:
             try:
-                # validate mapping row
+                # Skip entries that are error markers (fieldnames starting with _)
+                if row.fieldname and row.fieldname.startswith("_"):
+                    continue
+                
+                # validate mapping row - skip if essential data is missing
                 if not row.mapping_doctype or not row.docname or not row.fieldname:
-                    raise Exception(f"Row data validation failed: {row.mapping_doctype}, {row.docname}, {row.fieldname}")
+                    make_log(f"Skipping invalid mapping row for {mapping_name}: doctype={row.mapping_doctype}, docname={row.docname}, fieldname={row.fieldname}", "WARNING", controller.APP_NAME)
+                    continue
 
                 # Get value from fetched data
                 field_value = fetched_data[0].get(row.selectline_column)
