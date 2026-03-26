@@ -1292,31 +1292,57 @@ def fetch_source_data(
 			APP_NAME
 		)
 		
-		# Escape column names that might be reserved keywords (TEXT, etc.)
-		escaped_columns = []
-		for col in columns:
-			# Wrap column names in brackets to handle reserved keywords
-			if col.upper() in ['TEXT', 'ORDER', 'GROUP', 'TABLE', 'SELECT', 'FROM', 'WHERE']:
-				escaped_columns.append(f"[{col}]")
-			else:
-				escaped_columns.append(col)
+		# Get driver type for SQL syntax differences
+		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 		
-		col_string_escaped = ", ".join(escaped_columns)
-		
-		# Build and execute SQL - try with quotes first (string primary key)
-		sql = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = '{primary_key}'"""
-		
-		make_log(
-			f"Executing SQL for {mapping_doc.name}: {sql}",
-			"DEBUG",
-			APP_NAME
-		)
-		
-		result = controller.fetch_data(instance=instance, sql=sql)
-		
-		# If no result and primary key looks numeric, try without quotes
-		if not result and primary_key.isdigit():
-			sql_numeric = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = {primary_key}"""
+		# Build SQL based on driver type
+		if driver == "pymssql":
+			# MSSQL: Only escape reserved keywords with brackets
+			escaped_columns = []
+			for col in columns:
+				if col.upper() in ['TEXT', 'ORDER', 'GROUP', 'TABLE', 'SELECT', 'FROM', 'WHERE']:
+					escaped_columns.append(f"[{col}]")
+				else:
+					escaped_columns.append(col)
+			col_string_escaped = ", ".join(escaped_columns)
+			
+			# Build SQL for MSSQL
+			sql = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = '{primary_key}'"""
+			
+			make_log(
+				f"Executing SQL for {mapping_doc.name}: {sql}",
+				"DEBUG",
+				APP_NAME
+			)
+			
+			result = controller.fetch_data(instance=instance, sql=sql)
+			
+			# If no result and primary key looks numeric, try without quotes
+			if not result and primary_key.isdigit():
+				sql_numeric = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = {primary_key}"""
+				make_log(
+					f"Retrying with numeric primary key for {mapping_doc.name}: {sql_numeric}",
+					"DEBUG",
+					APP_NAME
+				)
+				result = controller.fetch_data(instance=instance, sql=sql_numeric)
+		else:
+			# 4D: Use table alias and bracket-quote ALL columns (required syntax)
+			col_string_4d = ", ".join([f"t.[{col}]" for col in columns])
+			
+			# Quote primary key value if it's a string
+			quoted_pk = f"'{primary_key}'" if not str(primary_key).isdigit() else primary_key
+			
+			# Build SQL for 4D with table alias
+			sql = f"""SELECT {col_string_4d} FROM {schema}{schema_dot}{table_name} t WHERE t.[{primary_key_col}] = {quoted_pk}"""
+			
+			make_log(
+				f"Executing SQL for {mapping_doc.name}: {sql}",
+				"DEBUG",
+				APP_NAME
+			)
+			
+			result = controller.fetch_data(instance=instance, sql=sql)
 			make_log(
 				f"Retrying with numeric primary key for {mapping_doc.name}: {sql_numeric}",
 				"DEBUG",
