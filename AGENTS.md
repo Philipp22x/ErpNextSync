@@ -128,6 +128,7 @@ dependencies = [
 3. **Error Handling**: Comprehensive try-except blocks with logging
 4. **Background Jobs**: Long-running operations use Frappe's job queue
 5. **Database Transactions**: Explicit commits after document operations
+6. **Code Editing Policy**: Even if SSH access is provided for checking logs or running CLI commands on remote servers, ALL code edits MUST be done in this local project only. Never modify code directly on remote servers via SSH.
 
 ## Common Tasks
 

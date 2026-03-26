@@ -258,9 +258,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         if not mapping_table_data:
             raise Exception("Could not get mapping table data")
 
-        col_string = ",\n".join(dict.fromkeys(
-            d["selectline_column"] for d in mapping_table_data if d.get("selectline_column")
-        ))
+        # Filter out invalid/error columns (columns starting with _ are error codes)
+        valid_columns = [
+            d["selectline_column"] 
+            for d in mapping_table_data 
+            if d.get("selectline_column") and not d["selectline_column"].startswith("_")
+        ]
+        col_string = ",\n".join(dict.fromkeys(valid_columns))
 
         # get timestamp column name from table mapping and load mapping JSON
         instance_doc = frappe.get_doc("Sync Instance", instance)
@@ -366,16 +370,19 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
                     frappe.db.set_value(row.mapping_doctype, row.docname, row.fieldname, field_value)
 
-                # Convert and store timestamp based on column type
-                raw_timestamp = fetched_data[0].get(time_stamp_col_name)
-                time_stamp_type = mapping_doc.time_stamp_type or "datetime"
-                mapping_doc.db_time_stamp = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
-                mapping_doc.last_update = datetime.datetime.now()
-                mapping_doc.save()
-
             except Exception as er:
                 make_log(f"{er}", "ERROR", controller.APP_NAME, with_traceback=True)
                 continue
+        
+        # Convert and store timestamp based on column type (MOVED OUTSIDE LOOP)
+        try:
+            raw_timestamp = fetched_data[0].get(time_stamp_col_name)
+            time_stamp_type = mapping_doc.time_stamp_type or "datetime"
+            mapping_doc.db_time_stamp = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
+            mapping_doc.last_update = datetime.datetime.now()
+            mapping_doc.save()
+        except Exception as ts_err:
+            make_log(f"Could not update timestamp for {mapping_name}: {ts_err}", "ERROR", controller.APP_NAME)
         
         frappe.db.commit()
         make_log(f"Mapping {mapping_name} updated successfully", "INFO", controller.APP_NAME)
