@@ -32,7 +32,7 @@ class SyncMapping(Document):
 			mapping_table = self.mapping_table
 
 			if not mapping_table:
-				return
+				return True
 			
 			docs_to_check: list = []
 

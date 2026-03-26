@@ -1292,63 +1292,17 @@ def fetch_source_data(
 			APP_NAME
 		)
 		
-		# Get driver type for SQL syntax differences
-		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+		# Build SQL using centralized helper function
+		sql = controller.make_sql_string_single_row(
+			instance=instance,
+			table_name=table_name,
+			columns=columns,
+			primary_key_col=primary_key_col,
+			primary_key_val=primary_key,
+			schema=schema
+		)
 		
-		# Build SQL based on driver type
-		if driver == "pymssql":
-			# MSSQL: Only escape reserved keywords with brackets
-			escaped_columns = []
-			for col in columns:
-				if col.upper() in ['TEXT', 'ORDER', 'GROUP', 'TABLE', 'SELECT', 'FROM', 'WHERE']:
-					escaped_columns.append(f"[{col}]")
-				else:
-					escaped_columns.append(col)
-			col_string_escaped = ", ".join(escaped_columns)
-			
-			# Build SQL for MSSQL
-			sql = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = '{primary_key}'"""
-			
-			make_log(
-				f"Executing SQL for {mapping_doc.name}: {sql}",
-				"DEBUG",
-				APP_NAME
-			)
-			
-			result = controller.fetch_data(instance=instance, sql=sql)
-			
-			# If no result and primary key looks numeric, try without quotes
-			if not result and primary_key.isdigit():
-				sql_numeric = f"""SELECT {col_string_escaped} FROM {schema}{schema_dot}{table_name} WHERE {primary_key_col} = {primary_key}"""
-				make_log(
-					f"Retrying with numeric primary key for {mapping_doc.name}: {sql_numeric}",
-					"DEBUG",
-					APP_NAME
-				)
-				result = controller.fetch_data(instance=instance, sql=sql_numeric)
-		else:
-			# 4D: Use table alias and bracket-quote ALL columns (required syntax)
-			col_string_4d = ", ".join([f"t.[{col}]" for col in columns])
-			
-			# Quote primary key value if it's a string
-			quoted_pk = f"'{primary_key}'" if not str(primary_key).isdigit() else primary_key
-			
-			# Build SQL for 4D with table alias
-			sql = f"""SELECT {col_string_4d} FROM {schema}{schema_dot}{table_name} t WHERE t.[{primary_key_col}] = {quoted_pk}"""
-			
-			make_log(
-				f"Executing SQL for {mapping_doc.name}: {sql}",
-				"DEBUG",
-				APP_NAME
-			)
-			
-			result = controller.fetch_data(instance=instance, sql=sql)
-			make_log(
-				f"Retrying with numeric primary key for {mapping_doc.name}: {sql_numeric}",
-				"DEBUG",
-				APP_NAME
-			)
-			result = controller.fetch_data(instance=instance, sql=sql_numeric)
+		result = controller.fetch_data(instance=instance, sql=sql)
 		
 		make_log(
 			f"Fetch result for {mapping_doc.name}: {result}",
