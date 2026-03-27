@@ -151,7 +151,8 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
                 obj_id: str = controller.create_object_id(
                     instance=instance,
                     table_name=row.table_name,
-                    primary_key=str(fetched_obj.get(row.primary_key))
+                    primary_key=str(fetched_obj.get(row.primary_key)),
+                    mapping_type=row.type
                 )
 
                 # check if mapping already exists

@@ -660,7 +660,9 @@ def update_jobs(instance: str) -> None:
 
 
 # create object mapping id
-def create_object_id(instance: str, table_name: str, primary_key: str) -> str:
+def create_object_id(instance: str, table_name: str, primary_key: str, mapping_type: str = "") -> str:
+	if mapping_type:
+		table_name = f"{mapping_type}_{table_name}"
 	return f"{instance.replace(chr(32), chr(95))}:{table_name.replace(chr(32), chr(95))}:{primary_key.replace(chr(32), chr(95))}"
 
 
