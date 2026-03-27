@@ -496,7 +496,7 @@
                     },
                     {
                         "fieldname": "custom_academic_title",
-                        "sl_column": "Titel"
+                        "sl_column": "TITEL"
                     },
                     {
                         "fieldname": "gender",
@@ -773,5 +773,60 @@
                 ]
             }
         ]
+    },
+        {
+        "idx": 8,
+        "type": "VKItemPrices",
+        "doc_type": "Item Price",
+        "table_name": "Artikel",
+        "primary_key": "ARTIKELNR",
+        "timestamp_column_name": "LETZTEAENDERUNG",
+        "mapping": [
+            {
+                "doctype": "UOM",
+                "fields": [
+                    {
+                        "fieldname": "uom_name",
+                        "sl_column": "MENGENEINHEIT"
+                    }
+                ]
+            },
+            {
+                "doctype": "Item Price",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "ARTIKELNR",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "uom",
+                        "sl_column": "MENGENEINHEIT"
+                    },
+                    {
+                        "fieldname": "packing_unit",
+                        "sl_column": "VERPACKUNGSMENGE"
+                    },
+                    {
+                        "fieldname": "price_list_rate",
+                        "sl_column": "VK1"
+                    },
+                    {
+                        "fieldname": "selling",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "price_list",
+                        "default": "Standard-Vertrieb"
+                    }
+                ]
+            }
+        ]
     }
 ]
+
