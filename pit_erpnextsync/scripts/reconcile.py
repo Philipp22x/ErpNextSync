@@ -1,4 +1,5 @@
 import json
+import time
 import frappe
 from frappe.model.document import Document
 from typing import Dict, List, Tuple, Any, Optional
@@ -1342,7 +1343,22 @@ def fetch_source_data(
 			schema=schema
 		)
 		
-		result = controller.fetch_data(instance=instance, sql=sql)
+		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+
+		# Modified by PIT Agent Dev 1 - 2026-03-30: Retry 4D fetches to handle transient driver failures under parallel reconcile jobs.
+		result = None
+		max_attempts = 3 if driver == "p4d" else 1
+		for attempt in range(1, max_attempts + 1):
+			result = controller.fetch_data(instance=instance, sql=sql)
+			if result:
+				break
+			if attempt < max_attempts:
+				make_log(
+					f"Retry fetch ({attempt}/{max_attempts}) for {mapping_doc.selectline_id}",
+					"WARNING",
+					APP_NAME,
+				)
+				time.sleep(0.2 * attempt)
 		
 		make_log(
 			f"Fetch result for {mapping_doc.name}: {result}",

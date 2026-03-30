@@ -857,8 +857,12 @@ def make_sql_string_single_row(
 	driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 	schema_dot: str = f"{schema}." if schema else ""
 	
-	# Quote primary key value if it's a string
-	quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
+	# Modified by PIT Agent Dev 1 - 2026-03-30: For 4D, always quote PK to support numeric-like VARCHAR keys (e.g. KUNDENNR).
+	if driver == "p4d":
+		quoted_pk = f"'{primary_key_val}'"
+	else:
+		# MSSQL: quote only non-numeric values
+		quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
 	
 	if driver == "pymssql":
 		col_string = ", ".join(columns)
