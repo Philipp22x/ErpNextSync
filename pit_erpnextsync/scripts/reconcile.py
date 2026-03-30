@@ -1225,6 +1225,45 @@ def parse_object_id(obj_id: str) -> Dict:
 	}
 
 
+def resolve_table_name_for_mapping(instance: str, mapping_doc: Document, table_from_id: str) -> str:
+	"""Resolve the actual source table name for a mapping.
+
+	Backwards compatibility: older selectline_id values may store "<type>_<table>"
+	instead of the raw table name.
+	"""
+	# Modified by PIT Agent Dev 1 - 2026-03-30: Resolve legacy type-prefixed table names during reconciliation.
+	instance_doc: Document = frappe.get_doc("Sync Instance", instance)
+	candidates: List[str] = []
+	for row in instance_doc.table_mapping:
+		if row.type == mapping_doc.type and row.table_name:
+			candidates.append(str(row.table_name))
+
+	if not candidates:
+		return table_from_id
+
+	if table_from_id in candidates:
+		return table_from_id
+
+	if "_" in table_from_id:
+		stripped = table_from_id.split("_", 1)[1]
+		if stripped in candidates:
+			make_log(
+				f"Resolved legacy table name '{table_from_id}' to '{stripped}' for mapping {mapping_doc.name}",
+				"INFO",
+				APP_NAME,
+			)
+			return stripped
+
+	resolved = candidates[0]
+	if resolved != table_from_id:
+		make_log(
+			f"Resolved table name '{table_from_id}' to '{resolved}' for mapping {mapping_doc.name}",
+			"INFO",
+			APP_NAME,
+		)
+	return resolved
+
+
 def fetch_source_data(
 	instance: str,
 	mapping_doc: Document,
@@ -1236,8 +1275,9 @@ def fetch_source_data(
 	Includes columns from existing mapping AND new fields being added.
 	"""
 	try:
-		# Get table name from id_data
-		table_name = id_data.get("table")
+		# Get table name from id_data and resolve legacy type-prefixed names
+		table_name_from_id = id_data.get("table")
+		table_name = resolve_table_name_for_mapping(instance=instance, mapping_doc=mapping_doc, table_from_id=table_name_from_id)
 		primary_key = id_data.get("primary_key")
 		
 		# Get primary key column from mapping

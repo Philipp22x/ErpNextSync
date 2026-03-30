@@ -121,7 +121,12 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
     make_log(f"check_timestamp called for {mapping_name} with ignore_ts={ignore_ts} (type: {type(ignore_ts)})", "INFO", controller.APP_NAME)
 
     try:
-        table_name: str = id_data.get("table")
+        table_name_from_id: str = id_data.get("table")
+        table_name: str = resolve_table_name_for_mapping(
+            instance=instance,
+            mapping_name=mapping_name,
+            table_from_id=table_name_from_id,
+        )
         primary_key: str = id_data.get("primary_key")
 
         # validate id data
@@ -319,10 +324,16 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         if not primary_key_col:
             raise Exception("Could not get primary key column name from mapping doc")
 
+        resolved_table_name = resolve_table_name_for_mapping(
+            instance=instance,
+            mapping_name=mapping_name,
+            table_from_id=id_data.get("table"),
+        )
+
         # Build SQL using helper function
         sql: str = controller.make_sql_string_single_row(
             instance=instance,
-            table_name=id_data.get("table"),
+            table_name=resolved_table_name,
             columns=columns,
             primary_key_col=primary_key_col,
             primary_key_val=primary_key_val,
@@ -345,7 +356,10 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             make_log(f"DEBUG update_mapping: First row keys: {list(fetched_data[0].keys()) if fetched_data[0] else 'empty'}", "INFO", controller.APP_NAME)
 
         if len(fetched_data) > 1:
-            raise Exception(f"Got {len(fetched_data)} rows when fetching data from table:{id_data.get('table')} Key:{primary_key_col} ID:{id_data.get('primary_key')}")
+            raise Exception(
+                f"Got {len(fetched_data)} rows when fetching data from table:{resolved_table_name} "
+                f"Key:{primary_key_col} ID:{id_data.get('primary_key')}"
+            )
         
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:
@@ -402,6 +416,58 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         return None
 
 
+# Modified by PIT Agent Dev 1 - 2026-03-30: Resolve legacy type-prefixed table names for update SQL queries.
+def resolve_table_name_for_mapping(instance: str, mapping_name: str, table_from_id: str) -> str:
+    """Resolve source table name from object id with backward compatibility."""
+    if not table_from_id:
+        return table_from_id
+
+    try:
+        mapping_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "type")
+        if not mapping_type:
+            return table_from_id
+
+        instance_doc: Document = frappe.get_doc("Sync Instance", instance)
+        candidates: list = [
+            str(row.table_name)
+            for row in instance_doc.table_mapping
+            if row.type == mapping_type and row.table_name
+        ]
+
+        if not candidates:
+            return table_from_id
+
+        if table_from_id in candidates:
+            return table_from_id
+
+        if "_" in table_from_id:
+            stripped = table_from_id.split("_", 1)[1]
+            if stripped in candidates:
+                make_log(
+                    f"Resolved legacy table name '{table_from_id}' to '{stripped}' for mapping {mapping_name}",
+                    "INFO",
+                    controller.APP_NAME,
+                )
+                return stripped
+
+        resolved = candidates[0]
+        if resolved != table_from_id:
+            make_log(
+                f"Resolved table name '{table_from_id}' to '{resolved}' for mapping {mapping_name}",
+                "INFO",
+                controller.APP_NAME,
+            )
+        return resolved
+
+    except Exception as e:
+        make_log(
+            f"Could not resolve table name for mapping {mapping_name} from '{table_from_id}': {e}",
+            "WARNING",
+            controller.APP_NAME,
+        )
+        return table_from_id
+
+
 # split object id into data dict
 def get_id_data(obj_id: str) -> dict:
     if not obj_id:
@@ -432,7 +498,12 @@ def update_mapping_rows(mapping_name: str) -> None:
         primary_key_column: str = mapping_doc.primary_key_column
         instance_table_mapping = instance_doc.table_mapping
 
-        db_table_name: str = get_id_data(mapping_doc.selectline_id)["table"]
+        db_table_name_raw: str = get_id_data(mapping_doc.selectline_id)["table"]
+        db_table_name: str = resolve_table_name_for_mapping(
+            instance=instance_name,
+            mapping_name=mapping_name,
+            table_from_id=db_table_name_raw,
+        )
 
         mapping_json = {}
 
@@ -465,4 +536,3 @@ def update_mapping_rows(mapping_name: str) -> None:
 
 
 #! TEST ----------------------------------------------------------------------------
-

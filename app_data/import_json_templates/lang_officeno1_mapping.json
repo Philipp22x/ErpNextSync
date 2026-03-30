@@ -104,6 +104,15 @@
         "timestamp_column_name": "LETZTEAENDERUNGAM",
         "mapping": [
             {
+                "doctype": "Territory",
+                "fields": [
+                    {
+                        "fieldname": "territory_name",
+                        "sl_column": "LAND"
+                    }
+                ]
+            },
+            {
                 "doctype": "Customer",
                 "reqd": 1,
                 "doctype_flags": [
@@ -774,7 +783,7 @@
             }
         ]
     },
-        {
+    {
         "idx": 8,
         "type": "VKItemPrices",
         "doc_type": "Item Price",
@@ -823,6 +832,134 @@
                     {
                         "fieldname": "price_list",
                         "default": "Standard-Vertrieb"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 9,
+        "type": "VKPricingRulesRate",
+        "doc_type": "Pricing Rule",
+        "table_name": "Artikel_VK_Staffel",
+        "primary_key": "PRIMARYKEY",
+        "query_filter": "t.[PREIS] IS NOT NULL AND t.[PREIS] <> 0",
+        "mapping": [
+            {
+                "doctype": "Pricing Rule",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "title",
+                        "sl_column": "ARTIKELNR",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "apply_on",
+                        "default": "Item Code"
+                    },
+                    {
+                        "fieldname": "selling",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "price_or_product_discount",
+                        "default": "Price"
+                    },
+                    {
+                        "fieldname": "items",
+                        "reqd": 1,
+                        "table_fields": [
+                            {
+                                "table_fieldname": "item_code",
+                                "sl_column": "ARTIKELNR",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "min_qty",
+                        "sl_column": "ABMENGE"
+                    },
+                    {
+                        "fieldname": "max_qty",
+                        "sl_column": "BISMENGE"
+                    },
+                    {
+                        "fieldname": "rate_or_discount",
+                        "default": "Rate"
+                    },
+                    {
+                        "fieldname": "rate",
+                        "sl_column": "PREIS"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 10,
+        "type": "VKPricingRulesPerc",
+        "doc_type": "Pricing Rule",
+        "table_name": "Artikel_VK_Staffel",
+        "primary_key": "PRIMARYKEY",
+        "query_filter": "t.[RABATT] IS NOT NULL AND t.[RABATT] <> 0",
+        "mapping": [
+            {
+                "doctype": "Pricing Rule",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "title",
+                        "sl_column": "ARTIKELNR",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "apply_on",
+                        "default": "Item Code"
+                    },
+                    {
+                        "fieldname": "selling",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "price_or_product_discount",
+                        "default": "Price"
+                    },
+                    {
+                        "fieldname": "items",
+                        "reqd": 1,
+                        "table_fields": [
+                            {
+                                "table_fieldname": "item_code",
+                                "sl_column": "ARTIKELNR",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "min_qty",
+                        "sl_column": "ABMENGE"
+                    },
+                    {
+                        "fieldname": "max_qty",
+                        "sl_column": "BISMENGE"
+                    },
+                    {
+                        "fieldname": "rate_or_discount",
+                        "default": "Discount Percentage"
+                    },
+                    {
+                        "fieldname": "discount_percentage",
+                        "sl_column": "RABATT"
                     }
                 ]
             }
