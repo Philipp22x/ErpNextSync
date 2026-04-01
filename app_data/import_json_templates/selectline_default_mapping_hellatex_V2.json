@@ -156,7 +156,7 @@
         "timestamp_column_name": "TS",
         "timestamp_column_type": "rowversion",
         "primary_key": "ART_ID",
-        "query_filter": "Variantenartikel IS NOT NULL AND Artikelnummer LIKE '%HTX-31%'",
+        "query_filter": "Variantenartikel IS NOT NULL AND Artikelnummer LIKE '%HTX-31%' AND Artikelnummer IN (SELECT DISTINCT Artikelnummer FROM ARTVARI)",
         "mapping": [
             {
                 "doctype": "Item Group",
@@ -247,18 +247,15 @@
                             {
                                 "table_fieldname": "attribute",
                                 "sl_column": "IdMerkmal",
-                                "force_str_type": 1,
-                                "reqd": 1
+                                "force_str_type": 1
                             },
                             {
                                 "table_fieldname": "attribute_value",
-                                "sl_column": "Bezeichnung",
-                                "reqd": 1
+                                "sl_column": "Bezeichnung"
                             },
                             {
                                 "table_fieldname": "variant_of",
-                                "get_redis": "current_variant_of",
-                                "reqd": 1
+                                "get_redis": "current_variant_of"
                             }
                         ]
                     }
