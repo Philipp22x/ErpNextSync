@@ -531,9 +531,17 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             # Check for duplicates if deduplication is enabled
                             if deduplicate_field:
                                 dedup_value = row_data.get(deduplicate_field)
-                                if dedup_value in seen_values:
+                                # Convert to string for consistent comparison (handles int/Decimal types)
+                                dedup_value_str = str(dedup_value) if dedup_value is not None else None
+                                if dedup_value_str in seen_values:
+                                    make_log(
+                                        f"Skipping duplicate row with {deduplicate_field}={dedup_value}",
+                                        "INFO",
+                                        controller.APP_NAME,
+                                    )
                                     continue  # Skip duplicate
-                                seen_values.add(dedup_value)
+                                if dedup_value_str:
+                                    seen_values.add(dedup_value_str)
                             
                             child_name = frappe.generate_hash(length=8)
                             
