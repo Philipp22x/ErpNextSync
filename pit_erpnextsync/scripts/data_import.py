@@ -782,6 +782,27 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
         make_log(f"{new_doc.doctype} {new_doc.name} already exists -> using existing", "INFO", controller.APP_NAME)
         # Document already exists in ERPNext - treat as success and map to the existing doc
         existing_name = new_doc.name
+
+        # Insert child rows into the existing document if it has no children yet
+        if child_doc_list:
+            try:
+                existing_doc = frappe.get_doc(new_doc.doctype, existing_name)
+                for child_doc in child_doc_list:
+                    # Check if this child table already has rows
+                    existing_children = existing_doc.get(child_doc.parentfield) or []
+                    if not existing_children:
+                        child_doc.parent = existing_name
+                        child_doc.flags.name_set = True
+                        child_doc.insert(
+                            ignore_permissions=True,
+                            ignore_mandatory=True,
+                            ignore_links=True
+                        )
+                frappe.db.commit()
+                make_log(f"Added child rows to existing {new_doc.doctype} {existing_name}", "INFO", controller.APP_NAME)
+            except Exception as e:
+                make_log(f"Could not add child rows to existing {new_doc.doctype} {existing_name}: {e}", "ERROR", controller.APP_NAME)
+
         for entry in doc_mapping_data:
             entry["docname"] = existing_name
         return {
