@@ -29,7 +29,7 @@
                         "fieldname": "item_attribute_values",
                         "multiple_query": 1,
                         "multiple_query_table": "MERKMALD A2",
-                        "multiple_query_condition": "WHERE A2.idMerkmal = A1.Id",
+                        "multiple_query_condition": "A2.idMerkmal = {Id}",
                         "table_fields": [
                             {
                                 "table_fieldname": "attribute_value",
