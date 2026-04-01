@@ -136,6 +136,7 @@
                         "multiple_query": true,
                         "multiple_query_table": "MERKMAL",
                         "multiple_query_condition": "Id IN (SELECT DISTINCT IdMerkmal FROM ARTVARI WHERE Artikelnummer IN (SELECT Artikelnummer FROM ART WHERE Variantenartikel = {Artikelnummer}))",
+                        "deduplicate_on": "Id",
                         "table_fields": [
                             {
                                 "table_fieldname": "attribute",
