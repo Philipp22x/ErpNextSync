@@ -522,18 +522,18 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             controller.APP_NAME,
                         )
                         
-                        # Track unique attribute values to prevent duplicates
-                        seen_attributes = set()
+                        # Track unique values to prevent duplicates (only if deduplicate is enabled)
+                        seen_values = set()
+                        deduplicate_field = field.get("deduplicate_on")
                         
                         # create child row for each fetched row
                         for row_data in multiple_rows:
-                            # Check for duplicates based on the first table field (usually 'attribute')
-                            first_field = field["table_fields"][0] if field["table_fields"] else None
-                            if first_field and first_field.get("sl_column"):
-                                attr_value = row_data.get(first_field["sl_column"])
-                                if attr_value in seen_attributes:
+                            # Check for duplicates if deduplication is enabled
+                            if deduplicate_field:
+                                dedup_value = row_data.get(deduplicate_field)
+                                if dedup_value in seen_values:
                                     continue  # Skip duplicate
-                                seen_attributes.add(attr_value)
+                                seen_values.add(dedup_value)
                             
                             child_name = frappe.generate_hash(length=8)
                             
