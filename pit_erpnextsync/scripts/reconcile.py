@@ -80,10 +80,13 @@ def start_reconciliation(
 
 			type_job_ids: List[str] = []
 			for mapping_name in type_mappings:
-				job_id = frappe.enqueue(
+				import uuid
+				job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
+				frappe.enqueue(
 					"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
 					queue="long",
 					timeout=600,
+					job_id=job_id,
 					instance=instance,
 					mapping_name=mapping_name,
 					dry_run=dry_run
