@@ -111,9 +111,9 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
         make_log(f"Could not found any table mapping rows. Import aborted for instance {instance}!", "ERROR", controller.APP_NAME)
         return None
 
-    job_ids: list = []
+    all_job_ids: list = []
 
-    # fetch db data for every row
+    # fetch db data for every row - sequential by idx to prevent race conditions
     for row in types_rows_to_import:
         try:
             fetched_data: list = controller.fetch_data(
@@ -144,6 +144,7 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
 
             # collect items to import, then enqueue in batches
             current_batch: list[dict] = []
+            type_job_ids: list = []
 
             for idx, fetched_obj in enumerate(fetched_data):
                 
@@ -175,7 +176,7 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
                         batch_items=current_batch,
                         table_mapping_row=row
                     )
-                    job_ids.append(job_id)
+                    type_job_ids.append(job_id)
                     current_batch = []
 
                 # Log progress every 1000 rows
@@ -194,19 +195,40 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
                     batch_items=current_batch,
                     table_mapping_row=row
                 )
-                job_ids.append(job_id)
+                type_job_ids.append(job_id)
 
             make_log(
-                f"Enqueued {len(job_ids)} batch jobs for {row.type} (batch_size={batch_size})",
+                f"Enqueued {len(type_job_ids)} batch jobs for {row.type} (batch_size={batch_size})",
                 "INFO",
                 controller.APP_NAME,
             )
+
+            all_job_ids.extend(type_job_ids)
+
+            # Wait for all jobs of this type to complete before processing the next type
+            # This ensures sequential processing by idx order (e.g. Item Attribute before ItemVarParent)
+            if type_job_ids:
+                make_log(
+                    f"Waiting for {len(type_job_ids)} jobs of type {row.type} to complete before next type...",
+                    "INFO",
+                    controller.APP_NAME,
+                )
+                controller.wait_for_jobs(type_job_ids)
+                make_log(
+                    f"All jobs for type {row.type} completed",
+                    "INFO",
+                    controller.APP_NAME,
+                )
 
             if not fetched_data:
                 raise Exception
 
         except Exception as e:
             make_log(f"Could not fetch data from {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
+
+    # after import hooks - trigger once after ALL types have been processed sequentially
+    controller.trigger_hooks(instance=instance, before_after="after", import_update="import")
+    make_log(f"Import completed for instance {instance}", "INFO", controller.APP_NAME)
 
 
 #* IMPORT #########################################################################################
@@ -238,7 +260,8 @@ def import_fetched_batch(instance: str, batch_items: list[dict], table_mapping_r
             continue
 
     # update job counts once for the entire batch
-    controller.update_jobs(instance=instance)
+    # skip_hooks=True because _run_import handles after-hooks after all types complete
+    controller.update_jobs(instance=instance, skip_hooks=True)
 
 
 # new object
@@ -372,7 +395,8 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
     finally:
         if not skip_job_update:
-            controller.update_jobs(instance=instance)
+            # skip_hooks=True because _run_import handles after-hooks after all types complete
+            controller.update_jobs(instance=instance, skip_hooks=True)
 
 
 # delete doc from doc list

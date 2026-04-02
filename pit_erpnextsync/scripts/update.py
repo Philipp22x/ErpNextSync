@@ -47,65 +47,89 @@ def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
     else:
         types_list = arg_types_list
 
-    # get all mappings linked to the given instance
-    mappings_list: list = frappe.get_all(
-        "Sync Mapping",
-            filters={
-            "selectline_db_instance": instance,
-            "enable": 1,
-            "type": ["in", types_list]
-        },
-        pluck="name"
-    )
-
-    # return if no mappings found
-    if not mappings_list:
-        make_log(f"No mapping for instance {instance} found", "ERROR", controller.APP_NAME)
-        return
-
     # Get the current runs value for job naming
     run_number = frappe.db.get_value("Sync Instance", instance, "runs")
     if not run_number:
         run_number = 1
     
-    job_ids: list = []
+    all_job_ids: list = []
 
-    # main loop for all mappings of the given instance
-    for mapping_name in mappings_list:
-
-        obj_id: str = frappe.db.get_value("Sync Mapping", mapping_name, "selectline_id")
-
-        # verify obj_id
-        if not obj_id:
-            make_log(f"No object id in mapping {mapping_name}", "ERROR", controller.APP_NAME)
-            continue
-
-        id_data: dict = get_id_data(obj_id=obj_id)
-
-        # verify id_data
-        if not id_data:
-            make_log(f"Could not get data from object id {obj_id}", "ERROR", controller.APP_NAME)
-            continue
-
-        job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}"
-        frappe.enqueue(
-            "pit_erpnextsync.scripts.update.check_timestamp",
-            queue="long",
-            timeout=600,
-            job_id=job_id,
-            instance=instance,
-            id_data=id_data,
-            mapping_name=mapping_name,
-            run_number=run_number,
-            ignore_ts=ignore_ts
+    # Process types sequentially (by idx order) to prevent race conditions
+    for current_type in types_list:
+        # get all mappings for this type
+        mappings_list: list = frappe.get_all(
+            "Sync Mapping",
+            filters={
+                "selectline_db_instance": instance,
+                "enable": 1,
+                "type": current_type
+            },
+            pluck="name"
         )
-        job_ids.append(job_id)
+
+        if not mappings_list:
+            continue
+
+        type_job_ids: list = []
+
+        # enqueue all mappings for this type
+        for mapping_name in mappings_list:
+
+            obj_id: str = frappe.db.get_value("Sync Mapping", mapping_name, "selectline_id")
+
+            # verify obj_id
+            if not obj_id:
+                make_log(f"No object id in mapping {mapping_name}", "ERROR", controller.APP_NAME)
+                continue
+
+            id_data: dict = get_id_data(obj_id=obj_id)
+
+            # verify id_data
+            if not id_data:
+                make_log(f"Could not get data from object id {obj_id}", "ERROR", controller.APP_NAME)
+                continue
+
+            job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}"
+            frappe.enqueue(
+                "pit_erpnextsync.scripts.update.check_timestamp",
+                queue="long",
+                timeout=600,
+                job_id=job_id,
+                instance=instance,
+                id_data=id_data,
+                mapping_name=mapping_name,
+                run_number=run_number,
+                ignore_ts=ignore_ts
+            )
+            type_job_ids.append(job_id)
+
+        make_log(
+            f"Enqueued {len(type_job_ids)} update jobs for type {current_type} (run_number={run_number})",
+            "INFO",
+            controller.APP_NAME,
+        )
+
+        all_job_ids.extend(type_job_ids)
+
+        # Wait for all jobs of this type to complete before processing the next type
+        if type_job_ids:
+            make_log(
+                f"Waiting for {len(type_job_ids)} jobs of type {current_type} to complete before next type...",
+                "INFO",
+                controller.APP_NAME,
+            )
+            controller.wait_for_jobs(type_job_ids)
+            make_log(f"All jobs for type {current_type} completed", "INFO", controller.APP_NAME)
 
     make_log(
-        f"Enqueued {len(job_ids)} update jobs for instance {instance} (run_number={run_number})",
+        f"Enqueued {len(all_job_ids)} total update jobs for instance {instance} (run_number={run_number})",
         "INFO",
         controller.APP_NAME,
     )
+
+    # after update hooks - trigger once after ALL types have been processed sequentially
+    controller.trigger_hooks(instance=instance, before_after="after", import_update="update")
+    make_log(f"Update completed for instance {instance}", "INFO", controller.APP_NAME)
 
     return None
 
@@ -149,7 +173,7 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
                 run_number=run_number
             )
             if not skip_job_update:
-                controller.update_jobs(instance=instance)
+                controller.update_jobs(instance=instance, skip_hooks=True)
             return None
 
         # get db schema from instance
@@ -224,7 +248,7 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         if timestamp_str == mapped_timestamp:
             make_log(f"Mapping {mapping_name} up to date", "INFO", controller.APP_NAME)
             if not skip_job_update:
-                controller.update_jobs(instance=instance)
+                controller.update_jobs(instance=instance, skip_hooks=True)
             return None
         else:
             job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}" if run_number else None
@@ -239,7 +263,7 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
                 run_number=run_number
             )
             if not skip_job_update:
-                controller.update_jobs(instance=instance)
+                controller.update_jobs(instance=instance, skip_hooks=True)
             return None
 
     except Exception as e:
