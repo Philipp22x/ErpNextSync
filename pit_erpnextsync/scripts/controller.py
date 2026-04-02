@@ -618,7 +618,71 @@ def trigger_hooks(instance: str, before_after: str, import_update: str) -> None:
 
 
 # *## UTILS ##################################################################################
-def update_jobs(instance: str) -> None:
+
+
+def wait_for_jobs(job_ids: list, poll_interval: int = 2, timeout: int = 3600) -> bool:
+	"""Wait for a list of background jobs to complete before proceeding.
+
+	Used to enforce sequential processing of mapping types (by idx order).
+	This prevents race conditions where e.g. ItemVarChild jobs run before
+	Item Attribute jobs finish, causing empty attribute values.
+
+	Args:
+	    job_ids: List of job IDs to wait for
+	    poll_interval: Seconds between status checks (default: 2)
+	    timeout: Maximum seconds to wait before giving up (default: 3600)
+
+	Returns:
+	    bool: True if all jobs completed, False if timeout reached
+	"""
+	if not job_ids:
+		return True
+
+	import time
+	queue = get_queue("long")
+	finished_registry = FinishedJobRegistry(queue=queue)
+	failed_registry = FailedJobRegistry(queue=queue)
+
+	start_time = time.time()
+	site_prefix = f"{frappe.local.site}::"
+
+	while time.time() - start_time < timeout:
+		finished_ids = set(finished_registry.get_job_ids())
+		failed_ids = set(failed_registry.get_job_ids())
+		done_ids = finished_ids | failed_ids
+
+		# Check if all jobs are done (with or without site prefix)
+		all_done = True
+		for job_id in job_ids:
+			full_id = f"{site_prefix}{job_id}" if not job_id.startswith(site_prefix) else job_id
+			if full_id not in done_ids and job_id not in done_ids:
+				all_done = False
+				break
+
+		if all_done:
+			failed_count = sum(
+				1 for jid in job_ids
+				if f"{site_prefix}{jid}" in failed_ids or jid in failed_ids
+			)
+			if failed_count > 0:
+				make_log(
+					f"Jobs completed with {failed_count} failures out of {len(job_ids)}",
+					"WARNING",
+					APP_NAME,
+				)
+			return True
+
+		time.sleep(poll_interval)
+
+	make_log(
+		f"Timeout waiting for {len(job_ids)} jobs after {timeout}s",
+		"ERROR",
+		APP_NAME,
+	)
+	return False
+
+
+def update_jobs(instance: str, skip_hooks: bool = False) -> None:
 	try:
 		queue = get_queue("long")
 		run_number = frappe.get_value("Sync Instance", instance, "runs")
@@ -638,8 +702,8 @@ def update_jobs(instance: str) -> None:
 		finished_count = len(finished_jobs)
 		failed_count = len(failed_jobs)
 	
-		if len(queued_jobs) <= 0:
-			# after hooks
+		if len(queued_jobs) <= 0 and not skip_hooks:
+			# after hooks - only trigger if not managed by the caller (sequential processing)
 			trigger_hooks(instance=instance, before_after="after", import_update="import")
 			
 	

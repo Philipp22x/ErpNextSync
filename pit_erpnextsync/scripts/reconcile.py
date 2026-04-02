@@ -58,19 +58,56 @@ def start_reconciliation(
 				"message": f"No enabled mappings found for instance {instance}"
 			}
 		
-		# Queue reconciliation jobs for each mapping
-		queued_jobs: List[str] = []
+		# Get types in idx order from instance table mapping
+		types_in_order: List[str] = [row.type for row in instance_doc.table_mapping]
+		if types:
+			types_in_order = [t for t in types_in_order if t in types]
+
+		# Group mappings by type
+		mappings_by_type: Dict[str, List[str]] = {}
 		for mapping_name in mappings_list:
-			job_id = frappe.enqueue(
-				"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
-				queue="long",
-				timeout=600,
-				instance=instance,
-				mapping_name=mapping_name,
-				dry_run=dry_run
+			mapping_type = frappe.db.get_value("Sync Mapping", mapping_name, "type")
+			if mapping_type not in mappings_by_type:
+				mappings_by_type[mapping_type] = []
+			mappings_by_type[mapping_type].append(mapping_name)
+
+		# Queue reconciliation jobs sequentially by type (idx order)
+		all_queued_jobs: List[str] = []
+		for current_type in types_in_order:
+			type_mappings = mappings_by_type.get(current_type, [])
+			if not type_mappings:
+				continue
+
+			type_job_ids: List[str] = []
+			for mapping_name in type_mappings:
+				job_id = frappe.enqueue(
+					"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
+					queue="long",
+					timeout=600,
+					instance=instance,
+					mapping_name=mapping_name,
+					dry_run=dry_run
+				)
+				type_job_ids.append(job_id)
+
+			make_log(
+				f"Reconciliation queued {len(type_job_ids)} jobs for type {current_type} (dry_run={dry_run})",
+				"INFO",
+				APP_NAME
 			)
-			queued_jobs.append(job_id)
-		
+
+			all_queued_jobs.extend(type_job_ids)
+
+			# Wait for all jobs of this type to complete before processing the next type
+			if type_job_ids and not dry_run:
+				make_log(
+					f"Waiting for {len(type_job_ids)} reconciliation jobs of type {current_type} to complete...",
+					"INFO",
+					APP_NAME,
+				)
+				controller.wait_for_jobs(type_job_ids)
+				make_log(f"All reconciliation jobs for type {current_type} completed", "INFO", APP_NAME)
+
 		make_log(
 			f"Reconciliation queued for {len(mappings_list)} mappings (dry_run={dry_run})",
 			"INFO",
@@ -81,7 +118,7 @@ def start_reconciliation(
 			"status": "success",
 			"message": f"Queued {len(mappings_list)} reconciliation jobs",
 			"dry_run": dry_run,
-			"queued_jobs": len(queued_jobs),
+			"queued_jobs": len(all_queued_jobs),
 			"mappings_count": len(mappings_list)
 		}
 		
