@@ -1328,8 +1328,9 @@ def fetch_source_data(
 		schema_dot = "." if schema else ""
 		
 		# Get all columns we need from existing mapping entries
+		# Exclude child table fields (child_row_fieldname set) - those come from a different table via multiple_query
 		entries = controller.get_mapping_table_data(mapping_doc.name)
-		columns = list(set([e.get("selectline_column") for e in entries if e.get("selectline_column")]))
+		columns = list(set([e.get("selectline_column") for e in entries if e.get("selectline_column") and not e.get("child_row_fieldname")]))
 		
 		# Add columns from new fields being added (for reconciliation)
 		if new_fields:
