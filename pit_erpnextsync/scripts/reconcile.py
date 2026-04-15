@@ -23,7 +23,7 @@ def start_reconciliation(
 	frappe.enqueue(
 		"pit_erpnextsync.scripts.reconcile._run_reconciliation",
 		queue="long",
-		timeout=3600,
+		timeout=600,
 		job_id=f"pes_reconcile_main:{uuid.uuid4().hex[:8]}",
 		instance=instance,
 		types_str=types_str,
@@ -124,16 +124,6 @@ def _run_reconciliation(
 			)
 
 			all_queued_jobs.extend(type_job_ids)
-
-			# Wait for all batch jobs of this type before processing the next type
-			if type_job_ids and not dry_run:
-				make_log(
-					f"Waiting for {len(type_job_ids)} reconcile batch jobs of type {current_type} to complete...",
-					"INFO",
-					APP_NAME,
-				)
-				controller.wait_for_jobs(type_job_ids)
-				make_log(f"All reconcile batch jobs for type {current_type} completed", "INFO", APP_NAME)
 
 		make_log(
 			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
