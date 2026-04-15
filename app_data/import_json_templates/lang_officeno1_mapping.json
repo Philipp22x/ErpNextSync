@@ -776,24 +776,6 @@
                     {
                         "fieldname": "disabled",
                         "sl_column": "ARCHIV"
-                    },
-                    {
-                        "fieldname": "supplier_items",
-                        "multiple_query": true,
-                        "multiple_query_table": "Artikel_Lieferant",
-                        "multiple_query_condition": "ArtikelNr = {ARTIKELNR}",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "supplier",
-                                "sl_column": "LIEFERANTENNR",
-                                "force_str_type": 1,
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "supplier_part_no",
-                                "sl_column": "ARTLIEFNR"
-                            }
-                        ]
                     }
                 ]
             }
