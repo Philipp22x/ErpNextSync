@@ -176,18 +176,22 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # If ignore_ts is True, skip timestamp check and directly update
         if ignore_ts:
             make_log(f"Timestamp check ignored for {mapping_name}, proceeding with update", "INFO", controller.APP_NAME)
-            job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}" if run_number else None
-            frappe.enqueue(
-                "pit_erpnextsync.scripts.update.update_mapping",
-                queue="long",
-                timeout=600,
-                job_id=job_id,
-                instance=instance,
-                id_data=id_data,
-                mapping_name=mapping_name,
-                run_number=run_number
-            )
-            if not skip_job_update:
+            if skip_job_update:
+                # Already inside a batch job — call directly to stay within the batch
+                update_mapping(instance=instance, id_data=id_data, mapping_name=mapping_name, run_number=run_number)
+            else:
+                # Called standalone — enqueue as its own job
+                job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}" if run_number else None
+                frappe.enqueue(
+                    "pit_erpnextsync.scripts.update.update_mapping",
+                    queue="long",
+                    timeout=600,
+                    job_id=job_id,
+                    instance=instance,
+                    id_data=id_data,
+                    mapping_name=mapping_name,
+                    run_number=run_number
+                )
                 controller.update_jobs(instance=instance, skip_hooks=True)
             return None
 
