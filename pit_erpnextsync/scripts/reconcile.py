@@ -81,7 +81,11 @@ def _run_reconciliation(
 				mappings_by_type[mapping_type] = []
 			mappings_by_type[mapping_type].append(mapping_name)
 
-		# Queue reconciliation jobs sequentially by type (idx order)
+		# For p4d (4D) instances: run reconcile serially to avoid saturating the 4D connection.
+		# For other drivers: fan out as parallel background jobs (original behaviour).
+		driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+		serial_mode: bool = driver == "p4d"
+
 		import uuid
 		all_queued_jobs: List[str] = []
 		for current_type in types_in_order:
@@ -89,37 +93,48 @@ def _run_reconciliation(
 			if not type_mappings:
 				continue
 
-			type_job_ids: List[str] = []
-			for mapping_name in type_mappings:
-				job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
-				frappe.enqueue(
-					"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
-					queue="long",
-					timeout=600,
-					job_id=job_id,
-					instance=instance,
-					mapping_name=mapping_name,
-					dry_run=dry_run
-				)
-				type_job_ids.append(job_id)
-
-			make_log(
-				f"Reconciliation queued {len(type_job_ids)} jobs for type {current_type} (dry_run={dry_run})",
-				"INFO",
-				APP_NAME
-			)
-
-			all_queued_jobs.extend(type_job_ids)
-
-			# Wait for all jobs of this type to complete before processing the next type
-			if type_job_ids and not dry_run:
+			if serial_mode:
+				# Run each mapping directly in this job — no parallel fan-out.
 				make_log(
-					f"Waiting for {len(type_job_ids)} reconciliation jobs of type {current_type} to complete...",
+					f"Reconciliation running {len(type_mappings)} mappings serially for type {current_type} "
+					f"(p4d serial mode, dry_run={dry_run})",
 					"INFO",
 					APP_NAME,
 				)
-				controller.wait_for_jobs(type_job_ids)
-				make_log(f"All reconciliation jobs for type {current_type} completed", "INFO", APP_NAME)
+				for mapping_name in type_mappings:
+					reconcile_single_mapping(instance=instance, mapping_name=mapping_name, dry_run=dry_run)
+			else:
+				type_job_ids: List[str] = []
+				for mapping_name in type_mappings:
+					job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
+					frappe.enqueue(
+						"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
+						queue="long",
+						timeout=600,
+						job_id=job_id,
+						instance=instance,
+						mapping_name=mapping_name,
+						dry_run=dry_run
+					)
+					type_job_ids.append(job_id)
+
+				make_log(
+					f"Reconciliation queued {len(type_job_ids)} jobs for type {current_type} (dry_run={dry_run})",
+					"INFO",
+					APP_NAME
+				)
+
+				all_queued_jobs.extend(type_job_ids)
+
+				# Wait for all jobs of this type to complete before processing the next type
+				if type_job_ids and not dry_run:
+					make_log(
+						f"Waiting for {len(type_job_ids)} reconciliation jobs of type {current_type} to complete...",
+						"INFO",
+						APP_NAME,
+					)
+					controller.wait_for_jobs(type_job_ids)
+					make_log(f"All reconciliation jobs for type {current_type} completed", "INFO", APP_NAME)
 
 		make_log(
 			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
