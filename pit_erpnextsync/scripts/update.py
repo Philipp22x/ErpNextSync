@@ -17,7 +17,7 @@ def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
     frappe.enqueue(
         "pit_erpnextsync.scripts.update._run_bulk_update",
         queue="long",
-        timeout=3600,
+        timeout=600,
         job_id=f"pes_update_main:{uuid.uuid4().hex[:8]}",
         instance=instance,
         types_str=types_str,
@@ -57,20 +57,17 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
     if arg_types_list == []:
         for row in instance_doc.table_mapping:
             types_list.append(row.type)
-    
     else:
         types_list = arg_types_list
 
-    # Get the current runs value for job naming
-    run_number = frappe.db.get_value("Sync Instance", instance, "runs")
-    if not run_number:
-        run_number = 1
-    
+    # Get the current runs value and batch size
+    instance_values = frappe.get_value("Sync Instance", instance, ["runs", "import_batch_size"], as_dict=True)
+    run_number = instance_values.get("runs") or 1
+    batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
+
     all_job_ids: list = []
 
-    # Process types sequentially (by idx order) to prevent race conditions
     for current_type in types_list:
-        # get all mappings for this type
         mappings_list: list = frappe.get_all(
             "Sync Mapping",
             filters={
@@ -84,68 +81,72 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
         if not mappings_list:
             continue
 
-        type_job_ids: list = []
-
-        # enqueue all mappings for this type
+        # Collect valid (mapping_name, id_data) pairs
+        mapping_items: list = []
         for mapping_name in mappings_list:
-
             obj_id: str = frappe.db.get_value("Sync Mapping", mapping_name, "selectline_id")
-
-            # verify obj_id
             if not obj_id:
                 make_log(f"No object id in mapping {mapping_name}", "ERROR", controller.APP_NAME)
                 continue
-
             id_data: dict = get_id_data(obj_id=obj_id)
-
-            # verify id_data
             if not id_data:
                 make_log(f"Could not get data from object id {obj_id}", "ERROR", controller.APP_NAME)
                 continue
+            mapping_items.append({"mapping_name": mapping_name, "id_data": id_data})
 
+        # Split into batches and enqueue one job per batch
+        type_job_ids: list = []
+        for i in range(0, len(mapping_items), batch_size):
+            batch = mapping_items[i:i + batch_size]
             job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}"
             frappe.enqueue(
-                "pit_erpnextsync.scripts.update.check_timestamp",
+                "pit_erpnextsync.scripts.update.update_batch",
                 queue="long",
-                timeout=600,
+                timeout=600 * len(batch),
                 job_id=job_id,
                 instance=instance,
-                id_data=id_data,
-                mapping_name=mapping_name,
+                batch_items=batch,
                 run_number=run_number,
                 ignore_ts=ignore_ts
             )
             type_job_ids.append(job_id)
 
         make_log(
-            f"Enqueued {len(type_job_ids)} update jobs for type {current_type} (run_number={run_number})",
+            f"Enqueued {len(type_job_ids)} batch jobs for type {current_type} "
+            f"({len(mapping_items)} mappings, batch_size={batch_size}, run_number={run_number})",
             "INFO",
             controller.APP_NAME,
         )
 
         all_job_ids.extend(type_job_ids)
 
-        # Wait for all jobs of this type to complete before processing the next type
-        if type_job_ids:
-            make_log(
-                f"Waiting for {len(type_job_ids)} jobs of type {current_type} to complete before next type...",
-                "INFO",
-                controller.APP_NAME,
-            )
-            controller.wait_for_jobs(type_job_ids)
-            make_log(f"All jobs for type {current_type} completed", "INFO", controller.APP_NAME)
-
     make_log(
-        f"Enqueued {len(all_job_ids)} total update jobs for instance {instance} (run_number={run_number})",
+        f"Enqueued {len(all_job_ids)} total batch jobs for instance {instance} (run_number={run_number})",
         "INFO",
         controller.APP_NAME,
     )
 
-    # after update hooks - trigger once after ALL types have been processed sequentially
+    # after update hooks
     controller.trigger_hooks(instance=instance, before_after="after", import_update="update")
-    make_log(f"Update completed for instance {instance}", "INFO", controller.APP_NAME)
+    make_log(f"Update dispatch completed for instance {instance}", "INFO", controller.APP_NAME)
 
     return None
+
+
+def update_batch(instance: str, batch_items: list, run_number: int, ignore_ts: bool = False) -> None:
+    """Background job: processes a batch of mappings serially.
+    Each item in batch_items is a dict with keys: mapping_name, id_data.
+    """
+    for item in batch_items:
+        check_timestamp(
+            instance=instance,
+            id_data=item["id_data"],
+            mapping_name=item["mapping_name"],
+            run_number=run_number,
+            skip_job_update=True,
+            ignore_ts=ignore_ts
+        )
+    controller.update_jobs(instance=instance, skip_hooks=True)
 
 
 # fetch timespamp of db data object -> if changed call update
