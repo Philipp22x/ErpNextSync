@@ -81,10 +81,14 @@ def _run_reconciliation(
 				mappings_by_type[mapping_type] = []
 			mappings_by_type[mapping_type].append(mapping_name)
 
-		# For p4d (4D) instances: run reconcile serially to avoid saturating the 4D connection.
-		# For other drivers: fan out as parallel background jobs (original behaviour).
-		driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
-		serial_mode: bool = driver == "p4d"
+		# Batch reconcile jobs using import_batch_size — mirrors the import batch logic.
+		# Each batch job processes its mappings serially (one 4D/MSSQL connection at a time per job).
+		# Setting import_batch_size=1 gives one mapping per job (max parallelism).
+		# Setting it higher reduces concurrent DB connections.
+		instance_values = frappe.get_value(
+			"Sync Instance", instance, ["import_batch_size"], as_dict=True
+		)
+		batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
 
 		import uuid
 		all_queued_jobs: List[str] = []
@@ -93,48 +97,44 @@ def _run_reconciliation(
 			if not type_mappings:
 				continue
 
-			if serial_mode:
-				# Run each mapping directly in this job — no parallel fan-out.
+			# Split into batches
+			batches: List[List[str]] = [
+				type_mappings[i:i + batch_size]
+				for i in range(0, len(type_mappings), batch_size)
+			]
+
+			type_job_ids: List[str] = []
+			for batch in batches:
+				job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
+				frappe.enqueue(
+					"pit_erpnextsync.scripts.reconcile.reconcile_batch",
+					queue="long",
+					timeout=600 * len(batch),
+					job_id=job_id,
+					instance=instance,
+					mapping_names=batch,
+					dry_run=dry_run
+				)
+				type_job_ids.append(job_id)
+
+			make_log(
+				f"Reconciliation queued {len(type_job_ids)} batch jobs for type {current_type} "
+				f"({len(type_mappings)} mappings, batch_size={batch_size}, dry_run={dry_run})",
+				"INFO",
+				APP_NAME
+			)
+
+			all_queued_jobs.extend(type_job_ids)
+
+			# Wait for all batch jobs of this type before processing the next type
+			if type_job_ids and not dry_run:
 				make_log(
-					f"Reconciliation running {len(type_mappings)} mappings serially for type {current_type} "
-					f"(p4d serial mode, dry_run={dry_run})",
+					f"Waiting for {len(type_job_ids)} reconcile batch jobs of type {current_type} to complete...",
 					"INFO",
 					APP_NAME,
 				)
-				for mapping_name in type_mappings:
-					reconcile_single_mapping(instance=instance, mapping_name=mapping_name, dry_run=dry_run)
-			else:
-				type_job_ids: List[str] = []
-				for mapping_name in type_mappings:
-					job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
-					frappe.enqueue(
-						"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
-						queue="long",
-						timeout=600,
-						job_id=job_id,
-						instance=instance,
-						mapping_name=mapping_name,
-						dry_run=dry_run
-					)
-					type_job_ids.append(job_id)
-
-				make_log(
-					f"Reconciliation queued {len(type_job_ids)} jobs for type {current_type} (dry_run={dry_run})",
-					"INFO",
-					APP_NAME
-				)
-
-				all_queued_jobs.extend(type_job_ids)
-
-				# Wait for all jobs of this type to complete before processing the next type
-				if type_job_ids and not dry_run:
-					make_log(
-						f"Waiting for {len(type_job_ids)} reconciliation jobs of type {current_type} to complete...",
-						"INFO",
-						APP_NAME,
-					)
-					controller.wait_for_jobs(type_job_ids)
-					make_log(f"All reconciliation jobs for type {current_type} completed", "INFO", APP_NAME)
+				controller.wait_for_jobs(type_job_ids)
+				make_log(f"All reconcile batch jobs for type {current_type} completed", "INFO", APP_NAME)
 
 		make_log(
 			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
@@ -148,6 +148,20 @@ def _run_reconciliation(
 			"ERROR",
 			APP_NAME
 		)
+
+
+def reconcile_batch(
+	instance: str,
+	mapping_names: List[str],
+	dry_run: bool = True
+) -> None:
+	"""
+	Background job: Reconciles a batch of mappings serially.
+	Processes each mapping one at a time — keeps DB connections sequential
+	within this job, while multiple batch jobs can still run in parallel.
+	"""
+	for mapping_name in mapping_names:
+		reconcile_single_mapping(instance=instance, mapping_name=mapping_name, dry_run=dry_run)
 
 
 def reconcile_single_mapping(
