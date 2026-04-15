@@ -85,14 +85,10 @@ def _run_reconciliation(
 		# Each batch job processes its mappings serially (one DB connection at a time per job).
 		# Setting import_batch_size=1 gives one mapping per job (max parallelism).
 		# Setting it higher reduces concurrent DB connections.
-		# For p4d (4D) instances: always run fully serially in this job to avoid concurrent
-		# connections to the 4D server, which does not handle parallel queries reliably.
 		instance_values = frappe.get_value(
-			"Sync Instance", instance, ["import_batch_size", "driver"], as_dict=True
+			"Sync Instance", instance, ["import_batch_size"], as_dict=True
 		)
 		batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
-		driver: str = instance_values.get("driver") or "pymssql"
-		serial_mode: bool = driver == "p4d"
 
 		import uuid
 		all_queued_jobs: List[str] = []
@@ -101,56 +97,43 @@ def _run_reconciliation(
 			if not type_mappings:
 				continue
 
-			if serial_mode:
-				# Run all mappings directly in this job — zero parallel sub-jobs,
-				# so the 4D server only ever sees one connection at a time.
+			batches: List[List[str]] = [
+				type_mappings[i:i + batch_size]
+				for i in range(0, len(type_mappings), batch_size)
+			]
+
+			type_job_ids: List[str] = []
+			for batch in batches:
+				job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
+				frappe.enqueue(
+					"pit_erpnextsync.scripts.reconcile.reconcile_batch",
+					queue="long",
+					timeout=600 * len(batch),
+					job_id=job_id,
+					instance=instance,
+					mapping_names=batch,
+					dry_run=dry_run
+				)
+				type_job_ids.append(job_id)
+
+			make_log(
+				f"Reconciliation queued {len(type_job_ids)} batch jobs for type {current_type} "
+				f"({len(type_mappings)} mappings, batch_size={batch_size}, dry_run={dry_run})",
+				"INFO",
+				APP_NAME
+			)
+
+			all_queued_jobs.extend(type_job_ids)
+
+			# Wait for all batch jobs of this type before processing the next type
+			if type_job_ids and not dry_run:
 				make_log(
-					f"Reconciliation running {len(type_mappings)} mappings serially for type "
-					f"{current_type} (p4d, batch_size={batch_size}, dry_run={dry_run})",
+					f"Waiting for {len(type_job_ids)} reconcile batch jobs of type {current_type} to complete...",
 					"INFO",
 					APP_NAME,
 				)
-				for mapping_name in type_mappings:
-					reconcile_single_mapping(instance=instance, mapping_name=mapping_name, dry_run=dry_run)
-			else:
-				# MSSQL: fan out batch jobs in parallel
-				batches: List[List[str]] = [
-					type_mappings[i:i + batch_size]
-					for i in range(0, len(type_mappings), batch_size)
-				]
-
-				type_job_ids: List[str] = []
-				for batch in batches:
-					job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
-					frappe.enqueue(
-						"pit_erpnextsync.scripts.reconcile.reconcile_batch",
-						queue="long",
-						timeout=600 * len(batch),
-						job_id=job_id,
-						instance=instance,
-						mapping_names=batch,
-						dry_run=dry_run
-					)
-					type_job_ids.append(job_id)
-
-				make_log(
-					f"Reconciliation queued {len(type_job_ids)} batch jobs for type {current_type} "
-					f"({len(type_mappings)} mappings, batch_size={batch_size}, dry_run={dry_run})",
-					"INFO",
-					APP_NAME
-				)
-
-				all_queued_jobs.extend(type_job_ids)
-
-				# Wait for all batch jobs of this type before processing the next type
-				if type_job_ids and not dry_run:
-					make_log(
-						f"Waiting for {len(type_job_ids)} reconcile batch jobs of type {current_type} to complete...",
-						"INFO",
-						APP_NAME,
-					)
-					controller.wait_for_jobs(type_job_ids)
-					make_log(f"All reconcile batch jobs for type {current_type} completed", "INFO", APP_NAME)
+				controller.wait_for_jobs(type_job_ids)
+				make_log(f"All reconcile batch jobs for type {current_type} completed", "INFO", APP_NAME)
 
 		make_log(
 			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
@@ -1348,6 +1331,45 @@ def resolve_table_name_for_mapping(instance: str, mapping_doc: Document, table_f
 	return resolved
 
 
+def get_table_columns(instance: str, table_name: str, driver: str) -> Optional[set]:
+	"""
+	Returns the set of column names that actually exist on a source table.
+	Used to filter out stale/invalid columns before building a SQL query.
+	Returns None if the schema cannot be determined (non-fatal: caller skips validation).
+	"""
+	try:
+		if driver == "p4d":
+			sql = f"SELECT COLUMN_NAME FROM _USER_COLUMNS WHERE TABLE_NAME = '{table_name}'"
+		else:
+			sql = f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table_name}'"
+
+		conn = controller.db_connect(instance=instance)
+		if conn is None:
+			return None
+
+		try:
+			cur = conn.cursor()
+			cur.execute(sql)
+			rows = cur.fetchall()
+			cur.close()
+		finally:
+			try:
+				conn.close()
+			except Exception:
+				pass
+
+		# rows are tuples; first element is the column name
+		return {row[0] for row in rows} if rows else None
+
+	except Exception as e:
+		make_log(
+			f"Could not fetch column list for {table_name}: {e}",
+			"WARNING",
+			APP_NAME,
+		)
+		return None
+
+
 def fetch_source_data(
 	instance: str,
 	mapping_doc: Document,
@@ -1383,16 +1405,27 @@ def fetch_source_data(
 			for field in new_fields:
 				if field.get("sl_column"):
 					columns.append(field["sl_column"])
-				# Also check child table fields
-				if field.get("table_fields"):
-					# This shouldn't happen for parent-level new_fields list
-					pass
-				# For child table fields, the sl_column is in child_row_fieldname context
-				# but we need to check if this field itself has sl_column at parent level
-				# Actually, for new fields list, we need to extract all sl_columns including from nested table_fields
 		
 		# Remove duplicates while preserving order
 		columns = list(dict.fromkeys(columns))
+
+		# Validate columns against the actual table schema and drop any that don't exist.
+		# This protects against stale mapping entries referencing columns from a different
+		# table (e.g. LIEFERANTENNR from Artikel_Lieferant stored on an Item mapping entry)
+		# or columns that were removed / renamed in the source database.
+		# Comparison is case-insensitive to handle mixed-case 4D column names.
+		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+		valid_table_columns = get_table_columns(instance=instance, table_name=table_name, driver=driver)
+		if valid_table_columns:
+			valid_upper = {c.upper() for c in valid_table_columns}
+			invalid = [c for c in columns if c.upper() not in valid_upper]
+			if invalid:
+				make_log(
+					f"Skipping {len(invalid)} column(s) not present in {table_name}: {invalid}",
+					"WARNING",
+					APP_NAME,
+				)
+			columns = [c for c in columns if c.upper() in valid_upper]
 		
 		# Add timestamp column from table mapping (not from Sync Instance)
 		# Get the table mapping row for this mapping type
@@ -1427,8 +1460,6 @@ def fetch_source_data(
 			schema=schema
 		)
 		
-		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
-
 		# Modified by PIT Agent Dev 1 - 2026-03-30: Retry 4D fetches to handle transient driver failures under parallel reconcile jobs.
 		# Modified by PIT Agent Dev 1 - 2026-04-15: Increased retry count to 5 and delay to 1.0s per attempt
 		# to better handle connection saturation when many reconcile jobs run in parallel against the 4D server.
