@@ -13,6 +13,20 @@ from pit_erpnextsync.scripts.data_import import format_phone_number
 
 @frappe.whitelist()
 def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
+    """Entry point - enqueues the actual update as a long-running background job."""
+    frappe.enqueue(
+        "pit_erpnextsync.scripts.update._run_bulk_update",
+        queue="long",
+        timeout=3600,
+        job_id=f"pes_update_main:{uuid.uuid4().hex[:8]}",
+        instance=instance,
+        types_str=types_str,
+        ignore_ts=ignore_ts
+    )
+
+
+def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
+    """Actual update logic - runs as a long background job."""
     # Convert ignore_ts to boolean (Frappe may pass it as string)
     if isinstance(ignore_ts, str):
         ignore_ts = ignore_ts.lower() in ('true', '1', 'yes')

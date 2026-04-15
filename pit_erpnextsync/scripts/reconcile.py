@@ -18,17 +18,29 @@ def start_reconciliation(
 	types_str: str = "", 
 	dry_run: bool = True
 ) -> Dict:
-	"""
-	Entry point for reconciliation. Validates input and queues background jobs.
-	
-	Args:
-		instance: Name of the Sync Instance
-		types_str: JSON string of types to reconcile (empty = all)
-		dry_run: If True, only returns preview without making changes
-	
-	Returns:
-		Dict with status and queued jobs info
-	"""
+	"""Entry point for reconciliation. Enqueues the actual work as a background job."""
+	import uuid
+	frappe.enqueue(
+		"pit_erpnextsync.scripts.reconcile._run_reconciliation",
+		queue="long",
+		timeout=3600,
+		job_id=f"pes_reconcile_main:{uuid.uuid4().hex[:8]}",
+		instance=instance,
+		types_str=types_str,
+		dry_run=dry_run
+	)
+	return {
+		"status": "success",
+		"message": "Reconciliation started in background"
+	}
+
+
+def _run_reconciliation(
+	instance: str, 
+	types_str: str = "", 
+	dry_run: bool = True
+) -> Dict:
+	"""Actual reconciliation logic - runs as a long background job."""
 	try:
 		# Get instance doc
 		instance_doc: Document = frappe.get_doc("Sync Instance", instance)
@@ -53,10 +65,8 @@ def start_reconciliation(
 		)
 		
 		if not mappings_list:
-			return {
-				"status": "error",
-				"message": f"No enabled mappings found for instance {instance}"
-			}
+			make_log(f"No enabled mappings found for instance {instance}", "WARNING", APP_NAME)
+			return
 		
 		# Get types in idx order from instance table mapping
 		types_in_order: List[str] = [row.type for row in instance_doc.table_mapping]
@@ -72,6 +82,7 @@ def start_reconciliation(
 			mappings_by_type[mapping_type].append(mapping_name)
 
 		# Queue reconciliation jobs sequentially by type (idx order)
+		import uuid
 		all_queued_jobs: List[str] = []
 		for current_type in types_in_order:
 			type_mappings = mappings_by_type.get(current_type, [])
@@ -80,7 +91,6 @@ def start_reconciliation(
 
 			type_job_ids: List[str] = []
 			for mapping_name in type_mappings:
-				import uuid
 				job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
 				frappe.enqueue(
 					"pit_erpnextsync.scripts.reconcile.reconcile_single_mapping",
@@ -112,29 +122,17 @@ def start_reconciliation(
 				make_log(f"All reconciliation jobs for type {current_type} completed", "INFO", APP_NAME)
 
 		make_log(
-			f"Reconciliation queued for {len(mappings_list)} mappings (dry_run={dry_run})",
+			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
 			"INFO",
 			APP_NAME
 		)
 		
-		return {
-			"status": "success",
-			"message": f"Queued {len(mappings_list)} reconciliation jobs",
-			"dry_run": dry_run,
-			"queued_jobs": len(all_queued_jobs),
-			"mappings_count": len(mappings_list)
-		}
-		
 	except Exception as e:
 		make_log(
-			f"Failed to start reconciliation: {e} {frappe.get_traceback()}",
+			f"Failed to run reconciliation: {e} {frappe.get_traceback()}",
 			"ERROR",
 			APP_NAME
 		)
-		return {
-			"status": "error",
-			"message": str(e)
-		}
 
 
 def reconcile_single_mapping(
@@ -1387,8 +1385,10 @@ def fetch_source_data(
 		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 
 		# Modified by PIT Agent Dev 1 - 2026-03-30: Retry 4D fetches to handle transient driver failures under parallel reconcile jobs.
+		# Modified by PIT Agent Dev 1 - 2026-04-15: Increased retry count to 5 and delay to 1.0s per attempt
+		# to better handle connection saturation when many reconcile jobs run in parallel against the 4D server.
 		result = None
-		max_attempts = 3 if driver == "p4d" else 1
+		max_attempts = 5 if driver == "p4d" else 1
 		for attempt in range(1, max_attempts + 1):
 			result = controller.fetch_data(instance=instance, sql=sql)
 			if result:
@@ -1399,7 +1399,7 @@ def fetch_source_data(
 					"WARNING",
 					APP_NAME,
 				)
-				time.sleep(0.2 * attempt)
+				time.sleep(1.0 * attempt)
 		
 		make_log(
 			f"Fetch result for {mapping_doc.name}: {result}",

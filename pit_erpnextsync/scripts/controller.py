@@ -922,7 +922,12 @@ def make_sql_string_single_row(
 	schema_dot: str = f"{schema}." if schema else ""
 	
 	# Modified by PIT Agent Dev 1 - 2026-03-30: For 4D, always quote PK to support numeric-like VARCHAR keys (e.g. KUNDENNR).
+	# Modified by PIT Agent Dev 1 - 2026-04-15: For 4D, restore spaces from underscores in PK.
+	# create_object_id() replaces spaces with underscores to keep the colon-delimited ID format valid.
+	# 4D uses fixed-width CHAR fields padded with trailing spaces, so we must reverse the substitution
+	# before querying. 4D article/customer numbers do not use underscores, making this substitution safe.
 	if driver == "p4d":
+		primary_key_val = primary_key_val.replace("_", " ")
 		quoted_pk = f"'{primary_key_val}'"
 	else:
 		# MSSQL: quote only non-numeric values

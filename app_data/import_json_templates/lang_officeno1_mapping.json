@@ -758,6 +758,22 @@
                         ]
                     },
                     {
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Webshop Artikel",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "WWW",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
                         "fieldname": "disabled",
                         "sl_column": "ARCHIV"
                     },
