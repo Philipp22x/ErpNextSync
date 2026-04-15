@@ -82,13 +82,17 @@ def _run_reconciliation(
 			mappings_by_type[mapping_type].append(mapping_name)
 
 		# Batch reconcile jobs using import_batch_size — mirrors the import batch logic.
-		# Each batch job processes its mappings serially (one 4D/MSSQL connection at a time per job).
+		# Each batch job processes its mappings serially (one DB connection at a time per job).
 		# Setting import_batch_size=1 gives one mapping per job (max parallelism).
 		# Setting it higher reduces concurrent DB connections.
+		# For p4d (4D) instances: always run fully serially in this job to avoid concurrent
+		# connections to the 4D server, which does not handle parallel queries reliably.
 		instance_values = frappe.get_value(
-			"Sync Instance", instance, ["import_batch_size"], as_dict=True
+			"Sync Instance", instance, ["import_batch_size", "driver"], as_dict=True
 		)
 		batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
+		driver: str = instance_values.get("driver") or "pymssql"
+		serial_mode: bool = driver == "p4d"
 
 		import uuid
 		all_queued_jobs: List[str] = []
@@ -97,44 +101,56 @@ def _run_reconciliation(
 			if not type_mappings:
 				continue
 
-			# Split into batches
-			batches: List[List[str]] = [
-				type_mappings[i:i + batch_size]
-				for i in range(0, len(type_mappings), batch_size)
-			]
-
-			type_job_ids: List[str] = []
-			for batch in batches:
-				job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
-				frappe.enqueue(
-					"pit_erpnextsync.scripts.reconcile.reconcile_batch",
-					queue="long",
-					timeout=600 * len(batch),
-					job_id=job_id,
-					instance=instance,
-					mapping_names=batch,
-					dry_run=dry_run
-				)
-				type_job_ids.append(job_id)
-
-			make_log(
-				f"Reconciliation queued {len(type_job_ids)} batch jobs for type {current_type} "
-				f"({len(type_mappings)} mappings, batch_size={batch_size}, dry_run={dry_run})",
-				"INFO",
-				APP_NAME
-			)
-
-			all_queued_jobs.extend(type_job_ids)
-
-			# Wait for all batch jobs of this type before processing the next type
-			if type_job_ids and not dry_run:
+			if serial_mode:
+				# Run all mappings directly in this job — zero parallel sub-jobs,
+				# so the 4D server only ever sees one connection at a time.
 				make_log(
-					f"Waiting for {len(type_job_ids)} reconcile batch jobs of type {current_type} to complete...",
+					f"Reconciliation running {len(type_mappings)} mappings serially for type "
+					f"{current_type} (p4d, batch_size={batch_size}, dry_run={dry_run})",
 					"INFO",
 					APP_NAME,
 				)
-				controller.wait_for_jobs(type_job_ids)
-				make_log(f"All reconcile batch jobs for type {current_type} completed", "INFO", APP_NAME)
+				for mapping_name in type_mappings:
+					reconcile_single_mapping(instance=instance, mapping_name=mapping_name, dry_run=dry_run)
+			else:
+				# MSSQL: fan out batch jobs in parallel
+				batches: List[List[str]] = [
+					type_mappings[i:i + batch_size]
+					for i in range(0, len(type_mappings), batch_size)
+				]
+
+				type_job_ids: List[str] = []
+				for batch in batches:
+					job_id = f"pes_reconcile:{uuid.uuid4().hex[:16]}"
+					frappe.enqueue(
+						"pit_erpnextsync.scripts.reconcile.reconcile_batch",
+						queue="long",
+						timeout=600 * len(batch),
+						job_id=job_id,
+						instance=instance,
+						mapping_names=batch,
+						dry_run=dry_run
+					)
+					type_job_ids.append(job_id)
+
+				make_log(
+					f"Reconciliation queued {len(type_job_ids)} batch jobs for type {current_type} "
+					f"({len(type_mappings)} mappings, batch_size={batch_size}, dry_run={dry_run})",
+					"INFO",
+					APP_NAME
+				)
+
+				all_queued_jobs.extend(type_job_ids)
+
+				# Wait for all batch jobs of this type before processing the next type
+				if type_job_ids and not dry_run:
+					make_log(
+						f"Waiting for {len(type_job_ids)} reconcile batch jobs of type {current_type} to complete...",
+						"INFO",
+						APP_NAME,
+					)
+					controller.wait_for_jobs(type_job_ids)
+					make_log(f"All reconcile batch jobs for type {current_type} completed", "INFO", APP_NAME)
 
 		make_log(
 			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
