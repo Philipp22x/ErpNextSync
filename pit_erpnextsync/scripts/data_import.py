@@ -70,6 +70,111 @@ def test3():
     ))
 
 
+#* repair broken address links ########################################################################
+@frappe.whitelist()
+def repair_address_customer_links(instance: str, dry_run: bool = True) -> dict:
+    """Fix Address Dynamic Link rows where link_doctype='Customer' but link_name is empty.
+
+    Finds addresses where the address_title matches a Customer's customer_name
+    and updates the empty link_name to the customer's name (ID).
+
+    Args:
+        instance: Sync Instance name (used for logging context only)
+        dry_run: If True, only report what would be fixed without making changes
+
+    Returns:
+        dict with counts: fixed, skipped, errors
+    """
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in ("true", "1", "yes")
+
+    make_log(
+        f"repair_address_customer_links started for instance={instance}, dry_run={dry_run}",
+        "INFO",
+        controller.APP_NAME
+    )
+
+    # Find all Dynamic Link rows for Address with empty or null link_name
+    broken_links = frappe.get_all(
+        "Dynamic Link",
+        filters=[
+            ["parenttype", "=", "Address"],
+            ["link_doctype", "=", "Customer"],
+            ["link_name", "in", ["", None]],
+        ],
+        fields=["name", "parent", "link_doctype", "link_name"],
+        limit=0,
+    )
+
+    fixed = 0
+    skipped = 0
+    errors = 0
+
+    for dl in broken_links:
+        try:
+            address_title = frappe.db.get_value("Address", dl["parent"], "address_title")
+            if not address_title:
+                skipped += 1
+                continue
+
+            # Find a Customer where customer_name matches address_title
+            customer_names = frappe.get_all(
+                "Customer",
+                filters={"customer_name": address_title},
+                pluck="name",
+                limit=1
+            )
+            if not customer_names:
+                make_log(
+                    f"No Customer found with customer_name='{address_title}' for Address {dl['parent']}",
+                    "WARNING",
+                    controller.APP_NAME
+                )
+                skipped += 1
+                continue
+
+            customer_id = customer_names[0]
+
+            if dry_run:
+                make_log(
+                    f"[DRY RUN] Would fix Dynamic Link {dl['name']} on Address {dl['parent']}: "
+                    f"link_name='' -> '{customer_id}'",
+                    "INFO",
+                    controller.APP_NAME
+                )
+            else:
+                frappe.db.set_value(
+                    "Dynamic Link",
+                    dl["name"],
+                    "link_name",
+                    customer_id,
+                    update_modified=False
+                )
+                make_log(
+                    f"Fixed Dynamic Link {dl['name']} on Address {dl['parent']}: "
+                    f"link_name='' -> '{customer_id}'",
+                    "INFO",
+                    controller.APP_NAME
+                )
+            fixed += 1
+
+        except Exception as e:
+            make_log(
+                f"Error processing Dynamic Link {dl.get('name')} for Address {dl.get('parent')}: {e}",
+                "ERROR",
+                controller.APP_NAME,
+                with_traceback=True
+            )
+            errors += 1
+
+    if not dry_run:
+        frappe.db.commit()
+
+    result = {"fixed": fixed, "skipped": skipped, "errors": errors, "dry_run": dry_run}
+    make_log(f"repair_address_customer_links completed: {result}", "INFO", controller.APP_NAME)
+    return result
+
+
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
 def start_import(instance: str, top: int, types_str: str = "") -> None:
@@ -807,7 +912,8 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
         # Document already exists in ERPNext - treat as success and map to the existing doc
         existing_name = new_doc.name
 
-        # Insert child rows into the existing document if it has no children yet
+        # Insert child rows into the existing document if it has no children yet,
+        # or update existing Dynamic Link rows that have an empty link_name.
         if child_doc_list:
             try:
                 existing_doc = frappe.get_doc(new_doc.doctype, existing_name)
@@ -822,6 +928,30 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             ignore_mandatory=True,
                             ignore_links=True
                         )
+                    elif child_doc.doctype == "Dynamic Link":
+                        # For Dynamic Link rows: if an existing row has the same link_doctype
+                        # but an empty link_name, update it with the correct value.
+                        new_link_name = child_doc.get("link_name")
+                        new_link_doctype = child_doc.get("link_doctype")
+                        if new_link_name and new_link_doctype:
+                            for existing_child in existing_children:
+                                if (
+                                    existing_child.get("link_doctype") == new_link_doctype
+                                    and not existing_child.get("link_name")
+                                ):
+                                    frappe.db.set_value(
+                                        "Dynamic Link",
+                                        existing_child.name,
+                                        "link_name",
+                                        new_link_name,
+                                        update_modified=False
+                                    )
+                                    make_log(
+                                        f"Updated empty link_name on Dynamic Link {existing_child.name} "
+                                        f"for {new_doc.doctype} {existing_name} -> {new_link_name}",
+                                        "INFO",
+                                        controller.APP_NAME
+                                    )
                 frappe.db.commit()
                 make_log(f"Added child rows to existing {new_doc.doctype} {existing_name}", "INFO", controller.APP_NAME)
             except Exception as e:

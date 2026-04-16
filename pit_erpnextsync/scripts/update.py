@@ -416,6 +416,12 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     make_log(f"Skipping invalid mapping row for {mapping_name}: doctype={row.mapping_doctype}, docname={row.docname}, fieldname={row.fieldname}", "WARNING", controller.APP_NAME)
                     continue
 
+                # Skip rows without a source column (e.g. get_redis fields like link_name).
+                # These are resolved at import time from sibling doctypes and are not
+                # re-fetched from the source database during updates.
+                if not row.selectline_column:
+                    continue
+
                 # Get value from fetched data
                 field_value = fetched_data[0].get(row.selectline_column)
                 
