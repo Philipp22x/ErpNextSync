@@ -440,6 +440,8 @@ def get_mapping_type(field_def: Dict) -> str:
 		return "field_var"
 	elif field_def.get("mapped_value"):
 		return "mapped_value"
+	elif field_def.get("get_redis"):
+		return "get_redis"
 	return "unknown"
 
 
@@ -473,22 +475,23 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 			if field.get("table_fields"):
 				field_def["table_fields"] = True
 				
-				for table_field in field.get("table_fields", []):
-					child_def = {
-						"doctype": doctype,
-						"fieldname": field.get("fieldname"),
-						"child_row_fieldname": table_field.get("table_fieldname"),
-						"sl_column": table_field.get("sl_column"),
-						"default": table_field.get("default"),
-						"field_var": table_field.get("field_var"),
-						"mapped_value": table_field.get("mapped_value"),
-						"alt_key": table_field.get("alt_key"),
-						"force_str_type": table_field.get("force_str_type"),
-						"reqd": table_field.get("reqd"),
-						"table_fields": None,
-						"child_row_doctype": None  # Will be resolved during application
-					}
-					result.append(child_def)
+			for table_field in field.get("table_fields", []):
+				child_def = {
+					"doctype": doctype,
+					"fieldname": field.get("fieldname"),
+					"child_row_fieldname": table_field.get("table_fieldname"),
+					"sl_column": table_field.get("sl_column"),
+					"default": table_field.get("default"),
+					"field_var": table_field.get("field_var"),
+					"mapped_value": table_field.get("mapped_value"),
+					"get_redis": table_field.get("get_redis"),
+					"alt_key": table_field.get("alt_key"),
+					"force_str_type": table_field.get("force_str_type"),
+					"reqd": table_field.get("reqd"),
+					"table_fields": None,
+					"child_row_doctype": None  # Will be resolved during application
+				}
+				result.append(child_def)
 			else:
 				result.append(field_def)
 	
@@ -647,17 +650,23 @@ def apply_field_additions(
 						# Don't continue here - we still need to create the mapping entry for this field
 					else:
 						raise Exception(f"Failed to create new document for doctype {doctype}")
-				else:
-					docname = existing_entries[0]
-					created_docs_cache[doctype] = docname
+			else:
+				docname = existing_entries[0]
+				created_docs_cache[doctype] = docname
 			
 			# Get the value based on mapping type
 			field_value = get_field_value(
 				field_def=field_def,
 				fetched_obj=fetched_obj,
 				instance=instance,
-				field_vars_obj=field_vars_obj
+				field_vars_obj=field_vars_obj,
+				mapping_name=mapping_name
 			)
+			
+			# Determine whether this field has a trackable source column.
+			# Fields with only "default" values are static and don't need a mapping entry
+			# (they never change). Fields with sl_column OR get_redis DO need one.
+			has_trackable_source = bool(field_def.get("sl_column") or field_def.get("get_redis"))
 			
 			# Handle child table fields
 			if child_row_fieldname:
@@ -691,10 +700,10 @@ def apply_field_additions(
 						field_value
 					)
 					
-					# Skip creating mapping entry for fields with only "default" value (no sl_column)
-					if not field_def.get("sl_column"):
+					# Skip creating mapping entry for pure default fields (no sl_column, no get_redis)
+					if not has_trackable_source:
 						make_log(
-							f"Skipping child mapping entry for {doctype}.{fieldname}.{child_row_fieldname}: no sl_column (default/static value)",
+							f"Skipping child mapping entry for {doctype}.{fieldname}.{child_row_fieldname}: no sl_column or get_redis (default/static value)",
 							"DEBUG",
 							APP_NAME
 						)
@@ -748,11 +757,11 @@ def apply_field_additions(
 				# Update parent document field (even if None, to clear it if needed)
 				frappe.db.set_value(doctype, docname, fieldname, field_value)
 				
-				# Skip creating mapping entry for fields with only "default" value (no sl_column)
+				# Skip creating mapping entry for pure default fields (no sl_column, no get_redis)
 				# These are static values from JSON, not synced from SelectLine
-				if not field_def.get("sl_column"):
+				if not has_trackable_source:
 					make_log(
-						f"Skipping mapping entry for {doctype}.{fieldname}: no sl_column (default/static value)",
+						f"Skipping mapping entry for {doctype}.{fieldname}: no sl_column or get_redis (default/static value)",
 						"DEBUG",
 						APP_NAME
 					)
@@ -1014,7 +1023,8 @@ def apply_structural_changes(
 				field_def=new_def,
 				fetched_obj=fetched_obj,
 				instance=instance,
-				field_vars_obj=field_vars_obj
+				field_vars_obj=field_vars_obj,
+				mapping_name=mapping_name
 			)
 			
 			# Handle child table fields differently
@@ -1106,7 +1116,8 @@ def get_field_value(
 	field_def: Dict,
 	fetched_obj: Dict,
 	instance: str,
-	field_vars_obj: FieldVars
+	field_vars_obj: FieldVars,
+	mapping_name: str = ""
 ) -> Any:
 	"""
 	Gets the value for a field based on its mapping type.
@@ -1172,6 +1183,41 @@ def get_field_value(
 			if force_str and value is not None:
 				return str(value)
 			return value
+		return None
+
+	elif mapping_type == "get_redis":
+		# get_redis resolves to a value that was set by a sibling doctype during import.
+		# During reconcile there is no runtime redis_context, so we resolve the value
+		# from the sibling doctype's mapping entry stored in the same Sync Mapping doc.
+		# Example: link_name get_redis="erp_customer_id" → look up the Customer docname
+		# from the mapping entries of the parent Sync Mapping.
+		redis_key = field_def.get("get_redis")
+		force_str = field_def.get("force_str_type") == 1
+		if not redis_key or not mapping_name:
+			return None
+
+		# Find a mapping entry in the same Sync Mapping doc where the field was set
+		# via set_redis with this key. We identify it by looking for the docname of
+		# the sibling doctype — the convention is that set_redis stores the `name` field
+		# of the sibling document. So we look for any non-skipped entry and return its docname.
+		# The redis_key name (e.g. "erp_customer_id") tells us the context but not the column —
+		# we resolve it by finding the mapping entry that originally wrote to `name`.
+		sibling_entries = frappe.get_all(
+			"Sync Mapping Entry",
+			filters={
+				"parent": mapping_name,
+				"fieldname": "name",
+				"docname": ["not in", ["", None]],
+			},
+			fields=["docname", "mapping_doctype"],
+			limit=1
+		)
+		if sibling_entries:
+			value = sibling_entries[0]["docname"]
+			if force_str and value is not None:
+				return str(value)
+			return value
+
 		return None
 	
 	return None
@@ -1543,7 +1589,8 @@ def create_new_doc_for_reconciliation(
 			field_def=field_def,
 			fetched_obj=fetched_obj,
 			instance=instance,
-			field_vars_obj=field_vars_obj
+			field_vars_obj=field_vars_obj,
+			mapping_name=""
 		)
 		
 		# Check if document with this name already exists
