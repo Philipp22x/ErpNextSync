@@ -12,6 +12,28 @@ from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 APP_NAME: str = "pit_erpnextsync"
 
 
+def parse_types_input(types_input: str) -> List[str]:
+	"""Parse types input from JSON string or comma-separated string."""
+	if not types_input:
+		return []
+
+	types_input = str(types_input).strip()
+	if not types_input:
+		return []
+
+	# Accept JSON list (e.g. '["Item","Customer"]') for compatibility.
+	if types_input.startswith("["):
+		try:
+			parsed = json.loads(types_input)
+			if isinstance(parsed, list):
+				return [str(t).strip() for t in parsed if str(t).strip()]
+		except Exception:
+			pass
+
+	# Fallback: comma-separated values from Sync Instance field.
+	return [t.strip() for t in types_input.split(",") if t.strip()]
+
+
 @frappe.whitelist()
 def start_reconciliation(
 	instance: str, 
@@ -47,8 +69,13 @@ def _run_reconciliation(
 		if not instance_doc:
 			raise Exception(f"Could not get instance doc {instance}")
 		
-		# Parse types
-		types: List[str] = json.loads(types_str) if types_str else []
+		# Parse requested types. Explicit arg wins; fallback to instance setting.
+		types: List[str] = parse_types_input(types_str)
+		if not types:
+			types = parse_types_input(instance_doc.get("types_to_import") or "")
+
+		# Limit rows per type (0 means all), mirroring import behavior.
+		rows_per_type: int = int(instance_doc.get("amount_of_data_rows") or 0)
 		
 		# Get all enabled mappings for this instance
 		filters = {
@@ -58,13 +85,13 @@ def _run_reconciliation(
 		if types:
 			filters["type"] = ["in", types]
 		
-		mappings_list: List[str] = frappe.get_all(
+		mapping_rows: List[Dict[str, str]] = frappe.get_all(
 			"Sync Mapping",
 			filters=filters,
-			pluck="name"
+			fields=["name", "type"]
 		)
-		
-		if not mappings_list:
+
+		if not mapping_rows:
 			make_log(f"No enabled mappings found for instance {instance}", "WARNING", APP_NAME)
 			return
 		
@@ -75,11 +102,18 @@ def _run_reconciliation(
 
 		# Group mappings by type
 		mappings_by_type: Dict[str, List[str]] = {}
-		for mapping_name in mappings_list:
-			mapping_type = frappe.db.get_value("Sync Mapping", mapping_name, "type")
+		for mapping_row in mapping_rows:
+			mapping_name = mapping_row.get("name")
+			mapping_type = mapping_row.get("type")
+			if not mapping_name or not mapping_type:
+				continue
 			if mapping_type not in mappings_by_type:
 				mappings_by_type[mapping_type] = []
 			mappings_by_type[mapping_type].append(mapping_name)
+
+		if rows_per_type > 0:
+			for mapping_type, mapping_names in mappings_by_type.items():
+				mappings_by_type[mapping_type] = mapping_names[:rows_per_type]
 
 		# Batch reconcile jobs using import_batch_size — mirrors the import batch logic.
 		# Each batch job processes its mappings serially (one DB connection at a time per job).
@@ -125,8 +159,10 @@ def _run_reconciliation(
 
 			all_queued_jobs.extend(type_job_ids)
 
+		total_effective = sum(len(v) for v in mappings_by_type.values())
 		make_log(
-			f"Reconciliation completed for {len(mappings_list)} mappings (dry_run={dry_run})",
+			f"Reconciliation completed for {total_effective} mappings "
+			f"(dry_run={dry_run}, rows_per_type={rows_per_type or 'all'}, types={types or 'all'})",
 			"INFO",
 			APP_NAME
 		)
