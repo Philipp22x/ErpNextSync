@@ -1308,22 +1308,9 @@ def get_or_create_child_row(
 				"child_name": existing_children[0]["child_row_name"]
 			}
 		
-		# Check if there's an existing child document in the parent (from original import)
-		parent_doc = frappe.get_doc(doctype, docname)
-		if hasattr(parent_doc, fieldname) and parent_doc.get(fieldname):
-			existing_child_rows = parent_doc.get(fieldname)
-			if existing_child_rows and len(existing_child_rows) > 0:
-				# Use the first existing child row
-				first_child = existing_child_rows[0]
-				make_log(
-					f"Found existing child row {first_child.name} in {doctype}.{docname}.{fieldname}",
-					"DEBUG",
-					APP_NAME
-				)
-				return {
-					"child_doctype": first_child.doctype,
-					"child_name": first_child.name
-				}
+		# Do NOT reuse arbitrary existing child rows that have no mapping entry.
+		# This preserves system/default/manual rows (e.g. Item default UOM) that are
+		# not managed by Sync Mapping entries.
 		
 		# Need to create a new child row
 		child_name = frappe.generate_hash(length=8)
