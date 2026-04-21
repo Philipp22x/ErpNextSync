@@ -685,11 +685,22 @@
         "timestamp_column_name": "LETZTEAENDERUNG",
         "mapping": [
             {
+                "doctype": "Customs Tariff Number",
+                "fields": [
+                    {
+                        "fieldname": "tariff_number",
+                        "sl_column": "ZOLLTARIFNR",
+                        "reqd": 1
+                    }
+                ]
+            },
+            {
                 "doctype": "UOM",
                 "fields": [
                     {
                         "fieldname": "uom_name",
-                        "sl_column": "MENGENEINHEIT"
+                        "sl_column": "MENGENEINHEIT",
+                        "reqd": 1
                     }
                 ]
             },
@@ -745,7 +756,37 @@
                     },
                     {
                         "fieldname": "country_of_origin",
-                        "sl_column": "URSPRUNGSLAND"
+                        "sl_column": "URSPRUNGSLAND",
+                        "value_map": {
+                            "AT": "Austria",
+                            "BE": "Belgium",
+                            "BG": "Bulgaria",
+                            "CH": "Switzerland",
+                            "CN": "China",
+                            "CZ": "Czech Republic",
+                            "DE": "Germany",
+                            "DK": "Denmark",
+                            "ES": "Spain",
+                            "FI": "Finland",
+                            "FR": "France",
+                            "GB": "United Kingdom",
+                            "GR": "Greece",
+                            "HR": "Croatia",
+                            "HU": "Hungary",
+                            "IE": "Ireland",
+                            "IT": "Italy",
+                            "LU": "Luxembourg",
+                            "NL": "Netherlands",
+                            "NO": "Norway",
+                            "PL": "Poland",
+                            "PT": "Portugal",
+                            "RO": "Romania",
+                            "SE": "Sweden",
+                            "SI": "Slovenia",
+                            "SK": "Slovakia",
+                            "TR": "Turkey",
+                            "US": "United States"
+                        }
                     },
                     {
                         "fieldname": "customs_tariff_number",
@@ -818,86 +859,6 @@
                             {
                                 "table_fieldname": "info",
                                 "sl_column": "WWW",
-                                "reqd": 1,
-                                "force_str_type": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "custom_information_table",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "type",
-                                "default": "Katalogseite_1",
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "info",
-                                "sl_column": "KATALOGSEITE",
-                                "reqd": 1,
-                                "force_str_type": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "custom_information_table",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "type",
-                                "default": "Katalogseite_2",
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "info",
-                                "sl_column": "KATALOGSEITE_2",
-                                "reqd": 1,
-                                "force_str_type": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "custom_information_table",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "type",
-                                "default": "Katalogseite_3",
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "info",
-                                "sl_column": "KATALOGSEITE_3",
-                                "reqd": 1,
-                                "force_str_type": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "custom_information_table",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "type",
-                                "default": "Katalogseite_4",
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "info",
-                                "sl_column": "KATALOGSEITE_4",
-                                "reqd": 1,
-                                "force_str_type": 1
-                            }
-                        ]
-                    },
-                    {
-                        "fieldname": "custom_information_table",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "type",
-                                "default": "Katalogseite_5",
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "info",
-                                "sl_column": "KATALOGSEITE_5",
                                 "reqd": 1,
                                 "force_str_type": 1
                             }
@@ -1150,4 +1111,3 @@
         ]
     }
 ]
-

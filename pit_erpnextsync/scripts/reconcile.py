@@ -464,8 +464,14 @@ def get_field_key(field_def: Dict) -> str:
 	doctype = field_def.get("doctype") or field_def.get("mapping_doctype", "")
 	fieldname = field_def.get("fieldname", "")
 	child_row = field_def.get("child_row_fieldname", "")
+	source_column = field_def.get("sl_column") or field_def.get("selectline_column")
+	default_value = field_def.get("default")
 	
 	if child_row:
+		if source_column:
+			return f"{doctype}:{fieldname}:{child_row}:src:{source_column}"
+		if default_value is not None:
+			return f"{doctype}:{fieldname}:{child_row}:default:{default_value}"
 		return f"{doctype}:{fieldname}:{child_row}"
 	return f"{doctype}:{fieldname}"
 
@@ -489,21 +495,37 @@ def get_mapping_type(field_def: Dict) -> str:
 	return "unknown"
 
 
+def apply_value_map(field_def: Dict, value: Any) -> Any:
+	"""Apply value_map/value_map_default translation if configured."""
+	if value is None:
+		return value
+
+	value_map = field_def.get("value_map")
+	if not value_map or not isinstance(value_map, dict):
+		return value
+
+	return value_map.get(str(value), field_def.get("value_map_default", value))
+
+
 def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 	"""
 	Flattens nested JSON mapping structure for comparison.
 	Includes parent fields and child table fields with paths.
 	"""
 	result: List[Dict] = []
+	child_group_counter: Dict[str, int] = {}
 	
 	for doctype_def in json_mapping:
 		doctype = doctype_def.get("doctype")
 		
 		for field in doctype_def.get("fields", []):
+			fieldname = field.get("fieldname")
 			field_def = {
 				"doctype": doctype,
-				"fieldname": field.get("fieldname"),
+				"fieldname": fieldname,
 				"sl_column": field.get("sl_column"),
+				"value_map": field.get("value_map"),
+				"value_map_default": field.get("value_map_default"),
 				"default": field.get("default"),
 				"field_var": field.get("field_var"),
 				"mapped_value": field.get("mapped_value"),
@@ -521,12 +543,18 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 				
 			table_fields = field.get("table_fields") or []
 			if table_fields:
+				group_key_base = f"{doctype}:{fieldname}"
+				group_idx = child_group_counter.get(group_key_base, 0) + 1
+				child_group_counter[group_key_base] = group_idx
+				child_row_group_key = f"{group_key_base}:group:{group_idx}"
 				for table_field in table_fields:
 					child_def = {
 						"doctype": doctype,
-						"fieldname": field.get("fieldname"),
+						"fieldname": fieldname,
 						"child_row_fieldname": table_field.get("table_fieldname"),
 						"sl_column": table_field.get("sl_column"),
+						"value_map": table_field.get("value_map"),
+						"value_map_default": table_field.get("value_map_default"),
 						"default": table_field.get("default"),
 						"field_var": table_field.get("field_var"),
 						"mapped_value": table_field.get("mapped_value"),
@@ -534,6 +562,7 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 						"alt_key": table_field.get("alt_key"),
 						"force_str_type": table_field.get("force_str_type"),
 						"reqd": table_field.get("reqd"),
+						"child_row_group_key": child_row_group_key,
 						"table_fields": None,
 						"child_row_doctype": None  # Will be resolved during application
 					}
@@ -639,6 +668,9 @@ def apply_field_additions(
 	
 	# Track newly created documents to avoid recreating
 	created_docs_cache: Dict[str, str] = {}
+	# Track child rows per mapping block so table_fields in the same block
+	# (e.g. uom + conversion_factor) are written to the same row.
+	child_rows_cache: Dict[str, Dict] = {}
 	
 	for field_def in fields_to_add:
 		try:
@@ -721,15 +753,24 @@ def apply_field_additions(
 					"DEBUG",
 					APP_NAME
 				)
+
+				child_group_key = field_def.get("child_row_group_key")
+				child_cache_key = (
+					f"{doctype}:{docname}:{fieldname}:{child_group_key}" if child_group_key else None
+				)
 				
 				# Find or create child row
-				child_info = get_or_create_child_row(
-					mapping_name=mapping_name,
-					doctype=doctype,
-					docname=docname,
-					fieldname=fieldname,
-					field_def=field_def
-				)
+				child_info = child_rows_cache.get(child_cache_key) if child_cache_key else None
+				if not child_info:
+					child_info = get_or_create_child_row(
+						mapping_name=mapping_name,
+						doctype=doctype,
+						docname=docname,
+						fieldname=fieldname,
+						field_def=field_def
+					)
+					if child_cache_key and child_info:
+						child_rows_cache[child_cache_key] = child_info
 				
 				if child_info:
 					make_log(
@@ -763,7 +804,8 @@ def apply_field_additions(
 							"mapping_doctype": doctype,
 							"docname": docname,
 							"fieldname": fieldname,
-							"child_row_fieldname": child_row_fieldname
+							"child_row_fieldname": child_row_fieldname,
+							"selectline_column": field_def.get("sl_column")
 						}
 					)
 					
@@ -1189,17 +1231,19 @@ def get_field_value(
 			APP_NAME
 		)
 		
+		value = apply_value_map(field_def, value)
+
 		if force_str and value is not None:
 			return str(value)
 		return value
 	
 	elif mapping_type == "default":
-		return field_def.get("default")
+		return apply_value_map(field_def, field_def.get("default"))
 	
 	elif mapping_type == "field_var":
 		var_name = field_def.get("field_var")
 		if var_name:
-			return field_vars_obj.get_field_var_value(var_name)
+			return apply_value_map(field_def, field_vars_obj.get_field_var_value(var_name))
 		return None
 	
 	elif mapping_type == "mapped_value":
@@ -1228,6 +1272,8 @@ def get_field_value(
 				doc_type=str(target_doctype),
 				fieldname=str(target_field)
 			)
+			value = apply_value_map(field_def, value)
+
 			if force_str and value is not None:
 				return str(value)
 			return value
@@ -1262,6 +1308,7 @@ def get_field_value(
 		)
 		if sibling_entries:
 			value = sibling_entries[0]["docname"]
+			value = apply_value_map(field_def, value)
 			if force_str and value is not None:
 				return str(value)
 			return value
@@ -1290,23 +1337,42 @@ def get_or_create_child_row(
 		if not child_doctype:
 			raise Exception(f"Could not determine child doctype for {doctype}.{fieldname}")
 		
-		# Check if there's already a child row for this field in the mapping
-		existing_children = frappe.get_all(
-			"Sync Mapping Entry",
-			filters={
-				"parent": mapping_name,
-				"mapping_doctype": doctype,
-				"fieldname": fieldname
-			},
-			fields=["child_row_name", "child_row_doctype"],
-			limit=1
-		)
-		
-		if existing_children and existing_children[0].get("child_row_name"):
-			return {
-				"child_doctype": existing_children[0]["child_row_doctype"],
-				"child_name": existing_children[0]["child_row_name"]
-			}
+		# For source-mapped child fields, reuse the exact mapped child row
+		# (same field + child field + source column). This keeps repeated mappings
+		# like uoms/conversion_factor for GEBINDE_1, GEBINDE_2, ... separated.
+		child_row_fieldname = field_def.get("child_row_fieldname")
+		source_column = field_def.get("sl_column")
+		if child_row_fieldname and source_column:
+			existing_children = frappe.get_all(
+				"Sync Mapping Entry",
+				filters={
+					"parent": mapping_name,
+					"mapping_doctype": doctype,
+					"fieldname": fieldname,
+					"child_row_fieldname": child_row_fieldname,
+					"selectline_column": source_column,
+				},
+				fields=["child_row_name", "child_row_doctype"],
+				limit=1,
+			)
+			if existing_children and existing_children[0].get("child_row_name"):
+				return {
+					"child_doctype": existing_children[0]["child_row_doctype"],
+					"child_name": existing_children[0]["child_row_name"],
+				}
+
+		# For default-only child fields (no mapping entry), try to reuse a row with the
+		# same value to avoid creating duplicates on repeated reconciliation runs.
+		default_value = field_def.get("default")
+		if child_row_fieldname and default_value is not None:
+			parent_doc = frappe.get_doc(doctype, docname)
+			existing_child_rows = parent_doc.get(fieldname) or []
+			for row in existing_child_rows:
+				if row.get(child_row_fieldname) == default_value:
+					return {
+						"child_doctype": row.doctype,
+						"child_name": row.name
+					}
 		
 		# Do NOT reuse arbitrary existing child rows that have no mapping entry.
 		# This preserves system/default/manual rows (e.g. Item default UOM) that are

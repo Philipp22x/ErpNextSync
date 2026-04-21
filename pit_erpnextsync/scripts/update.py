@@ -332,8 +332,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         columns = [c.strip() for c in col_string.split(",") if c.strip()]
         columns.append(time_stamp_col_name)
         
-        # Build phone field lookup from mapping JSON
+        # Build phone + value_map lookups from mapping JSON
         phone_field_lookup: dict = {}
+        value_map_lookup: dict = {}
         for mapped_doctype in mapping_json:
             doctype = mapped_doctype.get("doctype")
             for field in mapped_doctype.get("fields", []):
@@ -343,10 +344,19 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     phone_field_lookup[key] = {
                         "country_code": field.get("phone_country_code", "AT")
                     }
+
+                if field.get("value_map") and field.get("sl_column"):
+                    key = f"{doctype}:{fieldname}:{field.get('sl_column')}"
+                    value_map_lookup[key] = {
+                        "map": field.get("value_map") or {},
+                        "default": field.get("value_map_default")
+                    }
+
                 # Also check table_fields for phone numbers
                 if field.get("table_fields"):
                     for table_field in field.get("table_fields", []):
                         table_fieldname = table_field.get("table_fieldname")
+                        table_sl_column = table_field.get("sl_column")
                         if table_field.get("is_phone_no") == 1:
                             # For child table fields, use child doctype
                             try:
@@ -354,6 +364,17 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                                 key = f"{child_doctype}:{table_fieldname}"
                                 phone_field_lookup[key] = {
                                     "country_code": table_field.get("phone_country_code", "AT")
+                                }
+                            except:
+                                pass
+
+                        if table_field.get("value_map") and table_sl_column:
+                            try:
+                                child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+                                key = f"{child_doctype}:{table_fieldname}:{table_sl_column}"
+                                value_map_lookup[key] = {
+                                    "map": table_field.get("value_map") or {},
+                                    "default": table_field.get("value_map_default")
                                 }
                             except:
                                 pass
@@ -424,6 +445,18 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
                 # Get value from fetched data
                 field_value = fetched_data[0].get(row.selectline_column)
+
+                # Apply value_map translation if configured in mapping JSON
+                if row.child_row_fieldname:
+                    value_map_key = f"{row.child_row_doctype}:{row.child_row_fieldname}:{row.selectline_column}"
+                else:
+                    value_map_key = f"{row.mapping_doctype}:{row.fieldname}:{row.selectline_column}"
+
+                if value_map_key in value_map_lookup and field_value is not None:
+                    map_data = value_map_lookup[value_map_key]
+                    value_map = map_data.get("map") or {}
+                    map_default = map_data.get("default")
+                    field_value = value_map.get(str(field_value), map_default if map_default is not None else field_value)
                 
                 # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
