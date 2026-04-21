@@ -733,11 +733,11 @@
                     },
                     {
                         "fieldname": "custom_lot_size",
-                        "sl_column": "UEBERVERPACKUNGSMENGE"
+                        "sl_column": "UEBERVERPACKUNGMENGE"
                     },
                     {
                         "fieldname": "custom_min_sales_quantity",
-                        "sl_column": "UEBERVERPACKUNGSMENGE"
+                        "sl_column": "UEBERVERPACKUNGMENGE"
                     },
                     {
                         "fieldname": "weight_per_unit",
