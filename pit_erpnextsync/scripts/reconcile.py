@@ -201,12 +201,18 @@ def reconcile_single_mapping(
 		)
 		
 		# Get the SelectLine data for this mapping, including new columns
+		# for both added fields and sl_column changes.
+		additional_fields_to_fetch: List[Dict] = list(preliminary_changes.get("fields_to_add", []))
+		for structural_change in preliminary_changes.get("structural_changes", []):
+			if structural_change.get("column_change") and structural_change.get("new_def"):
+				additional_fields_to_fetch.append(structural_change["new_def"])
+
 		id_data: Dict = parse_object_id(mapping_doc.selectline_id)
 		fetched_obj: Optional[Dict] = fetch_source_data(
 			instance=instance,
 			mapping_doc=mapping_doc,
 			id_data=id_data,
-			new_fields=preliminary_changes.get("fields_to_add", [])
+			new_fields=additional_fields_to_fetch
 		)
 		
 		if not fetched_obj:
@@ -432,6 +438,8 @@ def get_mapping_type(field_def: Dict) -> str:
 	"""Determine the mapping type from field definition."""
 	if field_def.get("table_fields"):
 		return "table_fields"
+	elif field_def.get("selectline_column"):
+		return "sl_column"
 	elif field_def.get("sl_column"):
 		return "sl_column"
 	elif field_def.get("default") is not None:
@@ -475,23 +483,25 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 			if field.get("table_fields"):
 				field_def["table_fields"] = True
 				
-			for table_field in field.get("table_fields", []):
-				child_def = {
-					"doctype": doctype,
-					"fieldname": field.get("fieldname"),
-					"child_row_fieldname": table_field.get("table_fieldname"),
-					"sl_column": table_field.get("sl_column"),
-					"default": table_field.get("default"),
-					"field_var": table_field.get("field_var"),
-					"mapped_value": table_field.get("mapped_value"),
-					"get_redis": table_field.get("get_redis"),
-					"alt_key": table_field.get("alt_key"),
-					"force_str_type": table_field.get("force_str_type"),
-					"reqd": table_field.get("reqd"),
-					"table_fields": None,
-					"child_row_doctype": None  # Will be resolved during application
-				}
-				result.append(child_def)
+			table_fields = field.get("table_fields") or []
+			if table_fields:
+				for table_field in table_fields:
+					child_def = {
+						"doctype": doctype,
+						"fieldname": field.get("fieldname"),
+						"child_row_fieldname": table_field.get("table_fieldname"),
+						"sl_column": table_field.get("sl_column"),
+						"default": table_field.get("default"),
+						"field_var": table_field.get("field_var"),
+						"mapped_value": table_field.get("mapped_value"),
+						"get_redis": table_field.get("get_redis"),
+						"alt_key": table_field.get("alt_key"),
+						"force_str_type": table_field.get("force_str_type"),
+						"reqd": table_field.get("reqd"),
+						"table_fields": None,
+						"child_row_doctype": None  # Will be resolved during application
+					}
+					result.append(child_def)
 			else:
 				result.append(field_def)
 	
@@ -626,7 +636,10 @@ def apply_field_additions(
 					pluck="docname"
 				)
 				
-				if not existing_entries:
+				if existing_entries:
+					docname = existing_entries[0]
+					created_docs_cache[doctype] = docname
+				else:
 					# This is a new doctype that wasn't in the original mapping
 					# We need to get or create the document first
 					make_log(
@@ -650,9 +663,6 @@ def apply_field_additions(
 						# Don't continue here - we still need to create the mapping entry for this field
 					else:
 						raise Exception(f"Failed to create new document for doctype {doctype}")
-			else:
-				docname = existing_entries[0]
-				created_docs_cache[doctype] = docname
 			
 			# Get the value based on mapping type
 			field_value = get_field_value(
@@ -946,7 +956,7 @@ def apply_field_removals(
 			try:
 				# Check if document is still referenced in any other mapping
 				other_mappings = frappe.get_all(
-					"Selectline Mapping Entry",
+					"Sync Mapping Entry",
 					filters={
 						"mapping_doctype": doctype,
 						"docname": docname,
@@ -1082,6 +1092,8 @@ def apply_structural_changes(
 					"mapping_doctype": doctype,
 					"fieldname": fieldname
 				}
+				if child_row_fieldname:
+					entry_filters["child_row_fieldname"] = child_row_fieldname
 				
 				entry_name = frappe.db.exists("Sync Mapping Entry", entry_filters)
 				if entry_name:

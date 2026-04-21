@@ -639,21 +639,51 @@
     },
     {
         "idx": 7,
+        "type": "Item Group",
+        "doc_type": "Item Group",
+        "table_name": "Warengruppe",
+        "primary_key": "WARENGRUPPE_KZ",
+        "mapping": [
+            {
+                "doctype": "Item Group",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "parent_item_group",
+                        "default": "Alle Artikelgruppen"
+                    },
+                    {
+                        "fieldname": "item_group_name",
+                        "sl_column": "WARENGRUPPE_KZ"
+                    },
+                    {
+                        "fieldname": "show_in_website",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "website_title",
+                        "sl_column": "WAGRBEZEICHNUNG"
+                    },
+                    {
+                        "fieldname": "route",
+                        "sl_column": "WARENGRUPPE_KZ"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 8,
         "type": "Item",
         "doc_type": "Item",
         "table_name": "Artikel",
         "primary_key": "ARTIKELNR",
         "timestamp_column_name": "LETZTEAENDERUNG",
         "mapping": [
-            {
-                "doctype": "Item Group",
-                "fields": [
-                    {
-                        "fieldname": "item_group_name",
-                        "sl_column": "WARENGRUPPE"
-                    }
-                ]
-            },
             {
                 "doctype": "UOM",
                 "fields": [
@@ -700,6 +730,26 @@
                     {
                         "fieldname": "is_stock_item",
                         "default": 1
+                    },
+                    {
+                        "fieldname": "custom_lot_size",
+                        "sl_column": "UEBERVERPACKUNGSMENGE"
+                    },
+                    {
+                        "fieldname": "custom_min_sales_quantity",
+                        "sl_column": "UEBERVERPACKUNGSMENGE"
+                    },
+                    {
+                        "fieldname": "weight_per_unit",
+                        "sl_column": "GEWICHT_NETTO"
+                    },
+                    {
+                        "fieldname": "country_of_origin",
+                        "sl_column": "URSPRUNGSLAND"
+                    },
+                    {
+                        "fieldname": "customs_tariff_number",
+                        "sl_column": "ZOLLTARIFNR"
                     },
                     {
                         "fieldname": "barcodes",
@@ -774,15 +824,151 @@
                         ]
                     },
                     {
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Katalogseite_1",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "KATALOGSEITE",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Katalogseite_2",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "KATALOGSEITE_2",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Katalogseite_3",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "KATALOGSEITE_3",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Katalogseite_4",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "KATALOGSEITE_4",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Katalogseite_5",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "KATALOGSEITE_5",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
                         "fieldname": "disabled",
                         "sl_column": "ARCHIV"
+                    },
+                    {
+                        "fieldname": "uoms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "uom",
+                                "default": "Gebinde 1",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "conversion_factor",
+                                "sl_column": "GEBINDE_1"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "uoms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "uom",
+                                "default": "Gebinde 2",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "conversion_factor",
+                                "sl_column": "GEBINDE_2"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "uoms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "uom",
+                                "default": "Verpackungsmenge",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "conversion_factor",
+                                "sl_column": "VERPACKUNGSMENGE"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "uoms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "uom",
+                                "default": "Ueberverpackungsmenge",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "conversion_factor",
+                                "sl_column": "UEBERVERPACKUNGMENGE"
+                            }
+                        ]
                     }
                 ]
             }
         ]
     },
     {
-        "idx": 8,
+        "idx": 9,
         "type": "VKItemPrices",
         "doc_type": "Item Price",
         "table_name": "Artikel",
@@ -836,7 +1022,7 @@
         ]
     },
     {
-        "idx": 9,
+        "idx": 10,
         "type": "VKPricingRulesRate",
         "doc_type": "Pricing Rule",
         "table_name": "Artikel_VK_Staffel",
@@ -900,7 +1086,7 @@
         ]
     },
     {
-        "idx": 10,
+        "idx": 11,
         "type": "VKPricingRulesPerc",
         "doc_type": "Pricing Rule",
         "table_name": "Artikel_VK_Staffel",
