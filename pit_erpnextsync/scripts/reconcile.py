@@ -547,6 +547,9 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 				group_idx = child_group_counter.get(group_key_base, 0) + 1
 				child_group_counter[group_key_base] = group_idx
 				child_row_group_key = f"{group_key_base}:group:{group_idx}"
+				child_group_sl_columns = [
+					tf.get("sl_column") for tf in table_fields if tf.get("sl_column")
+				]
 				for table_field in table_fields:
 					child_def = {
 						"doctype": doctype,
@@ -563,6 +566,7 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 						"force_str_type": table_field.get("force_str_type"),
 						"reqd": table_field.get("reqd"),
 						"child_row_group_key": child_row_group_key,
+						"child_group_sl_columns": child_group_sl_columns,
 						"table_fields": None,
 						"child_row_doctype": None  # Will be resolved during application
 					}
@@ -671,8 +675,15 @@ def apply_field_additions(
 	# Track child rows per mapping block so table_fields in the same block
 	# (e.g. uom + conversion_factor) are written to the same row.
 	child_rows_cache: Dict[str, Dict] = {}
-	
-	for field_def in fields_to_add:
+
+	# Process source-backed fields before default-only fields so default helpers
+	# can attach to rows created for sl_column fields in the same group.
+	sorted_fields_to_add = sorted(
+		fields_to_add,
+		key=lambda f: 0 if (f.get("sl_column") or f.get("get_redis")) else 1,
+	)
+
+	for field_def in sorted_fields_to_add:
 		try:
 			doctype = field_def.get("doctype")
 			fieldname = field_def.get("fieldname")
@@ -767,7 +778,8 @@ def apply_field_additions(
 						doctype=doctype,
 						docname=docname,
 						fieldname=fieldname,
-						field_def=field_def
+						field_def=field_def,
+						allow_create=has_trackable_source,
 					)
 					if child_cache_key and child_info:
 						child_rows_cache[child_cache_key] = child_info
@@ -835,6 +847,14 @@ def apply_field_additions(
 							APP_NAME
 						)
 				else:
+					if not has_trackable_source:
+						make_log(
+							f"Skipping child default field {doctype}.{fieldname}.{child_row_fieldname}: "
+							f"no existing mapped child row found",
+							"DEBUG",
+							APP_NAME
+						)
+						continue
 					make_log(
 						f"ERROR: Could not get or create child row for {doctype}.{fieldname}",
 						"ERROR",
@@ -1323,7 +1343,8 @@ def get_or_create_child_row(
 	doctype: str,
 	docname: str,
 	fieldname: str,
-	field_def: Dict
+	field_def: Dict,
+	allow_create: bool = True,
 ) -> Optional[Dict]:
 	"""
 	Finds or creates a child table row for adding new fields.
@@ -1365,6 +1386,27 @@ def get_or_create_child_row(
 		# same value to avoid creating duplicates on repeated reconciliation runs.
 		default_value = field_def.get("default")
 		if child_row_fieldname and default_value is not None:
+			group_columns = field_def.get("child_group_sl_columns") or []
+			if group_columns:
+				sibling_entries = frappe.get_all(
+					"Sync Mapping Entry",
+					filters={
+						"parent": mapping_name,
+						"mapping_doctype": doctype,
+						"docname": docname,
+						"fieldname": fieldname,
+						"selectline_column": ["in", group_columns],
+						"child_row_name": ["not in", ["", None]],
+					},
+					fields=["child_row_name", "child_row_doctype"],
+					limit=1,
+				)
+				if sibling_entries:
+					return {
+						"child_doctype": sibling_entries[0]["child_row_doctype"],
+						"child_name": sibling_entries[0]["child_row_name"],
+					}
+
 			parent_doc = frappe.get_doc(doctype, docname)
 			existing_child_rows = parent_doc.get(fieldname) or []
 			for row in existing_child_rows:
@@ -1377,6 +1419,8 @@ def get_or_create_child_row(
 		# Do NOT reuse arbitrary existing child rows that have no mapping entry.
 		# This preserves system/default/manual rows (e.g. Item default UOM) that are
 		# not managed by Sync Mapping entries.
+		if not allow_create:
+			return None
 		
 		# Need to create a new child row
 		child_name = frappe.generate_hash(length=8)

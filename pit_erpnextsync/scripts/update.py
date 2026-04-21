@@ -460,10 +460,20 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 
                 # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
-                    lookup_key = f"{row.child_row_doctype}:{row.child_row_fieldname}"
+                    repaired_child = ensure_child_row_exists(mapping_name=mapping_name, mapping_row=row)
+                    target_child_doctype = repaired_child.get("child_row_doctype")
+                    target_child_name = repaired_child.get("child_row_name")
+
+                    if not target_child_doctype or not target_child_name:
+                        raise Exception(
+                            f"Could not resolve child row for {mapping_name} "
+                            f"{row.mapping_doctype}.{row.fieldname}.{row.child_row_fieldname}"
+                        )
+
+                    lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
                         field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
-                    frappe.db.set_value(row.child_row_doctype, row.child_row_name, row.child_row_fieldname, field_value)
+                    frappe.db.set_value(target_child_doctype, target_child_name, row.child_row_fieldname, field_value)
                     
                 else:
                     lookup_key = f"{row.mapping_doctype}:{row.fieldname}"
@@ -496,6 +506,74 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # Update job counts even on error
         controller.update_jobs(instance=instance)
         return None
+
+
+def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
+    """Ensure mapped child row exists; recreate and re-link mapping entries if missing."""
+    child_doctype = mapping_row.child_row_doctype
+    child_row_name = mapping_row.child_row_name
+
+    # Already valid
+    if child_doctype and child_row_name and frappe.db.exists(child_doctype, child_row_name):
+        return {
+            "child_row_doctype": child_doctype,
+            "child_row_name": child_row_name
+        }
+
+    # Determine child doctype from parent table field metadata as primary source
+    meta = frappe.get_meta(mapping_row.mapping_doctype)
+    child_table_field = meta.get_field(mapping_row.fieldname)
+    resolved_child_doctype = child_doctype
+    if child_table_field and child_table_field.options:
+        resolved_child_doctype = child_table_field.options
+
+    if not resolved_child_doctype:
+        raise Exception(
+            f"Could not determine child doctype for "
+            f"{mapping_row.mapping_doctype}.{mapping_row.fieldname}"
+        )
+
+    new_child_name = frappe.generate_hash(length=8)
+    new_child = frappe.get_doc({
+        "doctype": resolved_child_doctype,
+        "parenttype": mapping_row.mapping_doctype,
+        "parent": mapping_row.docname,
+        "parentfield": mapping_row.fieldname,
+        "name": new_child_name,
+    })
+    new_child.flags.name_set = True
+    new_child.insert(ignore_permissions=True, ignore_mandatory=True)
+
+    # Re-link all mapping rows that pointed to the missing child row
+    relink_filters = {
+        "parent": mapping_name,
+        "mapping_doctype": mapping_row.mapping_doctype,
+        "docname": mapping_row.docname,
+        "fieldname": mapping_row.fieldname,
+    }
+    if child_row_name:
+        relink_filters["child_row_name"] = child_row_name
+
+    entries_to_relink = frappe.get_all("Sync Mapping Entry", filters=relink_filters, pluck="name")
+    if not entries_to_relink and mapping_row.name:
+        entries_to_relink = [mapping_row.name]
+
+    for entry_name in entries_to_relink:
+        frappe.db.set_value("Sync Mapping Entry", entry_name, "child_row_name", new_child_name)
+        frappe.db.set_value("Sync Mapping Entry", entry_name, "child_row_doctype", resolved_child_doctype)
+
+    make_log(
+        f"Repaired missing child row for mapping {mapping_name}: "
+        f"{mapping_row.mapping_doctype}.{mapping_row.fieldname} "
+        f"{child_row_name or '<empty>'} -> {new_child_name}",
+        "WARNING",
+        controller.APP_NAME,
+    )
+
+    return {
+        "child_row_doctype": resolved_child_doctype,
+        "child_row_name": new_child_name
+    }
 
 
 # Modified by PIT Agent Dev 1 - 2026-03-30: Resolve legacy type-prefixed table names for update SQL queries.
