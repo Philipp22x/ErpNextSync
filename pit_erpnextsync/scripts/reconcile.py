@@ -323,6 +323,11 @@ def reconcile_single_mapping(
 					fetched_obj=fetched_obj
 				)
 				result["actions"]["additions"] = addition_result
+
+			# 4. Normalize child tables (barcode/uom) for mapped Item docs
+			cleanup_result = normalize_item_child_tables(mapping_name=mapping_name)
+			if cleanup_result.get("rows_removed") or cleanup_result.get("rows_merged"):
+				result["actions"]["cleanup"] = cleanup_result
 			
 			# Update timestamp only (don't save parent doc to avoid overwriting child table)
 			frappe.db.set_value("Sync Mapping", mapping_name, "last_update", frappe.utils.now())
@@ -984,6 +989,189 @@ def apply_field_additions(
 		"failed": failed_count,
 		"errors": errors
 	}
+
+
+def normalize_item_child_tables(mapping_name: str) -> Dict:
+	"""Cleanup duplicated/empty Item child rows and relink mapping entries."""
+	rows_removed = 0
+	rows_merged = 0
+	errors: List[str] = []
+
+	item_docnames = frappe.get_all(
+		"Sync Mapping Entry",
+		filters={
+			"parent": mapping_name,
+			"mapping_doctype": "Item",
+			"docname": ["not in", ["", None]],
+		},
+		pluck="docname",
+	)
+	item_docnames = list(dict.fromkeys(item_docnames))
+
+	for item_docname in item_docnames:
+		try:
+			# Barcode cleanup: remove empty rows, merge duplicate barcode values
+			barcode_rows = frappe.get_all(
+				"Item Barcode",
+				filters={
+					"parent": item_docname,
+					"parenttype": "Item",
+					"parentfield": "barcodes",
+				},
+				fields=["name", "barcode", "barcode_type", "idx"],
+				order_by="idx asc",
+			)
+			barcode_survivors: Dict[str, Dict] = {}
+			for row in barcode_rows:
+				barcode_val = (row.get("barcode") or "").strip()
+				if not barcode_val:
+					delete_mapping_entries_for_child(
+						mapping_name=mapping_name,
+						docname=item_docname,
+						fieldname="barcodes",
+						child_row_name=row["name"],
+					)
+					frappe.delete_doc("Item Barcode", row["name"], ignore_permissions=True)
+					rows_removed += 1
+					continue
+
+				if barcode_val not in barcode_survivors:
+					barcode_survivors[barcode_val] = row
+					continue
+
+				survivor = barcode_survivors[barcode_val]
+				candidate = row
+				if (not survivor.get("barcode_type")) and candidate.get("barcode_type"):
+					survivor, candidate = candidate, survivor
+					barcode_survivors[barcode_val] = survivor
+
+				relink_mapping_entries_for_child(
+					mapping_name=mapping_name,
+					docname=item_docname,
+					fieldname="barcodes",
+					old_child_row_name=candidate["name"],
+					new_child_row_name=survivor["name"],
+					new_child_doctype="Item Barcode",
+				)
+				frappe.delete_doc("Item Barcode", candidate["name"], ignore_permissions=True)
+				rows_merged += 1
+
+			# UOM cleanup: remove empty-uom rows, merge duplicate uom values
+			uom_rows = frappe.get_all(
+				"UOM Conversion Detail",
+				filters={
+					"parent": item_docname,
+					"parenttype": "Item",
+					"parentfield": "uoms",
+				},
+				fields=["name", "uom", "conversion_factor", "idx"],
+				order_by="idx asc",
+			)
+			uom_survivors: Dict[str, Dict] = {}
+			for row in uom_rows:
+				uom_val = (row.get("uom") or "").strip()
+				if not uom_val:
+					delete_mapping_entries_for_child(
+						mapping_name=mapping_name,
+						docname=item_docname,
+						fieldname="uoms",
+						child_row_name=row["name"],
+					)
+					frappe.delete_doc("UOM Conversion Detail", row["name"], ignore_permissions=True)
+					rows_removed += 1
+					continue
+
+				if uom_val not in uom_survivors:
+					uom_survivors[uom_val] = row
+					continue
+
+				survivor = uom_survivors[uom_val]
+				candidate = row
+				if _score_conversion_factor(candidate.get("conversion_factor")) > _score_conversion_factor(
+					survivor.get("conversion_factor")
+				):
+					survivor, candidate = candidate, survivor
+					uom_survivors[uom_val] = survivor
+
+				relink_mapping_entries_for_child(
+					mapping_name=mapping_name,
+					docname=item_docname,
+					fieldname="uoms",
+					old_child_row_name=candidate["name"],
+					new_child_row_name=survivor["name"],
+					new_child_doctype="UOM Conversion Detail",
+				)
+				frappe.delete_doc("UOM Conversion Detail", candidate["name"], ignore_permissions=True)
+				rows_merged += 1
+
+		except Exception as e:
+			errors.append(f"{item_docname}: {e}")
+			make_log(
+				f"Failed to normalize child tables for item {item_docname} in {mapping_name}: {e}",
+				"ERROR",
+				APP_NAME,
+				with_traceback=True,
+			)
+
+	return {
+		"rows_removed": rows_removed,
+		"rows_merged": rows_merged,
+		"errors": errors,
+	}
+
+
+def relink_mapping_entries_for_child(
+	mapping_name: str,
+	docname: str,
+	fieldname: str,
+	old_child_row_name: str,
+	new_child_row_name: str,
+	new_child_doctype: str,
+) -> None:
+	entries = frappe.get_all(
+		"Sync Mapping Entry",
+		filters={
+			"parent": mapping_name,
+			"mapping_doctype": "Item",
+			"docname": docname,
+			"fieldname": fieldname,
+			"child_row_name": old_child_row_name,
+		},
+		pluck="name",
+	)
+	for entry_name in entries:
+		frappe.db.set_value("Sync Mapping Entry", entry_name, "child_row_name", new_child_row_name)
+		frappe.db.set_value("Sync Mapping Entry", entry_name, "child_row_doctype", new_child_doctype)
+
+
+def delete_mapping_entries_for_child(
+	mapping_name: str,
+	docname: str,
+	fieldname: str,
+	child_row_name: str,
+) -> None:
+	entries = frappe.get_all(
+		"Sync Mapping Entry",
+		filters={
+			"parent": mapping_name,
+			"mapping_doctype": "Item",
+			"docname": docname,
+			"fieldname": fieldname,
+			"child_row_name": child_row_name,
+		},
+		pluck="name",
+	)
+	for entry_name in entries:
+		frappe.delete_doc("Sync Mapping Entry", entry_name)
+
+
+def _score_conversion_factor(value: Any) -> int:
+	try:
+		if value is None:
+			return 0
+		return 1 if float(value) != 0 else 0
+	except Exception:
+		return 0
 
 
 def apply_field_removals(
