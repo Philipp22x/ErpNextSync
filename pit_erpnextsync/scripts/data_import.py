@@ -494,6 +494,10 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
         frappe.db.commit()
 
+        # Validate variant items have attributes
+        if table_mapping_row.type == "ItemVarChild":
+            _validate_variant_attributes(instance, obj_id, created_docs)
+
     except Exception as e:
         make_log(f"Could not import fetched oject: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         raise
@@ -502,6 +506,26 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         if not skip_job_update:
             # skip_hooks=True because _run_import handles after-hooks after all types complete
             controller.update_jobs(instance=instance, skip_hooks=True)
+
+
+def _validate_variant_attributes(instance: str, obj_id: str, created_docs: list) -> None:
+    """Validate that imported variant items have attributes. Log warning if empty."""
+    try:
+        item_doc_info = next((d for d in created_docs if d.get("dt") == "Item"), None)
+        if not item_doc_info:
+            return
+        
+        item_doc = frappe.get_doc("Item", item_doc_info["dn"])
+        if not item_doc.attributes:
+            make_log(
+                f"WARNING: Variant item {item_doc.name} (ID: {obj_id}) has empty attributes table. "
+                f"Variant of: {item_doc.variant_of}. "
+                f"This may indicate missing ARTVARI data in SelectLine.",
+                "WARNING",
+                controller.APP_NAME,
+            )
+    except Exception:
+        pass  # Don't fail import for validation errors
 
 
 # delete doc from doc list
@@ -646,10 +670,17 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                         )
                         
                         make_log(
-                            f"Fetched {len(multiple_rows)} child rows for {mapped_doctype['doctype']}.{field['fieldname']} from {multiple_table}",
+                            f"Fetched {len(multiple_rows)} child rows for {mapped_doctype['doctype']}.{field['fieldname']} from {multiple_table} (condition: {multiple_condition})",
                             "INFO",
                             controller.APP_NAME,
                         )
+                        
+                        if not multiple_rows:
+                            make_log(
+                                f"WARNING: No child rows returned for {mapped_doctype['doctype']}.{field['fieldname']} - item may have empty {field['fieldname']} table. Parent data keys: {list(fetched_obj.keys())}",
+                                "WARNING",
+                                controller.APP_NAME,
+                            )
                         
                         # Track unique values to prevent duplicates (only if deduplicate is enabled)
                         seen_values = set()
@@ -766,6 +797,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             # only add child row if it has data
                             if row_has_data:
                                 child_doc_list.append(new_child_row)
+                            else:
+                                make_log(
+                                    f"Skipping child row with no data for {mapped_doctype['doctype']}.{field['fieldname']} (row keys: {list(row_data.keys())})",
+                                    "WARNING",
+                                    controller.APP_NAME,
+                                )
                     
                 else:
                     # original single child row logic

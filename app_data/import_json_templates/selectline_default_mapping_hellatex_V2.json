@@ -242,7 +242,7 @@
                     {
                         "fieldname": "attributes",
                         "multiple_query": true,
-                        "multiple_query_table": "ARTVARI INNER JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id",
+                        "multiple_query_table": "ARTVARI LEFT JOIN MERKMALD ON ARTVARI.IdAuspraegung = MERKMALD.Id",
                         "multiple_query_condition": "ARTVARI.Artikelnummer = {Artikelnummer}",
                         "table_fields": [
                             {
@@ -253,10 +253,6 @@
                             {
                                 "table_fieldname": "attribute_value",
                                 "sl_column": "Bezeichnung"
-                            },
-                            {
-                                "table_fieldname": "variant_of",
-                                "get_redis": "current_variant_of"
                             }
                         ]
                     }
