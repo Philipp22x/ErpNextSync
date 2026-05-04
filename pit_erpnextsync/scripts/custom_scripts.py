@@ -16,19 +16,26 @@ def bulk_create_webshop_item():
     
     Only creates for Items that:
     - Are not disabled
-    - Have has_variants=1 (template items) OR are variants with a valid variant_of
+    - Are sales items
+    - Are NOT variant items (variant_of not set)
     - Don't already have a Website Item linked
+    
+    Note: Variant items (variant_of is set) are handled automatically 
+    by the website/webshop and don't need their own Website Item.
     
     Returns dict with counts: queued, skipped, errors
     """
     try:
-        # Get all items that should have website items
-        # Include both template items and actual variants
+        # Create Website Items for:
+        # 1. Template items (has_variants=1) - variants handled automatically by webshop
+        # 2. Single/standalone items (has_variants=0 AND not a variant)
+        # Skip variant items (variant_of is set) as they're handled automatically
         items = frappe.get_all(
             "Item",
             filters={
                 "disabled": 0,
                 "is_sales_item": 1,
+                "variant_of": ["is", "not set"],
             },
             fields=["name", "item_name", "has_variants", "variant_of"],
             limit=0
@@ -57,8 +64,6 @@ def bulk_create_webshop_item():
                 skipped += 1
                 continue
             
-            # Skip template items with no variants (only create for templates that have variants)
-            # Actually, we should create for both templates and variants
             items_to_create.append(item)
         
         if not items_to_create:
@@ -66,7 +71,7 @@ def bulk_create_webshop_item():
                 "queued": 0, 
                 "skipped": skipped, 
                 "errors": 0,
-                "message": "All items already have Website Items"
+                "message": "All template items already have Website Items"
             }
         
         # Process in batches to avoid overwhelming the job queue

@@ -2,7 +2,7 @@ frappe.listview_settings['Item'] = {
 	onload: function(listview) {
 		listview.page.add_actions_menu_item(__("Create Missing Website Items"), function() {
 			frappe.confirm(
-				__('This will create Website Items for all Items that do not have one yet. Continue?'),
+				__('This will create Website Items for all Items (templates and single items) that do not have one yet. Variant items are handled automatically. Continue?'),
 				function() {
 					frappe.call({
 						method: 'pit_erpnextsync.scripts.custom_scripts.bulk_create_webshop_item',
