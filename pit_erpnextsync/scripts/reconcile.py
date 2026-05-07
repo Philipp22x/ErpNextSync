@@ -785,6 +785,7 @@ def apply_field_additions(
 						fieldname=fieldname,
 						field_def=field_def,
 						allow_create=has_trackable_source,
+						resolved_value=field_value,
 					)
 					if child_cache_key and child_info:
 						child_rows_cache[child_cache_key] = child_info
@@ -1533,6 +1534,7 @@ def get_or_create_child_row(
 	fieldname: str,
 	field_def: Dict,
 	allow_create: bool = True,
+	resolved_value: Any = None,
 ) -> Optional[Dict]:
 	"""
 	Finds or creates a child table row for adding new fields.
@@ -1604,6 +1606,19 @@ def get_or_create_child_row(
 						"child_name": row.name
 					}
 		
+		# For get_redis fields (no sl_column, no default), try to find an existing
+		# child row by matching the resolved value against the actual document.
+		# This prevents duplicate child rows when reconciliation runs after import.
+		if child_row_fieldname and resolved_value is not None and not source_column and default_value is None:
+			parent_doc = frappe.get_doc(doctype, docname)
+			existing_child_rows = parent_doc.get(fieldname) or []
+			for row in existing_child_rows:
+				if str(row.get(child_row_fieldname) or "") == str(resolved_value):
+					return {
+						"child_doctype": row.doctype,
+						"child_name": row.name
+					}
+
 		# Do NOT reuse arbitrary existing child rows that have no mapping entry.
 		# This preserves system/default/manual rows (e.g. Item default UOM) that are
 		# not managed by Sync Mapping entries.
@@ -1783,18 +1798,21 @@ def fetch_source_data(
 		# table (e.g. LIEFERANTENNR from Artikel_Lieferant stored on an Item mapping entry)
 		# or columns that were removed / renamed in the source database.
 		# Comparison is case-insensitive to handle mixed-case 4D column names.
+		# SQL expressions (subqueries starting with '(', CAST expressions, etc.) are kept
+		# as-is since they are valid SELECT expressions, not plain column names.
 		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 		valid_table_columns = get_table_columns(instance=instance, table_name=table_name, driver=driver)
 		if valid_table_columns:
 			valid_upper = {c.upper() for c in valid_table_columns}
-			invalid = [c for c in columns if c.upper() not in valid_upper]
+			is_sql_expr = lambda c: c.strip().startswith("(") or c.strip().upper().startswith("CAST(")
+			invalid = [c for c in columns if not is_sql_expr(c) and c.upper() not in valid_upper]
 			if invalid:
 				make_log(
 					f"Skipping {len(invalid)} column(s) not present in {table_name}: {invalid}",
 					"WARNING",
 					APP_NAME,
 				)
-			columns = [c for c in columns if c.upper() in valid_upper]
+			columns = [c for c in columns if is_sql_expr(c) or c.upper() in valid_upper]
 		
 		# Add timestamp column from table mapping (not from Sync Instance)
 		# Get the table mapping row for this mapping type
