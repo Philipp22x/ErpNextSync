@@ -443,8 +443,15 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 if not row.selectline_column:
                     continue
 
-                # Get value from fetched data
-                field_value = fetched_data[0].get(row.selectline_column)
+                # Get value from fetched data.
+                # When selectline_column contains a SQL expression with an alias
+                # (e.g. "(SELECT ...) AS EmailRechnung"), the database returns the
+                # result under the alias name, not the full expression.
+                col_key = row.selectline_column
+                if ") AS " in col_key or ") as " in col_key:
+                    # Extract alias from "... AS AliasName" or "... as AliasName"
+                    col_key = col_key.rsplit(" AS ", 1)[-1].rsplit(" as ", 1)[-1].strip()
+                field_value = fetched_data[0].get(col_key)
 
                 # Apply value_map translation if configured in mapping JSON
                 if row.child_row_fieldname:
