@@ -115,23 +115,6 @@
                         "default": 1
                     },
                     {
-                        "fieldname": "barcodes",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "barcode",
-                                "sl_column": "EANNummer"
-                            },
-                            {
-                                "table_fieldname": "barcode_type",
-                                "default": "EAN"
-                            },
-                            {
-                                "table_fieldname": "uom",
-                                "sl_column": "Mengeneinheit"
-                            }
-                        ]
-                    },
-                    {
                         "fieldname": "attributes",
                         "multiple_query": true,
                         "multiple_query_table": "MERKMAL",
@@ -221,23 +204,6 @@
                         "fieldname": "variant_of",
                         "sl_column": "Variantenartikel",
                         "set_redis": "current_variant_of"
-                    },
-                    {
-                        "fieldname": "barcodes",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "barcode",
-                                "sl_column": "EANNummer"
-                            },
-                            {
-                                "table_fieldname": "barcode_type",
-                                "default": "EAN"
-                            },
-                            {
-                                "table_fieldname": "uom",
-                                "default": "Stk."
-                            }
-                        ]
                     },
                     {
                         "fieldname": "attributes",
