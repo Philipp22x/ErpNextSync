@@ -1,150 +1,92 @@
-# PIT ERPNextSync - AI Agent Documentation
+# PIT ERPNextSync
 
-## Project Overview
-
-**PIT ERPNextSync** is an ERPNext app that serves as a connector between **SelectLine** (a German ERP system) and **ERPNext**. It synchronizes data from SelectLine's SQL Server database into ERPNext.
+ERPNext app that syncs data from **SelectLine** (German ERP) into ERPNext. Connects to SelectLine's SQL Server (or 4D) database.
 
 ## Documentation
-- **Mapping Guide** Check the MAPPING_GUIDE.md in app_data/documentation to understand the structure of mapping
+- **Mapping reference**: `app_data/documentation/MAPPING_GUIDE.md`
 
 ## Architecture
 
-### Core Components
+### Dual-database driver
+Supports two backends: **pymssql** (MSSQL) and **p4d** (4D). SQL generation, column quoting, and fetch logic differ per driver. See `controller.py:db_connect()` for the dispatcher.
 
-#### DocTypes (Data Models)
-
+### Key DocTypes
 | DocType | Purpose |
 |---------|---------|
-| `Sync Instance` | Database connection configuration and sync settings |
-| `Sync Mapping` | Tracks relationships between SelectLine records and ERPNext documents |
-| `Sync Mapping Entry` | Child table storing field-level mappings |
-| `Selectline Table Mapping` | JSON-based table mapping definitions |
-| `PIT ERPNextSync Settings` | Global application settings |
+| `Sync Instance` | DB connection config, table mapping JSON, scheduler settings |
+| `Sync Mapping` | Tracks one SelectLine record → ERPNext document relationship |
+| `Sync Mapping Entry` | Child table of Sync Mapping; field-level mapping rows |
+| `Selectline Table Mapping` | Child table of Sync Instance; JSON-based table/field mapping definitions |
+| `PIT ERPNextSync Settings` | Single doctype (global settings, e.g. cascade-delete toggle) |
+| `Sync Instance Hooks` | Child table of Sync Instance; Server Script hooks (before/after import/update) |
 
-#### Main Scripts
+### Scripts (all in `pit_erpnextsync/scripts/`)
+| Script | Role |
+|--------|------|
+| `controller.py` | Core: DB connections, mapping CRUD, ID format, SQL builders, queue helpers |
+| `data_import.py` | Initial import from SelectLine → ERPNext |
+| `update.py` | Timestamp-based incremental updates |
+| `reconcile.py` | Diffs current JSON mapping against stored Sync Mapping entries |
+| `scheduler.py` | Entry points for all/daily/hourly/weekly/monthly cron |
+| `custom_scripts.py` | Ad-hoc bulk operations (e.g. create Website Items) |
+| `field_vars.py` | Simple container for dynamic field variable resolution |
+| `utils.py` | **Empty** — placeholder, do not use |
 
-| Script | Purpose |
-|--------|---------|
-| `controller.py` | Core database connection, mapping management, and utility functions |
-| `data_import.py` | Initial data import from SelectLine to ERPNext |
-| `update.py` | Updates existing records based on timestamp changes |
-| `reconcile.py` | Reconciles mapping changes with current JSON definitions |
-| `scheduler.py` | Automated sync scheduling (all/daily/hourly/weekly/monthly) |
+### Scheduler flow
+Each cycle: `start_import()` → `run_bulk_update()`. Only enabled instances matching the repetition interval are processed. Long-running jobs use `frappe.enqueue(queue="long", timeout=600)`.
 
-### Key Features
-
-- **Database Connection**: Uses `pymssql` to connect to SQL Server
-- **JSON Mapping**: Flexible field mapping via JSON configuration files
-- **Scheduled Sync**: Automated background jobs for regular synchronization
-- **Field Variables**: Dynamic value resolution during import
-- **Child Table Support**: Handles complex nested document structures
-- **Reconciliation**: Detects and applies mapping definition changes
-
-## Data Flow
-
+### Mapping ID format
 ```
-1. Configure Sync Instance with database credentials
-2. Load table mapping JSON (defines which tables/columns map to which DocTypes/fields)
-3. Fetch data from SelectLine SQL Server
-4. Create ERPNext documents based on mapping
-5. Store mapping relationships for future updates
-6. Scheduled updates check timestamps and sync changes
+<instance_name>:<table_name>:<primary_key>
 ```
+Underscores replace spaces. Used to cross-reference SelectLine records to ERPNext documents.
 
-## Technical Stack
+### Field mapping types
+- `sl_column` — direct column from SelectLine
+- `default` — static literal value
+- `field_var` — dynamic variable (resolved at runtime)
+- `mapped_value` — cross-reference to another mapping's field
+- `table_fields` — child table fields
 
-- **Framework**: Frappe/ERPNext (Python)
-- **Database**: SQL Server (SelectLine) via pymssql
-- **Scheduling**: Frappe background jobs
-- **Code Quality**: Ruff linter, pre-commit hooks
+## Development
 
-## File Structure
-
+### Lint & format
+```bash
+pre-commit run --all-files    # ruff linter + import sort + formatter, eslint, prettier
+# or just:
+ruff check .                  # linter only
+ruff format .                 # formatter only
 ```
-pit_erpnextsync/
-├── pit_erpnextsync/
-│   ├── pit_erpnextsync/
-│   │   ├── doctype/
-│   │   │   ├── sync_instance/
-│   │   │   ├── sync_mapping/
-│   │   │   ├── sync_mapping_entry/
-│   │   │   ├── selectline_table_mapping/
-│   │   │   └── pit_erpnextsync_settings/
-│   │   ├── page/
-│   │   │   └── selectline_sync_dash/
-│   │   └── workspace/
-│   │       └── pit_erpnext_sync/
-│   ├── scripts/
-│   │   ├── controller.py
-│   │   ├── data_import.py
-│   │   ├── update.py
-│   │   ├── reconcile.py
-│   │   ├── scheduler.py
-│   │   ├── utils.py
-│   │   └── classes/
-│   │       └── field_vars.py
-│   ├── hooks.py
-│   └── install.py
-├── pyproject.toml
-└── README.md
-```
+No test suite exists (all `test_*.py` files are empty stubs). There is no `npm run test` or equivalent.
 
-## Important Implementation Details
+### Style
+- Ruff: 110 char line length, Python 3.10+, double quotes, **tab indentation**
+- Pre-commit hooks run on `git commit`
 
-### Mapping ID Format
-Selectline IDs follow the format: `<instance>:<table>:<primary_key>`
+### Dependencies
+- `pymssql>=2.2.0` (MSSQL driver)
+- `p4d>=1.8` (4D driver)
+- Implicit: `pit_erpnext` (parent app, provides `pit_erpnext.scripts.logger`)
 
-### Field Mapping Types
-- `sl_column` - Direct column mapping from SelectLine
-- `default` - Static default value
-- `field_var` - Dynamic field variable
-- `mapped_value` - Cross-reference to another mapping
-- `table_fields` - Child table fields
+### Logging
+All scripts use `pit_erpnext.scripts.logger.make_log(message, level, APP_NAME, with_traceback=...)`.
 
-### Scheduler Events
-Configured in `hooks.py`:
-- `all` - Every 4 minutes
-- `daily` - Daily
-- `hourly` - Hourly
-- `weekly` - Weekly
-- `monthly` - Monthly
+### Nested module structure
+The inner Python module mirrors the app name: `pit_erpnextsync/pit_erpnextsync/pit_erpnextsync/`. Most imports are `from pit_erpnextsync.scripts.controller import ...`.
 
-### Error Handling
-All scripts use centralized logging via `pit_erpnext.scripts.logger.make_log()`
-
-## Dependencies
-
-```toml
-[project]
-dependencies = [
-    "pymssql>=2.2.0",
-]
-```
-
-## Development Guidelines
-
-1. **Code Style**: Uses Ruff with 110 character line length
-2. **Type Hints**: Python 3.10+ type annotations throughout
-3. **Error Handling**: Comprehensive try-except blocks with logging
-4. **Background Jobs**: Long-running operations use Frappe's job queue
-5. **Database Transactions**: Explicit commits after document operations
-6. **Code Editing Policy**: Even if SSH access is provided for checking logs or running CLI commands on remote servers, ALL code edits MUST be done in this local project only. Never modify code directly on remote servers via SSH.
+### Code editing policy
+ALL code edits MUST be done in this local project only. Never modify code directly on remote servers via SSH, even if SSH access is available.
 
 ## Common Tasks
 
-### Adding a New Field Mapping
-1. Update the JSON mapping file
-2. Run reconciliation to apply changes to existing records
-3. New imports will automatically use the updated mapping
-
-### Debugging Import Issues
-1. Check logs in Error Log (filtered by app name)
-2. Verify database connection with "Test Connection" button
-3. Review mapping JSON validity
-4. Check field requirements in mapping definition
-
-### Running Manual Import
+### Run a manual import
 ```python
 from pit_erpnextsync.scripts.data_import import start_import
 start_import(instance="Instance Name", top=100, types_str='["Customer"]')
 ```
+
+### Debug import issues
+1. Check Error Log doctype (filter by app name)
+2. "Test Connection" button on Sync Instance form
+3. Verify mapping JSON validity
+4. Check field requirements in mapping definition

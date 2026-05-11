@@ -213,7 +213,21 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
                 ts_col = table_mapping_row.timestamp_column_name
                 break
         if not ts_col:
-            return "test2"
+            make_log(f"No timestamp column configured for {mapping_name}, proceeding with update", "INFO", controller.APP_NAME)
+            job_id = f"pes:{run_number}:{uuid.uuid4().hex[:16]}" if run_number else None
+            frappe.enqueue(
+                "pit_erpnextsync.scripts.update.update_mapping",
+                queue="long",
+                timeout=600,
+                job_id=job_id,
+                instance=instance,
+                id_data=id_data,
+                mapping_name=mapping_name,
+                run_number=run_number
+            )
+            if not skip_job_update:
+                controller.update_jobs(instance=instance, skip_hooks=True)
+            return None
 
         # get the timestamp column type from mapping
         time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
@@ -325,12 +339,10 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 mapping_json = json.loads(tm_row.mapping)
                 table_mapping_row = tm_row
                 break
-        if not time_stamp_col_name:
-            raise Exception(f"No time stamp column name found for: {mapping_name}")
-        
         # Build columns list
         columns = [c.strip() for c in col_string.split(",") if c.strip()]
-        columns.append(time_stamp_col_name)
+        if time_stamp_col_name:
+            columns.append(time_stamp_col_name)
         
         # Build phone + value_map lookups from mapping JSON
         phone_field_lookup: dict = {}
@@ -492,15 +504,16 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 make_log(f"{er}", "ERROR", controller.APP_NAME, with_traceback=True)
                 continue
         
-        # Convert and store timestamp based on column type (MOVED OUTSIDE LOOP)
-        try:
-            raw_timestamp = fetched_data[0].get(time_stamp_col_name)
-            time_stamp_type = mapping_doc.time_stamp_type or "datetime"
-            mapping_doc.db_time_stamp = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
-            mapping_doc.last_update = datetime.datetime.now()
-            mapping_doc.save()
-        except Exception as ts_err:
-            make_log(f"Could not update timestamp for {mapping_name}: {ts_err}", "ERROR", controller.APP_NAME)
+        # Update timestamp and last_update on mapping doc
+        if time_stamp_col_name:
+            try:
+                raw_timestamp = fetched_data[0].get(time_stamp_col_name)
+                time_stamp_type = mapping_doc.time_stamp_type or "datetime"
+                mapping_doc.db_time_stamp = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
+            except Exception as ts_err:
+                make_log(f"Could not update timestamp for {mapping_name}: {ts_err}", "ERROR", controller.APP_NAME)
+        mapping_doc.last_update = datetime.datetime.now()
+        mapping_doc.save()
         
         frappe.db.commit()
         make_log(f"Mapping {mapping_name} updated successfully", "INFO", controller.APP_NAME)
