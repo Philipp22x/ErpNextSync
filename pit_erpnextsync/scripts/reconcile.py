@@ -746,6 +746,20 @@ def _handle_multiple_query_group(
 	parent_doc = frappe.get_doc(doctype, docname)
 	existing_rows = list(parent_doc.get(fieldname) or [])
 
+	# Build case-insensitive lookup for source row columns.
+	# fetch_multiple_rows returns column names in the database's native
+	# casing (e.g. PascalCase on 4D), but the JSON mapping uses uppercase.
+	def _get_col(row: Dict, col: str) -> Any:
+		if col is None:
+			return None
+		if col in row:
+			return row[col]
+		upper = col.upper()
+		for k, v in row.items():
+			if k.upper() == upper:
+				return v
+		return None
+
 	# Build lookup: child_fieldname → sl_column for matching existing rows
 	sl_field_map = {
 		f.get("child_row_fieldname"): f.get("sl_column")
@@ -766,7 +780,7 @@ def _handle_multiple_query_group(
 					continue
 				all_match = True
 				for child_fn, sl_col in sl_field_map.items():
-					expected = source_row.get(sl_col)
+					expected = _get_col(source_row, sl_col)
 					if expected is not None and str(existing_row.get(child_fn) or "") != str(expected):
 						all_match = False
 						break
@@ -801,7 +815,7 @@ def _handle_multiple_query_group(
 			child_fn = field_def.get("child_row_fieldname")
 
 			if field_def.get("sl_column"):
-				value = source_row.get(field_def["sl_column"])
+				value = _get_col(source_row, field_def["sl_column"])
 				if field_def.get("force_str_type") == 1 and value is not None:
 					value = str(value)
 				value = apply_value_map(field_def, value)
