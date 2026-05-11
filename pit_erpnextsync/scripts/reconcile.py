@@ -1572,6 +1572,20 @@ def get_or_create_child_row(
 					"child_name": existing_children[0]["child_row_name"],
 				}
 
+			# Fallback: no Sync Mapping Entry found for this sl_column child field,
+			# but the child row may already exist on the document (e.g. mapping entry
+			# was never stored during import, or was deleted). Check the actual
+			# document to avoid creating a duplicate child row.
+			if docname and resolved_value is not None:
+				parent_doc = frappe.get_doc(doctype, docname)
+				existing_child_rows = parent_doc.get(fieldname) or []
+				for row in existing_child_rows:
+					if str(row.get(child_row_fieldname) or "") == str(resolved_value):
+						return {
+							"child_doctype": row.doctype,
+							"child_name": row.name,
+						}
+
 		# For default-only child fields (no mapping entry), try to reuse a row with the
 		# same value to avoid creating duplicates on repeated reconciliation runs.
 		default_value = field_def.get("default")
