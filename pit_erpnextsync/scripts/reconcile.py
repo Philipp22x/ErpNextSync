@@ -555,6 +555,7 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 				child_group_sl_columns = [
 					tf.get("sl_column") for tf in table_fields if tf.get("sl_column")
 				]
+				is_mq = field.get("multiple_query")
 				for table_field in table_fields:
 					child_def = {
 						"doctype": doctype,
@@ -572,6 +573,9 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 						"reqd": table_field.get("reqd"),
 						"child_row_group_key": child_row_group_key,
 						"child_group_sl_columns": child_group_sl_columns,
+						"multiple_query": is_mq,
+						"multiple_query_table": field.get("multiple_query_table") if is_mq else None,
+						"multiple_query_condition": field.get("multiple_query_condition") if is_mq else None,
 						"table_fields": None,
 						"child_row_doctype": None  # Will be resolved during application
 					}
@@ -656,6 +660,206 @@ def validate_dependencies(
 	}
 
 
+def _handle_multiple_query_group(
+	instance: str,
+	mapping_name: str,
+	mapping_doc: Document,
+	group_fields: List[Dict],
+	fetched_obj: Dict,
+	created_docs_cache: Dict[str, str],
+	field_vars_obj: FieldVars,
+) -> None:
+	"""
+	Handle multiple_query child table fields during reconciliation.
+	Fetches data from the related table and creates/updates child rows.
+
+	Args:
+		instance: Sync Instance name
+		mapping_name: Sync Mapping doc name
+		mapping_doc: Sync Mapping document
+		group_fields: Child field definitions belonging to one parent field
+		fetched_obj: Parent row data from SelectLine (for placeholder replacement)
+		created_docs_cache: Cache of docnames by doctype
+		field_vars_obj: FieldVars for variable resolution
+	"""
+	first = group_fields[0]
+	doctype = first.get("doctype")
+	fieldname = first.get("fieldname")
+	mq_table = first.get("multiple_query_table")
+	mq_condition = first.get("multiple_query_condition")
+
+	if not doctype or not fieldname or not mq_table or not mq_condition:
+		raise Exception(f"Missing multiple_query metadata in field group: {first}")
+
+	make_log(
+		f"Handling multiple_query group: {doctype}.{fieldname} "
+		f"from {mq_table} WHERE {mq_condition}",
+		"INFO",
+		APP_NAME,
+	)
+
+	# Get docname of the parent document
+	docname = created_docs_cache.get(doctype)
+	if not docname:
+		existing = frappe.get_all(
+			"Sync Mapping Entry",
+			filters={"parent": mapping_name, "mapping_doctype": doctype},
+			limit=1,
+			pluck="docname",
+		)
+		if existing:
+			docname = existing[0]
+			created_docs_cache[doctype] = docname
+		else:
+			raise Exception(f"No document found for doctype {doctype} in mapping {mapping_name}")
+
+	# Fetch rows from the related table
+	schema = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+	source_rows = controller.fetch_multiple_rows(
+		instance=instance,
+		table=mq_table,
+		condition=mq_condition,
+		schema=schema,
+		parent_data=fetched_obj,
+	)
+
+	if not source_rows:
+		make_log(
+			f"No rows returned from {mq_table} for {doctype}.{fieldname}",
+			"WARNING",
+			APP_NAME,
+		)
+		return
+
+	make_log(
+		f"Fetched {len(source_rows)} rows from {mq_table} for {doctype}.{fieldname}",
+		"INFO",
+		APP_NAME,
+	)
+
+	# Get child doctype from parent field options
+	child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+	if not child_doctype:
+		raise Exception(f"Could not determine child doctype for {doctype}.{fieldname}")
+
+	# Load parent document and existing child rows
+	parent_doc = frappe.get_doc(doctype, docname)
+	existing_rows = list(parent_doc.get(fieldname) or [])
+
+	# Build lookup: child_fieldname → sl_column for matching existing rows
+	sl_field_map = {
+		f.get("child_row_fieldname"): f.get("sl_column")
+		for f in group_fields
+		if f.get("sl_column")
+	}
+
+	# Track which existing rows have been matched (to avoid reusing the same row
+	# for multiple source rows).
+	matched_row_names: set = set()
+
+	for source_row in source_rows:
+		# Try to find an existing child row with matching sl_column values
+		existing_child_name = None
+		if sl_field_map:
+			for existing_row in existing_rows:
+				if existing_row.name in matched_row_names:
+					continue
+				all_match = True
+				for child_fn, sl_col in sl_field_map.items():
+					expected = source_row.get(sl_col)
+					if expected is not None and str(existing_row.get(child_fn) or "") != str(expected):
+						all_match = False
+						break
+				if all_match:
+					existing_child_name = existing_row.name
+					matched_row_names.add(existing_row.name)
+					break
+
+		if existing_child_name:
+			# Reuse existing child row — update its values
+			target_child_doctype = child_doctype
+			target_child_name = existing_child_name
+		else:
+			# Create new child row as standalone (not via parent.save())
+			# to avoid saving the entire parent doc which could overwrite
+			# in-progress changes from other reconciliation steps.
+			child_name = frappe.generate_hash(length=8)
+			new_row = frappe.get_doc({
+				"doctype": child_doctype,
+				"parenttype": doctype,
+				"parent": docname,
+				"name": child_name,
+				"parentfield": fieldname,
+			})
+			new_row.insert(ignore_permissions=True, ignore_mandatory=True)
+			target_child_doctype = new_row.doctype
+			target_child_name = new_row.name
+			existing_rows.append(new_row)
+
+		# Set child field values from source data
+		for field_def in group_fields:
+			child_fn = field_def.get("child_row_fieldname")
+
+			if field_def.get("sl_column"):
+				value = source_row.get(field_def["sl_column"])
+				if field_def.get("force_str_type") == 1 and value is not None:
+					value = str(value)
+				value = apply_value_map(field_def, value)
+			elif field_def.get("default") is not None:
+				value = field_def["default"]
+			elif field_def.get("get_redis"):
+				value = field_vars_obj.get_field_var_value(field_def["get_redis"])
+			else:
+				continue
+
+			if value in ["", None] and field_def.get("reqd") == 1:
+				raise Exception(
+					f"Required field {doctype}.{fieldname}.{child_fn} is empty "
+					f"in source row: {source_row}"
+				)
+
+			if value not in ["", None]:
+				frappe.db.set_value(
+					target_child_doctype, target_child_name, child_fn, value
+				)
+
+			# Create mapping entry for trackable fields (has sl_column or get_redis)
+			if field_def.get("sl_column"):
+				existing_entry = frappe.db.exists(
+					"Sync Mapping Entry",
+					{
+						"parent": mapping_name,
+						"mapping_doctype": doctype,
+						"docname": docname,
+						"fieldname": fieldname,
+						"child_row_fieldname": child_fn,
+						"selectline_column": field_def["sl_column"],
+					},
+				)
+				if not existing_entry:
+					controller.insert_mapping_row(
+						mapping_doc_name=mapping_name,
+						data={
+							"mapping_doctype": doctype,
+							"docname": docname,
+							"fieldname": fieldname,
+							"child_row_fieldname": child_fn,
+							"child_row_name": target_child_name,
+							"child_row_doctype": target_child_doctype,
+							"selectline_column": field_def["sl_column"],
+						},
+					)
+					make_log(
+						f"Created child mapping entry for {doctype}.{fieldname}.{child_fn} "
+						f"(row: {target_child_name})",
+						"DEBUG",
+						APP_NAME,
+					)
+
+	# Commit per source row to keep transactions small
+	frappe.db.commit()
+
+
 def apply_field_additions(
 	instance: str,
 	mapping_name: str,
@@ -681,10 +885,45 @@ def apply_field_additions(
 	# (e.g. uom + conversion_factor) are written to the same row.
 	child_rows_cache: Dict[str, Dict] = {}
 
+	# Separate multiple_query child table fields — these fetch data from a
+	# related table (not from the parent row) and can produce multiple child rows.
+	mq_field_defs = [f for f in fields_to_add if f.get("multiple_query") and f.get("child_row_fieldname")]
+	regular_fields = [f for f in fields_to_add if not (f.get("multiple_query") and f.get("child_row_fieldname"))]
+
+	if mq_field_defs:
+		# Group by (doctype, fieldname) — all table_fields in one group share the
+		# same parent field and query the same related table.
+		mq_groups: Dict[str, List[Dict]] = {}
+		for f in mq_field_defs:
+			key = f"{f.get('doctype')}:{f.get('fieldname')}"
+			if key not in mq_groups:
+				mq_groups[key] = []
+			mq_groups[key].append(f)
+
+		for group_key, group_fields in mq_groups.items():
+			try:
+				_handle_multiple_query_group(
+					instance=instance,
+					mapping_name=mapping_name,
+					mapping_doc=mapping_doc,
+					group_fields=group_fields,
+					fetched_obj=fetched_obj,
+					created_docs_cache=created_docs_cache,
+					field_vars_obj=field_vars_obj,
+				)
+				added_count += len(group_fields)
+			except Exception as e:
+				doctype = group_fields[0].get("doctype", "?")
+				fieldname = group_fields[0].get("fieldname", "?")
+				error_msg = f"multiple_query group {doctype}.{fieldname}: {e}"
+				make_log(error_msg, "ERROR", APP_NAME, with_traceback=True)
+				errors.append(error_msg)
+				failed_count += 1
+
 	# Process source-backed fields before default-only fields so default helpers
 	# can attach to rows created for sl_column fields in the same group.
 	sorted_fields_to_add = sorted(
-		fields_to_add,
+		regular_fields,
 		key=lambda f: 0 if (f.get("sl_column") or f.get("get_redis")) else 1,
 	)
 
