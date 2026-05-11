@@ -460,6 +460,15 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                     except Exception as e:
                         make_log(f"Could not add tags: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         
+        # Check if any real (non-skipped) mapping data exists; if all doctypes failed
+        # validation, don't create a dead mapping that would block re-import forever.
+        has_real_entries = any(
+            not all(row.get("error") for row in doc_data)
+            for doc_data in obj_mapping_data
+        ) if obj_mapping_data else False
+        if not has_real_entries:
+            raise Exception("All doctypes were skipped — no documents created for this SelectLine object")
+
         # create new mapping doc --------------------------------------------------------------------------
         # Get timestamp value and convert it based on column type
         timestamp_col_name = table_mapping_row.timestamp_column_name
