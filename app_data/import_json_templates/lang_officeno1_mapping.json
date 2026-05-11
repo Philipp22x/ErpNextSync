@@ -104,15 +104,6 @@
         "timestamp_column_name": "LETZTEAENDERUNGAM",
         "mapping": [
             {
-                "doctype": "Territory",
-                "fields": [
-                    {
-                        "fieldname": "territory_name",
-                        "sl_column": "LAND"
-                    }
-                ]
-            },
-            {
                 "doctype": "Customer",
                 "reqd": 1,
                 "doctype_flags": [
@@ -144,10 +135,6 @@
                     {
                         "fieldname": "website",
                         "sl_column": "WWW"
-                    },
-                    {
-                        "fieldname": "territory",
-                        "sl_column": "LAND"
                     },
                     {
                         "fieldname": "payment_terms",
@@ -308,7 +295,7 @@
                     },
                     {
                         "fieldname": "custom_academic_title",
-                        "sl_column": "TITLE"
+                        "sl_column": "TITEL"
                     },
                     {
                         "fieldname": "gender",
