@@ -1110,24 +1110,6 @@
                                 "sl_column": "UEBERVERPACKUNGMENGE"
                             }
                         ]
-                    },
-                    {
-                        "fieldname": "supplier_items",
-                        "multiple_query": 1,
-                        "multiple_query_table": "Artikel_Lieferant",
-                        "multiple_query_condition": "ARTIKELNR = {ARTIKELNR}",
-                        "table_fields": [
-                            {
-                                "table_fieldname": "supplier",
-                                "sl_column": "LIEFERANTENNR",
-                                "reqd": 1
-                            },
-                            {
-                                "table_fieldname": "supplier_part_no",
-                                "sl_column": "ARTLIEFNR",
-                                "reqd": 1
-                            }
-                        ]
                     }
                 ]
             }
