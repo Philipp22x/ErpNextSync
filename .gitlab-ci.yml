@@ -1,0 +1,34 @@
+stages:
+  - bump
+
+bump_patch_version:
+  stage: bump
+  tags:
+    - bump version
+
+  script: |
+    set -euxo pipefail
+    git fetch --tags origin
+
+    version_file="pit_erpnextsync/__init__.py"
+    old_version=$(sed -n "s/^__version__ = ['\"]\([0-9]\+\.[0-9]\+\.[0-9]\+\)['\"]/\\1/p" "$version_file")
+    IFS='.' read -r major minor patch <<< "$old_version"
+    new_version="$major.$minor.$((patch+1))"
+
+    sed -i "s/^__version__ = .*/__version__ = '$new_version'/" "$version_file"
+    git add "$version_file"
+    git commit -m "ci: bump version to $new_version [ci skip]"
+
+    # only tag if missing
+    if ! git rev-parse "refs/tags/v$new_version" >/dev/null 2>&1; then
+      git tag "v$new_version"
+    fi
+
+    git remote set-url origin \
+      "https://${CI_REPO_USER}:${CI_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    git push origin HEAD:main
+    git push origin "v$new_version"
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      when: always
