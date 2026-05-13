@@ -772,6 +772,47 @@ def _handle_multiple_query_group(
 	matched_row_names: set = set()
 
 	for source_row in source_rows:
+		# Pre-validate: resolve all field values and skip rows with empty required fields.
+		# This prevents creating empty child rows when a multiple_query source row
+		# has null values for required columns.
+		resolved_values: Dict[str, Any] = {}
+		row_has_data = False
+		skip_row = False
+		for field_def in group_fields:
+			child_fn = field_def.get("child_row_fieldname")
+			if field_def.get("sl_column"):
+				value = _get_col(source_row, field_def["sl_column"])
+				if field_def.get("force_str_type") == 1 and value is not None:
+					value = str(value)
+				value = apply_value_map(field_def, value)
+			elif field_def.get("default") is not None:
+				value = field_def["default"]
+			elif field_def.get("get_redis"):
+				value = field_vars_obj.get_field_var_value(field_def["get_redis"])
+			else:
+				continue
+			resolved_values[child_fn] = value
+			if value in ["", None] and field_def.get("reqd") == 1:
+				make_log(
+					f"Skipping {doctype}.{fieldname} row from {mq_table}: "
+					f"required field {child_fn} is empty in source row {source_row}",
+					"WARNING",
+					APP_NAME,
+				)
+				skip_row = True
+				break
+			if value not in ["", None]:
+				row_has_data = True
+
+		if skip_row or not row_has_data:
+			if not skip_row:
+				make_log(
+					f"Skipping {doctype}.{fieldname} row from {mq_table}: no data in source row {source_row}",
+					"WARNING",
+					APP_NAME,
+				)
+			continue
+
 		# Try to find an existing child row with matching sl_column values
 		existing_child_name = None
 		if sl_field_map:
@@ -813,25 +854,9 @@ def _handle_multiple_query_group(
 		# Set child field values from source data
 		for field_def in group_fields:
 			child_fn = field_def.get("child_row_fieldname")
-
-			if field_def.get("sl_column"):
-				value = _get_col(source_row, field_def["sl_column"])
-				if field_def.get("force_str_type") == 1 and value is not None:
-					value = str(value)
-				value = apply_value_map(field_def, value)
-			elif field_def.get("default") is not None:
-				value = field_def["default"]
-			elif field_def.get("get_redis"):
-				value = field_vars_obj.get_field_var_value(field_def["get_redis"])
-			else:
+			value = resolved_values.get(child_fn)
+			if value is None:
 				continue
-
-			if value in ["", None] and field_def.get("reqd") == 1:
-				raise Exception(
-					f"Required field {doctype}.{fieldname}.{child_fn} is empty "
-					f"in source row: {source_row}"
-				)
-
 			if value not in ["", None]:
 				frappe.db.set_value(
 					target_child_doctype, target_child_name, child_fn, value
