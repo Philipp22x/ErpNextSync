@@ -143,6 +143,10 @@
                     {
                         "fieldname": "custom_notes",
                         "sl_column": "MELDUNGSTEXT"
+                    },
+                    {
+                        "fieldname": "_user_tags",
+                        "sl_column": "BEKOMMT_MAIL"
                     }
                 ]
             },
@@ -1046,6 +1050,25 @@
                             {
                                 "table_fieldname": "info",
                                 "sl_column": "WWW",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "custom_information_table",
+                        "multiple_query": 1,
+                        "multiple_query_table": "LagerArtikel",
+                        "multiple_query_condition": "ARTIKELNR = {ARTIKELNR}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Lagerplatz",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "LAGERPLATZ_STATISCH",
                                 "reqd": 1,
                                 "force_str_type": 1
                             }
