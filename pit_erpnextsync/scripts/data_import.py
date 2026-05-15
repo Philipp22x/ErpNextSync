@@ -641,9 +641,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             else:
                 new_doc.set(field["fieldname"], field_value)
                 # special line for adding tags to doc
-				if field["fieldname"] == "_user_tags":
-					if field_value:
-						doc_tags.append(str(field_value))
+                if field["fieldname"] == "_user_tags":
+                    if field_value:
+                        doc_tags.append(str(field_value))
 
             # set_redis - store value in local context for later use within the same object
             if field.get("set_redis") and field_value not in ["", None] and redis_context is not None:
