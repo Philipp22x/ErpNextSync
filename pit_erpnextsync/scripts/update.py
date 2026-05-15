@@ -476,7 +476,22 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     value_map = map_data.get("map") or {}
                     map_default = map_data.get("default")
                     field_value = value_map.get(str(field_value), map_default if map_default is not None else field_value)
-                
+
+                # Handle _user_tags - add/remove tags instead of set_value
+                if row.fieldname == "_user_tags":
+                    try:
+                        doc = frappe.get_doc(row.mapping_doctype, row.docname)
+                        if field_value not in ["", None, 0, False, "0", "False", "false"]:
+                            doc.add_tag(str(field_value))
+                        elif value_map_key in value_map_lookup:
+                            value_map = value_map_lookup[value_map_key].get("map") or {}
+                            managed_tag = next(iter(value_map.values()), None) if value_map else None
+                            if managed_tag:
+                                doc.remove_tag(managed_tag)
+                    except Exception:
+                        pass
+                    continue
+
                 # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
                     repaired_child = ensure_child_row_exists(mapping_name=mapping_name, mapping_row=row)

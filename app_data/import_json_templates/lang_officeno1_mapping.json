@@ -146,7 +146,12 @@
                     },
                     {
                         "fieldname": "_user_tags",
-                        "sl_column": "BEKOMMT_MAIL"
+                        "sl_column": "BEKOMMT_MAIL",
+                        "value_map": {
+                            "1": "Newsletter",
+                            "true": "Newsletter",
+                            "True": "Newsletter"
+                        }
                     },
                     {
                         "fieldname": "creation",
