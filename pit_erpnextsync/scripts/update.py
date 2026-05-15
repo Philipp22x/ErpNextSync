@@ -481,6 +481,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 if row.fieldname == "_user_tags":
                     try:
                         doc = frappe.get_doc(row.mapping_doctype, row.docname)
+                        doc.db_set("_user_tags", "")
                         if field_value not in ["", None, 0, False, "0", "False", "false"]:
                             doc.add_tag(str(field_value))
                         elif value_map_key in value_map_lookup:
