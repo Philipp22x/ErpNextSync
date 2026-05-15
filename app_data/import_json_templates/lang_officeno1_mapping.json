@@ -147,6 +147,10 @@
                     {
                         "fieldname": "_user_tags",
                         "sl_column": "BEKOMMT_MAIL"
+                    },
+                    {
+                        "fieldname": "creation",
+                        "sl_column": "EIN_AM"
                     }
                 ]
             },
@@ -1466,6 +1470,40 @@
                                 "reqd": 1
                             }
                         ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "idx": 14,
+        "type": "ItemStock",
+        "doc_type": "Bin",
+        "table_name": "LAGERARTIKEL",
+        "primary_key": "PRIMARYKEY",
+        "timestamp_column_name": "LETZTELAGERBEWEGUNG",
+        "mapping": [
+            {
+                "doctype": "Bin",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "ARTIKELNR",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "warehouse",
+                        "default": "Lagerräume - LNG"
+                    },
+                    {
+                        "fieldname": "actual_qty",
+                        "sl_column": "LAGERBESTAND",
+                        "reqd": 1
                     }
                 ]
             }
