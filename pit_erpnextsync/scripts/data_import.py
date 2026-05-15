@@ -398,6 +398,9 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         # list of all created docs
         created_docs: list = []
 
+        # count docs created with no_mapping flag (no mapping entries, but valid docs)
+        no_mapping_count: int = 0
+
         # local context for set_redis/get_redis - scoped to this object to prevent
         # cross-contamination between objects in the same batch or concurrent workers
         redis_context: dict = {}
@@ -442,8 +445,17 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
 
             else:
 
-                # add current doc mapping data to obj mapping data
-                obj_mapping_data.append(new_doc_result["doc_mapping_data"])
+                # check if this doctype should skip mapping creation
+                if mapped_doctype.get("no_mapping"):
+                    no_mapping_count += 1
+                    make_log(
+                        f"Skipping mapping for {mapped_doctype['doctype']} (no_mapping flag set)",
+                        "INFO",
+                        controller.APP_NAME
+                    )
+                else:
+                    # add current doc mapping data to obj mapping data
+                    obj_mapping_data.append(new_doc_result["doc_mapping_data"])
 
                 # add doc to created docs list (skip pre-existing docs to avoid deleting them on rollback)
                 if not new_doc_result.get("existed"):
@@ -466,8 +478,20 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
             not all(row.get("error") for row in doc_data)
             for doc_data in obj_mapping_data
         ) if obj_mapping_data else False
-        if not has_real_entries:
+        
+        # Also consider no_mapping doctypes as valid entries — they created docs but intentionally have no mapping
+        if not has_real_entries and no_mapping_count == 0:
             raise Exception("All doctypes were skipped — no documents created for this SelectLine object")
+
+        # If all successful doctypes had no_mapping, skip creating the mapping doc entirely
+        if not has_real_entries and no_mapping_count > 0:
+            make_log(
+                f"All doctypes for {obj_id} had no_mapping flag — skipping mapping creation",
+                "INFO",
+                controller.APP_NAME
+            )
+            frappe.db.commit()
+            return
 
         # create new mapping doc --------------------------------------------------------------------------
         # Get timestamp value and convert it based on column type
@@ -617,8 +641,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             else:
                 new_doc.set(field["fieldname"], field_value)
                 # special line for adding tags to doc
-                if field["fieldname"] == "_user_tags":
-                    doc_tags.append(str(fetched_obj[field["sl_column"]]))
+				if field["fieldname"] == "_user_tags":
+					if field_value:
+						doc_tags.append(str(field_value))
 
             # set_redis - store value in local context for later use within the same object
             if field.get("set_redis") and field_value not in ["", None] and redis_context is not None:
