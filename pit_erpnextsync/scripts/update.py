@@ -440,8 +440,8 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:
             try:
-                # Skip entries that are error markers (fieldnames starting with _)
-                if row.fieldname and row.fieldname.startswith("_"):
+                # Skip entries that are error markers (fieldnames starting with _ except _user_tags)
+                if row.fieldname and row.fieldname.startswith("_") and row.fieldname != "_user_tags":
                     continue
                 
                 # validate mapping row - skip if essential data is missing
