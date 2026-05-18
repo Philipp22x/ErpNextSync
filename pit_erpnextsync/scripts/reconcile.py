@@ -711,7 +711,20 @@ def _handle_multiple_query_group(
 			docname = existing[0]
 			created_docs_cache[doctype] = docname
 		else:
-			raise Exception(f"No document found for doctype {doctype} in mapping {mapping_name}")
+			# Fallback: resolve from selectline_id primary key
+			id_data = parse_object_id(mapping_doc.selectline_id)
+			primary_key_val = id_data.get("primary_key")
+			if primary_key_val and frappe.db.exists(doctype, primary_key_val):
+				docname = primary_key_val
+				created_docs_cache[doctype] = docname
+				make_log(
+					f"Resolved existing {doctype} '{docname}' from selectline_id "
+					f"in multiple_query handler (no mapping entries existed)",
+					"INFO",
+					APP_NAME,
+				)
+			else:
+				raise Exception(f"No document found for doctype {doctype} in mapping {mapping_name}")
 
 	# Fetch rows from the related table
 	schema = frappe.db.get_value("Sync Instance", instance, "schema") or ""
@@ -1002,29 +1015,46 @@ def apply_field_additions(
 					docname = existing_entries[0]
 					created_docs_cache[doctype] = docname
 				else:
-					# This is a new doctype that wasn't in the original mapping
-					# We need to get or create the document first
-					make_log(
-						f"Creating new document for doctype {doctype} during reconciliation",
-						"INFO",
-						APP_NAME
-					)
-					
-					# Get or create document with the field value
-					new_doc = create_new_doc_for_reconciliation(
-						doctype=doctype,
-						field_def=field_def,
-						fetched_obj=fetched_obj,
-						instance=instance,
-						field_vars_obj=field_vars_obj
-					)
-					
-					if new_doc:
-						docname = new_doc.name
+					# No mapping entries for this doctype — try to resolve the
+					# existing document before creating a new one.
+					# For the primary doctype (e.g. Customer), the document name
+					# equals the primary key from selectline_id.
+					id_data = parse_object_id(mapping_doc.selectline_id)
+					primary_key_val = id_data.get("primary_key")
+
+					if primary_key_val and frappe.db.exists(doctype, primary_key_val):
+						docname = primary_key_val
 						created_docs_cache[doctype] = docname
-						# Don't continue here - we still need to create the mapping entry for this field
+						make_log(
+							f"Resolved existing {doctype} '{docname}' from selectline_id "
+							f"(no mapping entries existed)",
+							"INFO",
+							APP_NAME
+						)
 					else:
-						raise Exception(f"Failed to create new document for doctype {doctype}")
+						# This is a new doctype that wasn't in the original mapping
+						# We need to get or create the document first
+						make_log(
+							f"Creating new document for doctype {doctype} during reconciliation",
+							"INFO",
+							APP_NAME
+						)
+						
+						# Get or create document with the field value
+						new_doc = create_new_doc_for_reconciliation(
+							doctype=doctype,
+							field_def=field_def,
+							fetched_obj=fetched_obj,
+							instance=instance,
+							field_vars_obj=field_vars_obj
+						)
+						
+						if new_doc:
+							docname = new_doc.name
+							created_docs_cache[doctype] = docname
+							# Don't continue here - we still need to create the mapping entry for this field
+						else:
+							raise Exception(f"Failed to create new document for doctype {doctype}")
 			
 			# Get the value based on mapping type
 			field_value = get_field_value(
