@@ -125,6 +125,14 @@
                         "reqd": 1
                     },
                     {
+                        "fieldname": "custom_additional_1",
+                        "sl_column": "NAMEZEILE2"
+                    },
+                    {
+                        "fieldname": "custom_additional_2",
+                        "sl_column": "NAMEZEILE3"
+                    },
+                    {
                         "fieldname": "customer_type",
                         "default": "Company"
                     },
@@ -145,18 +153,80 @@
                         "sl_column": "MELDUNGSTEXT"
                     },
                     {
-                        "fieldname": "_user_tags",
-                        "sl_column": "BEKOMMT_MAIL",
-                        "value_map": {
-                            "1": "Newsletter",
-                            "true": "Newsletter",
-                            "True": "Newsletter"
-                        }
-                    },
-                    {
                         "fieldname": "creation",
                         "sl_column": "EIN_AM"
+                    },
+                    {
+                        "fieldname": "tax_category",
+                        "sl_column": "LAND",
+                        "value_map": {
+                            "ÖSTERREICH": "VK-Inland",
+                            "Österreich": "VK-Inland",
+                            "POLEN": "VK-Innergemeinschaftliche Lieferung",
+                            "ITALIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "FRANKREICH": "VK-Innergemeinschaftliche Lieferung",
+                            "DÄNEMARK": "VK-Innergemeinschaftliche Lieferung",
+                            "DEUTSCHLAND": "VK-Innergemeinschaftliche Lieferung",
+                            "SLOWAKEI": "VK-Innergemeinschaftliche Lieferung",
+                            "MALTA": "VK-Innergemeinschaftliche Lieferung",
+                            "ZYPERN": "VK-Innergemeinschaftliche Lieferung",
+                            "VEREINIGTE STAATEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "United States of America": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "UNGARN": "VK-Innergemeinschaftliche Lieferung",
+                            "UKRAINE": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "TÜRKEI": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "TSCHECHISCHE REPUBLIK": "VK-Innergemeinschaftliche Lieferung",
+                            "SPANIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "SLOWENIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "SEYCHELLEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "SERBIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "SCHWEIZ": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "SAUDI-ARABIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "SCHWEDEN": "VK-Innergemeinschaftliche Lieferung",
+                            "RUSSLAND": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "RUMÄNIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "REPUBLIK MOLDAU": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "Republic of Maldives": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "PORTUGAL": "VK-Innergemeinschaftliche Lieferung",
+                            "NORWEGEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "NIEDERLANDE": "VK-Innergemeinschaftliche Lieferung",
+                            "MEXIKO": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "LUXEMBURG": "VK-Innergemeinschaftliche Lieferung",
+                            "LITAUEN": "VK-Innergemeinschaftliche Lieferung",
+                            "LIECHTENSTEIN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "LIBANON": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "LETTLAND": "VK-Innergemeinschaftliche Lieferung",
+                            "KROATIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "KASACHSTAN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "KANADA": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "JAPAN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "ISRAEL": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "ISLAND": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "IRAK": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "INDIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "HONGKONG": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "GROSSBRITANNIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "GRÖNLAND": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "GRIECHENLAND": "VK-Innergemeinschaftliche Lieferung",
+                            "GEORGIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "Frankreich": "VK-Innergemeinschaftliche Lieferung",
+                            "FINNLAND": "VK-Innergemeinschaftliche Lieferung",
+                            "ESTLAND": "VK-Innergemeinschaftliche Lieferung",
+                            "ELFENBEINKÜSTE": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "Deutschland": "VK-Innergemeinschaftliche Lieferung",
+                            "CURACAO": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "CHINA": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "BULGARIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "BRASILIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "BELGIEN": "VK-Innergemeinschaftliche Lieferung",
+                            "AUSTRALIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "ASERBAIDSCHAN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "ARMENIEN": "VK-Steuerfreie Ausfuhr Drittland 0%",
+                            "VEREINIGTE ARABISCHE EMIRATE": "VK-Steuerfreie Ausfuhr Drittland 0%"
+                        },
+                        "value_map_default": "Other"
                     }
+                    
                 ]
             },
             {
@@ -170,6 +240,14 @@
                     {
                         "fieldname": "address_title",
                         "sl_column": "NAMEZEILE1"
+                    },
+                    {
+                        "fieldname": "custom_additional_1",
+                        "sl_column": "NAMEZEILE2"
+                    },
+                    {
+                        "fieldname": "custom_additional_2",
+                        "sl_column": "NAMEZEILE3"
                     },
                     {
                         "fieldname": "address_line1",
@@ -252,6 +330,53 @@
                             "VEREINIGTE ARABISCHE EMIRATE": "United Arab Emirates"
                         },
                         "value_map_default": "Other"
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "sl_column": "KUNDENNR",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "doctype": "Contact",
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "NAMEZEILE1",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "_user_tags",
+                        "sl_column": "BEKOMMT_MAIL",
+                        "value_map": {
+                            "True": "Newsletter"
+                        }
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
                     },
                     {
                         "fieldname": "links",
@@ -925,6 +1050,10 @@
                     {
                         "fieldname": "item_name",
                         "sl_column": "BEZEICHNUNG"
+                    },
+                    {
+                        "fieldname": "custom_additional_1",
+                        "sl_column": "BEZEICHNUNG2"
                     },
                     {
                         "fieldname": "description",
