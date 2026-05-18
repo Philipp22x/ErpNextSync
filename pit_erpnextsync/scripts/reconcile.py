@@ -1530,7 +1530,19 @@ def apply_field_removals(
 					limit=1
 				)
 				
-				if not other_mappings:
+				# Also check if document is still referenced in the current mapping
+				# (after removals, other fields may still have entries)
+				remaining_in_current = frappe.get_all(
+					"Sync Mapping Entry",
+					filters={
+						"mapping_doctype": doctype,
+						"docname": docname,
+						"parent": mapping_name
+					},
+					limit=1
+				)
+
+				if not other_mappings and not remaining_in_current:
 					# Document is not referenced anywhere else, safe to delete
 					make_log(
 						f"Document {doctype} '{docname}' is no longer referenced in any mapping. Deleting...",
