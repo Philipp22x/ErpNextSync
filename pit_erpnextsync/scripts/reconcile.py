@@ -1494,7 +1494,22 @@ def apply_field_removals(
 	"""
 	removed_count: int = 0
 	errors: List[str] = []
-	
+
+	# Determine the primary doctype for this mapping.
+	# The primary doctype (e.g. Customer for Customer mappings) must NEVER be
+	# deleted during orphan cleanup — it is the core document the Sync Mapping
+	# tracks and can always be resolved from selectline_id.
+	mapping_doc = frappe.get_doc("Sync Mapping", mapping_name)
+	primary_doctype: Optional[str] = None
+	if instance and mapping_doc.type:
+		instance_doc = frappe.get_doc("Sync Instance", instance)
+		json_mapping = get_current_json_mapping(instance_doc, mapping_doc.type)
+		if json_mapping:
+			for dt_def in json_mapping:
+				if dt_def.get("reqd") == 1:
+					primary_doctype = dt_def.get("doctype")
+					break
+
 	# Track which documents had all their fields removed
 	docs_to_check: Dict[str, List[str]] = {}  # doctype -> [docnames]
 	
@@ -1571,6 +1586,18 @@ def apply_field_removals(
 					},
 					limit=1
 				)
+
+				# Never delete the primary doctype — it is the core document
+				# tracked by the Sync Mapping and can be resolved from selectline_id.
+				if doctype == primary_doctype:
+					if not other_mappings and not remaining_in_current:
+						make_log(
+							f"Skipping deletion of primary doctype {doctype} '{docname}' "
+							f"(will be resolved from selectline_id during field additions)",
+							"INFO",
+							APP_NAME
+						)
+					continue
 
 				if not other_mappings and not remaining_in_current:
 					# Document is not referenced anywhere else, safe to delete
