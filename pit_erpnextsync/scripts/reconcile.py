@@ -728,12 +728,27 @@ def _handle_multiple_query_group(
 
 	# Fetch rows from the related table
 	schema = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+
+	# Extract column names from group_fields to avoid SELECT * on tables with
+	# blob columns (which fail on 4D).
+	mq_columns: list = []
+	for gf in group_fields:
+		if gf.get("sl_column") and gf["sl_column"] not in mq_columns:
+			mq_columns.append(gf["sl_column"])
+		if gf.get("alt_key") and gf["alt_key"] not in mq_columns:
+			mq_columns.append(gf["alt_key"])
+		if gf.get("mapped_value") and gf["mapped_value"].get("sl_id"):
+			sl_id = gf["mapped_value"]["sl_id"]
+			if sl_id not in mq_columns:
+				mq_columns.append(sl_id)
+
 	source_rows = controller.fetch_multiple_rows(
 		instance=instance,
 		table=mq_table,
 		condition=mq_condition,
 		schema=schema,
 		parent_data=fetched_obj,
+		columns=mq_columns if mq_columns else None,
 	)
 
 	if not source_rows:

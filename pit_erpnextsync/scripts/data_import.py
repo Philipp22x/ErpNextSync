@@ -695,13 +695,27 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                         # get schema from instance
                         schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
                         
+                        # Extract column names from table_fields to avoid SELECT * on
+                        # tables with blob columns (which fail on 4D).
+                        mq_columns: list = []
+                        for tf in field.get("table_fields", []):
+                            if tf.get("sl_column") and tf["sl_column"] not in mq_columns:
+                                mq_columns.append(tf["sl_column"])
+                            if tf.get("alt_key") and tf["alt_key"] not in mq_columns:
+                                mq_columns.append(tf["alt_key"])
+                            if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
+                                sl_id = tf["mapped_value"]["sl_id"]
+                                if sl_id not in mq_columns:
+                                    mq_columns.append(sl_id)
+                        
                         # fetch multiple rows with parent data for placeholder replacement
                         multiple_rows = controller.fetch_multiple_rows(
                             instance=instance,
                             table=multiple_table,
                             condition=multiple_condition,
                             schema=schema,
-                            parent_data=fetched_obj
+                            parent_data=fetched_obj,
+                            columns=mq_columns if mq_columns else None,
                         )
                         
                         make_log(
