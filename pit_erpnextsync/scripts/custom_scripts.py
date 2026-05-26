@@ -1,12 +1,153 @@
+import json
 import frappe
 from frappe.model.document import Document
 from frappe.utils.background_jobs import enqueue
+from typing import Dict, List
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 
 
-#*## WEBSHOP ITEMS #######################################################################################################################
+# *## WEBSITE ITEM GROUPS FROM SELECTLINE KEYWORDS ########################
+
+
+def explore_artikel_kriterium(instance: str = "officeno1_migration"):
+	"""Debug helper: print sample rows from Artikel_Kriterium."""
+	rows = controller.fetch_data(
+		instance=instance,
+		sql="SELECT * FROM Artikel_Kriterium LIMIT 10",
+	)
+	if not rows:
+		print("No data returned")
+		return
+	print(f"Total sample rows: {len(rows)}")
+	print(f"Columns: {list(rows[0].keys())}")
+	for r in rows[:5]:
+		print(json.dumps(dict(r), default=str, ensure_ascii=False))
+
+
+def assign_website_item_groups(
+	instance: str = "officeno1_migration",
+	dry_run: bool = False,
+):
+	"""
+	Fetch all rows from Artikel_Kriterium in SelectLine.
+	For each row:
+	  - Find the Website Item linked to ArtikelNr (= Item.item_code)
+	  - If an Item Group with the name from Keyword column exists,
+	    add it to website_item_groups on the Website Item (skip duplicates).
+	"""
+	# 1. Fetch all keyword assignments from SelectLine
+	sql = "SELECT ArtikelNr, Keyword FROM Artikel_Kriterium"
+	rows = controller.fetch_data(instance=instance, sql=sql)
+	if not rows:
+		print("No rows returned from Artikel_Kriterium")
+		return
+
+	# Normalise column access (4D driver returns UPPERCASE keys)
+	def _col(row: dict, col: str):
+		if col in row:
+			return row[col]
+		upper = col.upper()
+		for k, v in row.items():
+			if k.upper() == upper:
+				return v
+		return None
+
+	# 2. Group keywords per article (deduplicate per article)
+	article_keywords: Dict[str, List[str]] = {}
+	for row in rows:
+		art_nr = str(_col(row, "ArtikelNr") or "").strip()
+		keyword = str(_col(row, "Keyword") or "").strip()
+		if not art_nr or not keyword:
+			continue
+		if art_nr not in article_keywords:
+			article_keywords[art_nr] = []
+		if keyword not in article_keywords[art_nr]:
+			article_keywords[art_nr].append(keyword)
+
+	print(f"Fetched {len(rows)} rows, {len(article_keywords)} unique articles with keywords")
+
+	# 3. Build set of existing Item Groups for fast lookup
+	existing_groups = set(
+		frappe.get_all("Item Group", pluck="name", limit=0)
+	)
+	print(f"Existing Item Groups: {len(existing_groups)}")
+
+	# 4. Build map: item_code → Website Item name
+	wi_map: Dict[str, str] = {}
+	for wi in frappe.get_all(
+		"Website Item",
+		fields=["name", "item_code"],
+		limit=0,
+	):
+		wi_map[wi.item_code] = wi.name
+
+	print(f"Website Items: {len(wi_map)}")
+
+	added = 0
+	skipped_no_wi = 0
+	skipped_no_group = 0
+	skipped_duplicate = 0
+	errors = 0
+
+	for art_nr, keywords in article_keywords.items():
+		wi_name = wi_map.get(art_nr)
+		if not wi_name:
+			skipped_no_wi += 1
+			continue
+
+		try:
+			wi_doc = frappe.get_doc("Website Item", wi_name)
+			existing_groups_on_wi = {
+				r.item_group for r in (wi_doc.get("website_item_groups") or [])
+			}
+
+			changed = False
+			for kw in keywords:
+				if kw not in existing_groups:
+					skipped_no_group += 1
+					continue
+				if kw in existing_groups_on_wi:
+					skipped_duplicate += 1
+					continue
+
+				if not dry_run:
+					wi_doc.append("website_item_groups", {"item_group": kw})
+				existing_groups_on_wi.add(kw)
+				changed = True
+				added += 1
+
+			if changed and not dry_run:
+				wi_doc.flags.ignore_validate = True
+				wi_doc.flags.ignore_mandatory = True
+				wi_doc.flags.ignore_permissions = True
+				wi_doc.save()
+
+		except Exception as e:
+			errors += 1
+			make_log(
+				f"Error updating Website Item {wi_name} for {art_nr}: {e}",
+				"ERROR",
+				controller.APP_NAME,
+				with_traceback=True,
+			)
+
+	if not dry_run:
+		frappe.db.commit()
+
+	prefix = "[DRY RUN] " if dry_run else ""
+	summary = (
+		f"{prefix}assign_website_item_groups done: "
+		f"added={added}, skipped_no_wi={skipped_no_wi}, "
+		f"skipped_no_group={skipped_no_group}, "
+		f"skipped_duplicate={skipped_duplicate}, errors={errors}"
+	)
+	print(summary)
+	make_log(summary, "INFO", controller.APP_NAME)
+
+
+# *## WEBSHOP ITEMS #######################################################################################################################
 
 
 @frappe.whitelist()

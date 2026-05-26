@@ -1,0 +1,1333 @@
+[
+    {
+        "_comment": "=== TABLE MAPPING 1: Item Groups (simple lookup table) ===",
+        "idx": 1,
+        "type": "Item Group",
+        "doc_type": "Item Group",
+        "table_name": "PRODUCT_CATEGORIES",
+        "primary_key": "CATEGORY_ID",
+        "mapping": [
+            {
+                "doctype": "Item Group",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_group_name",
+                        "sl_column": "CATEGORY_NAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "parent_item_group",
+                        "default": "All Item Groups"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 2: Payment Terms ===",
+        "idx": 2,
+        "type": "Payment Term",
+        "doc_type": "Payment Term",
+        "table_name": "PAYMENT_CONDITIONS",
+        "primary_key": "CONDITION_ID",
+        "mapping": [
+            {
+                "doctype": "Payment Term",
+                "reqd": 1,
+                "fields": [
+                    {
+                        "fieldname": "payment_term_name",
+                        "sl_column": "CONDITION_NAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "invoice_portion",
+                        "default": "100"
+                    },
+                    {
+                        "fieldname": "mode_of_payment",
+                        "default": "Bank Transfer"
+                    },
+                    {
+                        "fieldname": "credit_days",
+                        "sl_column": "NET_DAYS"
+                    },
+                    {
+                        "fieldname": "discount_validity",
+                        "sl_column": "DISCOUNT_DAYS"
+                    },
+                    {
+                        "fieldname": "discount",
+                        "sl_column": "DISCOUNT_PERCENT"
+                    },
+                    {
+                        "fieldname": "discount_type",
+                        "default": "Percentage"
+                    },
+                    {
+                        "fieldname": "description",
+                        "sl_column": "DESCRIPTION_TEXT"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 3: Customers (full-featured, demonstrates most keywords) ===",
+        "idx": 3,
+        "type": "Customer",
+        "doc_type": "Customer",
+        "table_name": "CUSTOMERS",
+        "primary_key": "CUSTOMER_ID",
+        "timestamp_column_name": "LAST_MODIFIED",
+        "query_filter": "IS_ACTIVE = 1 AND COMPANY_NAME IS NOT NULL",
+        "order_by": "CUSTOMER_ID",
+        "mapping": [
+            {
+                "_comment": "--- Ensure Territory exists before creating Customer ---",
+                "doctype": "Territory",
+                "fields": [
+                    {
+                        "fieldname": "territory_name",
+                        "sl_column": "COUNTRY_CODE",
+                        "reqd": 1
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Ensure Industry Type exists ---",
+                "doctype": "Industry Type",
+                "fields": [
+                    {
+                        "fieldname": "industry",
+                        "sl_column": "INDUSTRY_CODE",
+                        "reqd": 1
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Main Customer document ---",
+                "doctype": "Customer",
+                "reqd": 1,
+                "doctype_flags": [
+                    {
+                        "name_set": 1,
+                        "ignore_validate": 1
+                    }
+                ],
+                "post_field_vars": [
+                    {
+                        "var_name": "erp_customer_name",
+                        "field_name": "name"
+                    },
+                    {
+                        "var_name": "erp_customer_group",
+                        "field_name": "customer_group"
+                    }
+                ],
+                "fields": [
+                    {
+                        "_comment": "--- sl_column: direct column mapping ---",
+                        "fieldname": "name",
+                        "sl_column": "CUSTOMER_NO",
+                        "reqd": 1,
+                        "set_redis": "erp_customer_id"
+                    },
+                    {
+                        "_comment": "--- alt_key: fallback column if primary is empty ---",
+                        "fieldname": "customer_name",
+                        "sl_column": "COMPANY_NAME",
+                        "alt_key": "CONTACT_NAME",
+                        "reqd": 1
+                    },
+                    {
+                        "_comment": "--- default: static literal value ---",
+                        "fieldname": "customer_type",
+                        "default": "Company"
+                    },
+                    {
+                        "_comment": "--- value_map: transform source values to ERPNext values ---",
+                        "fieldname": "tax_category",
+                        "sl_column": "COUNTRY_CODE",
+                        "value_map": {
+                            "AT": "Domestic",
+                            "DE": "EU Intra-Community",
+                            "FR": "EU Intra-Community",
+                            "IT": "EU Intra-Community",
+                            "US": "Export Third Country",
+                            "CN": "Export Third Country",
+                            "GB": "Export Third Country"
+                        },
+                        "value_map_default": "Other"
+                    },
+                    {
+                        "_comment": "--- value_map on a boolean field ---",
+                        "fieldname": "_user_tags",
+                        "sl_column": "RECEIVES_NEWSLETTER",
+                        "value_map": {
+                            "True": "Newsletter",
+                            "1": "Newsletter"
+                        }
+                    },
+                    {
+                        "fieldname": "territory",
+                        "sl_column": "COUNTRY_CODE"
+                    },
+                    {
+                        "fieldname": "industry",
+                        "sl_column": "INDUSTRY_CODE"
+                    },
+                    {
+                        "fieldname": "tax_id",
+                        "sl_column": "VAT_NUMBER"
+                    },
+                    {
+                        "fieldname": "website",
+                        "sl_column": "WEBSITE_URL"
+                    },
+                    {
+                        "fieldname": "payment_terms",
+                        "sl_column": "PAYMENT_CONDITION"
+                    },
+                    {
+                        "fieldname": "custom_notes",
+                        "sl_column": "REMARKS"
+                    },
+                    {
+                        "fieldname": "creation",
+                        "sl_column": "CREATED_DATE"
+                    },
+                    {
+                        "_comment": "--- force_str_type: ensure value is converted to string ---",
+                        "fieldname": "custom_legacy_id",
+                        "sl_column": "CUSTOMER_ID",
+                        "force_str_type": 1
+                    },
+                    {
+                        "_comment": "--- table_fields: child table rows from the same source row ---",
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Tax Code",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "TAX_CODE",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- Repeated fieldname appends another child row ---",
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Sales Rep"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "SALES_REP_CODE",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Address linked to Customer ---",
+                "doctype": "Address",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "address_title",
+                        "sl_column": "COMPANY_NAME"
+                    },
+                    {
+                        "fieldname": "address_line1",
+                        "sl_column": "STREET",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "pincode",
+                        "sl_column": "POSTAL_CODE"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "CITY"
+                    },
+                    {
+                        "_comment": "--- value_map: translate country codes to ERPNext country names ---",
+                        "fieldname": "country",
+                        "sl_column": "COUNTRY_CODE",
+                        "value_map": {
+                            "AT": "Austria",
+                            "DE": "Germany",
+                            "FR": "France",
+                            "IT": "Italy",
+                            "US": "United States",
+                            "CN": "China",
+                            "GB": "United Kingdom"
+                        },
+                        "value_map_default": "Austria"
+                    },
+                    {
+                        "_comment": "--- Links child table: connect Address to Customer ---",
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer",
+                                "reqd": 1
+                            },
+                            {
+                                "_comment": "--- get_redis: retrieve value stored earlier via set_redis ---",
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_customer_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Salutation ensure-exists (created if not found) ---",
+                "doctype": "Salutation",
+                "fields": [
+                    {
+                        "fieldname": "salutation",
+                        "sl_column": "SALUTATION"
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Primary Contact linked to Customer ---",
+                "doctype": "Contact",
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "CONTACT_FIRST_NAME"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "CONTACT_LAST_NAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "salutation",
+                        "sl_column": "SALUTATION"
+                    },
+                    {
+                        "_comment": "--- SQL expression as sl_column (with alt_key as the alias) ---",
+                        "fieldname": "custom_birthday",
+                        "sl_column": "CAST(BIRTH_DATE AS DATE) AS BIRTHDATE",
+                        "alt_key": "BIRTHDATE"
+                    },
+                    {
+                        "_comment": "--- field_var: reference a value captured by post_field_vars ---",
+                        "fieldname": "company_name",
+                        "field_var": "erp_customer_name"
+                    },
+                    {
+                        "fieldname": "is_primary_contact",
+                        "default": 1
+                    },
+                    {
+                        "_comment": "--- Gender via value_map ---",
+                        "fieldname": "gender",
+                        "sl_column": "GENDER_FLAG",
+                        "value_map": {
+                            "M": "Male",
+                            "F": "Female",
+                            "True": "Female",
+                            "False": "Male",
+                            "1": "Female",
+                            "0": "Male"
+                        },
+                        "value_map_default": "Other"
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- Repeated fieldname adds a second email row ---",
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL_SECONDARY"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- is_phone_no: apply phone number formatting ---",
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "PHONE_MAIN",
+                                "is_phone_no": 1,
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "is_primary_phone",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "MOBILE_NO",
+                                "is_phone_no": 1
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "FAX_NO",
+                                "is_phone_no": 1
+                            },
+                            {
+                                "table_fieldname": "is_primary_mobile_no",
+                                "default": 0
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_customer_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 4: Additional Contacts (from a separate table) ===",
+        "idx": 4,
+        "type": "AdditionalContacts",
+        "doc_type": "Contact",
+        "table_name": "CONTACTS C1",
+        "primary_key": "CONTACT_ID",
+        "timestamp_column_name": "MODIFIED_AT",
+        "query_filter": "C1.IS_PRIMARY = 0 AND C1.CUSTOMER_NO IS NOT NULL",
+        "order_by": "CUSTOMER_NO",
+        "mapping": [
+            {
+                "doctype": "Contact",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "FIRST_NAME"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "LAST_NAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "custom_function",
+                        "sl_column": "JOB_TITLE"
+                    },
+                    {
+                        "fieldname": "custom_language",
+                        "default": "German"
+                    },
+                    {
+                        "fieldname": "is_primary_contact",
+                        "default": 0
+                    },
+                    {
+                        "fieldname": "email_ids",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "email_id",
+                                "sl_column": "EMAIL"
+                            },
+                            {
+                                "table_fieldname": "is_primary",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "phone_nos",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "phone",
+                                "sl_column": "PHONE_DIRECT",
+                                "is_phone_no": 1
+                            },
+                            {
+                                "table_fieldname": "is_primary_phone",
+                                "default": 1
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- mapped_value: cross-reference another mapping to link Contact to Customer ---",
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "mapped_value": {
+                                    "table_name": "CUSTOMERS",
+                                    "sl_id": "CUSTOMER_NO",
+                                    "doc_type": "Customer",
+                                    "fieldname": "name"
+                                },
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 5: Suppliers ===",
+        "idx": 5,
+        "type": "Supplier",
+        "doc_type": "Supplier",
+        "table_name": "SUPPLIERS",
+        "primary_key": "SUPPLIER_ID",
+        "timestamp_column_name": "LAST_MODIFIED",
+        "mapping": [
+            {
+                "doctype": "Supplier",
+                "reqd": 1,
+                "doctype_flags": [
+                    {
+                        "name_set": 1,
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "name",
+                        "sl_column": "SUPPLIER_NO",
+                        "reqd": 1,
+                        "set_redis": "erp_supplier_id"
+                    },
+                    {
+                        "fieldname": "supplier_name",
+                        "sl_column": "COMPANY_NAME",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "supplier_type",
+                        "default": "Company"
+                    },
+                    {
+                        "fieldname": "supplier_group",
+                        "default": "All Supplier Groups"
+                    },
+                    {
+                        "fieldname": "tax_id",
+                        "sl_column": "VAT_NUMBER"
+                    },
+                    {
+                        "fieldname": "website",
+                        "sl_column": "WEBSITE_URL"
+                    },
+                    {
+                        "fieldname": "country",
+                        "sl_column": "COUNTRY_CODE",
+                        "value_map": {
+                            "AT": "Austria",
+                            "DE": "Germany",
+                            "CN": "China",
+                            "US": "United States"
+                        },
+                        "value_map_default": ""
+                    },
+                    {
+                        "fieldname": "payment_terms",
+                        "sl_column": "PAYMENT_CONDITION"
+                    },
+                    {
+                        "fieldname": "creation",
+                        "sl_column": "CREATED_DATE"
+                    }
+                ]
+            },
+            {
+                "doctype": "Address",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "address_title",
+                        "sl_column": "COMPANY_NAME"
+                    },
+                    {
+                        "fieldname": "address_line1",
+                        "sl_column": "STREET"
+                    },
+                    {
+                        "fieldname": "pincode",
+                        "sl_column": "POSTAL_CODE"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "CITY"
+                    },
+                    {
+                        "fieldname": "country",
+                        "sl_column": "COUNTRY_CODE",
+                        "value_map": {
+                            "AT": "Austria",
+                            "DE": "Germany",
+                            "CN": "China",
+                            "US": "United States"
+                        },
+                        "value_map_default": ""
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Supplier"
+                            },
+                            {
+                                "table_fieldname": "link_name",
+                                "get_redis": "erp_supplier_id",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 6: Item Attributes (with multiple_query for child rows) ===",
+        "idx": 6,
+        "type": "Item Attribute",
+        "doc_type": "Item Attribute",
+        "table_name": "PRODUCT_ATTRIBUTES A1",
+        "primary_key": "ATTRIBUTE_ID",
+        "timestamp_column_name": "TS",
+        "timestamp_column_type": "rowversion",
+        "mapping": [
+            {
+                "doctype": "Item Attribute",
+                "doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "name",
+                        "sl_column": "ATTRIBUTE_ID",
+                        "force_str_type": 1
+                    },
+                    {
+                        "fieldname": "attribute_name",
+                        "sl_column": "ATTRIBUTE_LABEL"
+                    },
+                    {
+                        "_comment": "--- multiple_query: fetch child rows from a separate table ---",
+                        "fieldname": "item_attribute_values",
+                        "multiple_query": 1,
+                        "multiple_query_table": "ATTRIBUTE_VALUES A2",
+                        "multiple_query_condition": "A2.ATTRIBUTE_ID = {ATTRIBUTE_ID}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "attribute_value",
+                                "sl_column": "VALUE_LABEL"
+                            },
+                            {
+                                "table_fieldname": "abbr",
+                                "sl_column": "ABBREVIATION"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 7: Items (with variants, barcodes, supplier items, and deduplicate_on) ===",
+        "idx": 7,
+        "type": "Item",
+        "doc_type": "Item",
+        "table_name": "PRODUCTS",
+        "primary_key": "PRODUCT_ID",
+        "timestamp_column_name": "TS",
+        "timestamp_column_type": "rowversion",
+        "query_filter": "IS_ARCHIVED = 0",
+        "mapping": [
+            {
+                "_comment": "--- Ensure Item Group exists ---",
+                "doctype": "Item Group",
+                "fields": [
+                    {
+                        "fieldname": "item_group_name",
+                        "sl_column": "PRODUCT_GROUP"
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Ensure UOM exists ---",
+                "doctype": "UOM",
+                "fields": [
+                    {
+                        "fieldname": "uom_name",
+                        "sl_column": "UNIT_OF_MEASURE"
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Ensure customs tariff exists ---",
+                "doctype": "Customs Tariff Number",
+                "fields": [
+                    {
+                        "fieldname": "tariff_number",
+                        "sl_column": "TARIFF_NUMBER",
+                        "reqd": 1
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Main Item document ---",
+                "doctype": "Item",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1,
+                        "create_website_item": 0
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "PRODUCT_NO",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "item_name",
+                        "sl_column": "PRODUCT_NAME"
+                    },
+                    {
+                        "fieldname": "description",
+                        "sl_column": "LONG_DESCRIPTION"
+                    },
+                    {
+                        "fieldname": "custom_matchcode",
+                        "sl_column": "SEARCH_KEY"
+                    },
+                    {
+                        "fieldname": "item_group",
+                        "sl_column": "PRODUCT_GROUP"
+                    },
+                    {
+                        "fieldname": "stock_uom",
+                        "sl_column": "UNIT_OF_MEASURE"
+                    },
+                    {
+                        "fieldname": "is_stock_item",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "weight_uom",
+                        "default": "Kg"
+                    },
+                    {
+                        "fieldname": "weight_per_unit",
+                        "sl_column": "NET_WEIGHT"
+                    },
+                    {
+                        "_comment": "--- value_map: translate country codes for country_of_origin ---",
+                        "fieldname": "country_of_origin",
+                        "sl_column": "ORIGIN_COUNTRY",
+                        "value_map": {
+                            "AT": "Austria",
+                            "DE": "Germany",
+                            "CN": "China",
+                            "US": "United States",
+                            "IT": "Italy",
+                            "FR": "France"
+                        }
+                    },
+                    {
+                        "fieldname": "customs_tariff_number",
+                        "sl_column": "TARIFF_NUMBER"
+                    },
+                    {
+                        "fieldname": "disabled",
+                        "sl_column": "IS_ARCHIVED"
+                    },
+                    {
+                        "_comment": "--- has_variants for parent variant items ---",
+                        "fieldname": "has_variants",
+                        "default": 0
+                    },
+                    {
+                        "_comment": "--- variant_of links to parent item (for child variants) ---",
+                        "fieldname": "variant_of",
+                        "sl_column": "PARENT_PRODUCT_NO",
+                        "set_redis": "current_variant_of"
+                    },
+                    {
+                        "_comment": "--- Barcodes: multiple child rows from same record ---",
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "EAN_NUMBER",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "EAN"
+                            },
+                            {
+                                "table_fieldname": "uom",
+                                "sl_column": "UNIT_OF_MEASURE"
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- Second barcode (CODE-39) ---",
+                        "fieldname": "barcodes",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "barcode",
+                                "sl_column": "BARCODE_INTERNAL",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "barcode_type",
+                                "default": "CODE-39"
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- UOM conversions ---",
+                        "fieldname": "uoms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "uom",
+                                "sl_column": "UNIT_OF_MEASURE",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "conversion_factor",
+                                "default": 1
+                            },
+                            {
+                                "table_fieldname": "custom_gross_weight",
+                                "sl_column": "GROSS_WEIGHT"
+                            },
+                            {
+                                "table_fieldname": "custom_length",
+                                "sl_column": "LENGTH_MM"
+                            },
+                            {
+                                "table_fieldname": "custom_width",
+                                "sl_column": "WIDTH_MM"
+                            },
+                            {
+                                "table_fieldname": "custom_height",
+                                "sl_column": "HEIGHT_MM"
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- Packing unit as secondary UOM ---",
+                        "fieldname": "uoms",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "uom",
+                                "default": "Packing Unit",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "conversion_factor",
+                                "sl_column": "PACK_QTY"
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- multiple_query + deduplicate_on: variant attributes from joined table ---",
+                        "fieldname": "attributes",
+                        "multiple_query": true,
+                        "multiple_query_table": "PRODUCT_VARIANT_ATTRS LEFT JOIN ATTRIBUTE_VALUES ON PRODUCT_VARIANT_ATTRS.VALUE_ID = ATTRIBUTE_VALUES.ID",
+                        "multiple_query_condition": "PRODUCT_VARIANT_ATTRS.PRODUCT_NO = {PRODUCT_NO}",
+                        "deduplicate_on": "ATTRIBUTE_ID",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "attribute",
+                                "sl_column": "ATTRIBUTE_ID",
+                                "force_str_type": 1
+                            },
+                            {
+                                "table_fieldname": "attribute_value",
+                                "sl_column": "VALUE_LABEL"
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- multiple_query: supplier items from a related table ---",
+                        "fieldname": "supplier_items",
+                        "multiple_query": 1,
+                        "multiple_query_table": "PRODUCT_SUPPLIERS",
+                        "multiple_query_condition": "PRODUCT_NO = {PRODUCT_NO}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "supplier",
+                                "sl_column": "SUPPLIER_NO",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "supplier_part_no",
+                                "sl_column": "SUPPLIER_PRODUCT_NO",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+                    {
+                        "_comment": "--- Information table via multiple_query ---",
+                        "fieldname": "custom_information_table",
+                        "multiple_query": 1,
+                        "multiple_query_table": "PRODUCT_STORAGE",
+                        "multiple_query_condition": "PRODUCT_NO = {PRODUCT_NO}",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "Storage Location",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "STORAGE_BIN",
+                                "reqd": 1,
+                                "force_str_type": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 8: Selling Item Prices ===",
+        "idx": 8,
+        "type": "VKItemPrices",
+        "doc_type": "Item Price",
+        "table_name": "PRODUCTS",
+        "primary_key": "PRODUCT_ID",
+        "timestamp_column_name": "LAST_MODIFIED",
+        "mapping": [
+            {
+                "doctype": "Item Price",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "item_code",
+                        "sl_column": "PRODUCT_NO",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "uom",
+                        "sl_column": "UNIT_OF_MEASURE"
+                    },
+                    {
+                        "fieldname": "packing_unit",
+                        "sl_column": "PACK_QTY"
+                    },
+                    {
+                        "fieldname": "price_list_rate",
+                        "sl_column": "SELLING_PRICE"
+                    },
+                    {
+                        "fieldname": "selling",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "price_list",
+                        "default": "Standard Selling"
+                    },
+                    {
+                        "fieldname": "currency",
+                        "default": "EUR"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 9: Pricing Rules (with query_filter for non-zero prices) ===",
+        "idx": 9,
+        "type": "PricingRulesRate",
+        "doc_type": "Pricing Rule",
+        "table_name": "PRICE_TIERS",
+        "primary_key": "TIER_ID",
+        "query_filter": "t.[TIER_PRICE] IS NOT NULL AND t.[TIER_PRICE] <> 0",
+        "mapping": [
+            {
+                "doctype": "Pricing Rule",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "title",
+                        "sl_column": "PRODUCT_NO",
+                        "reqd": 1
+                    },
+                    {
+                        "fieldname": "apply_on",
+                        "default": "Item Code"
+                    },
+                    {
+                        "fieldname": "selling",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "price_or_product_discount",
+                        "default": "Price"
+                    },
+                    {
+                        "fieldname": "items",
+                        "reqd": 1,
+                        "table_fields": [
+                            {
+                                "table_fieldname": "item_code",
+                                "sl_column": "PRODUCT_NO",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "min_qty",
+                        "sl_column": "QTY_FROM"
+                    },
+                    {
+                        "fieldname": "max_qty",
+                        "sl_column": "QTY_TO"
+                    },
+                    {
+                        "fieldname": "rate_or_discount",
+                        "default": "Rate"
+                    },
+                    {
+                        "fieldname": "rate",
+                        "sl_column": "TIER_PRICE"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 10: Delivery Addresses (separate source table) ===",
+        "idx": 10,
+        "type": "DeliveryAddresses",
+        "doc_type": "Address",
+        "table_name": "DELIVERY_ADDRESSES",
+        "primary_key": "ADDRESS_ID",
+        "mapping": [
+            {
+                "doctype": "Address",
+                "doctype_flags": [
+                    {
+                        "ignore_validate": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "address_title",
+                        "sl_column": "ADDRESS_LABEL"
+                    },
+                    {
+                        "fieldname": "address_line1",
+                        "sl_column": "STREET"
+                    },
+                    {
+                        "fieldname": "pincode",
+                        "sl_column": "POSTAL_CODE"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "CITY"
+                    },
+                    {
+                        "fieldname": "country",
+                        "sl_column": "COUNTRY_CODE",
+                        "value_map": {
+                            "AT": "Austria",
+                            "DE": "Germany"
+                        },
+                        "value_map_default": "Austria"
+                    },
+                    {
+                        "fieldname": "is_shipping_address",
+                        "default": 1
+                    },
+                    {
+                        "fieldname": "address_type",
+                        "default": "Shipping"
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Customer",
+                                "reqd": 1
+                            },
+                            {
+                                "_comment": "--- mapped_value: resolve the Customer name from another imported table ---",
+                                "table_fieldname": "link_name",
+                                "mapped_value": {
+                                    "table_name": "CUSTOMERS",
+                                    "sl_id": "CUSTOMER_NO",
+                                    "doc_type": "Customer",
+                                    "fieldname": "name"
+                                },
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 11: Leads (with post_field_vars and field_var linking) ===",
+        "idx": 11,
+        "type": "Lead",
+        "doc_type": "Lead",
+        "table_name": "PROSPECTS",
+        "primary_key": "PROSPECT_ID",
+        "query_filter": "STATUS = 'active'",
+        "mapping": [
+            {
+                "doctype": "Lead",
+                "reqd": 1,
+                "post_field_vars": [
+                    {
+                        "var_name": "lead_name",
+                        "field_name": "name"
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "company_name",
+                        "sl_column": "COMPANY_NAME"
+                    },
+                    {
+                        "fieldname": "first_name",
+                        "sl_column": "FIRST_NAME"
+                    },
+                    {
+                        "fieldname": "last_name",
+                        "sl_column": "LAST_NAME"
+                    },
+                    {
+                        "fieldname": "email_id",
+                        "sl_column": "EMAIL"
+                    },
+                    {
+                        "fieldname": "phone",
+                        "sl_column": "PHONE"
+                    },
+                    {
+                        "fieldname": "mobile_no",
+                        "sl_column": "MOBILE"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "CITY"
+                    },
+                    {
+                        "fieldname": "website",
+                        "sl_column": "WEBSITE_URL"
+                    },
+                    {
+                        "_comment": "--- reqd: 2 means abort entire import if empty ---",
+                        "fieldname": "lead_name",
+                        "sl_column": "DISPLAY_NAME",
+                        "reqd": 2
+                    }
+                ]
+            },
+            {
+                "_comment": "--- Address linked to Lead via field_var ---",
+                "doctype": "Address",
+                "fields": [
+                    {
+                        "fieldname": "address_line1",
+                        "sl_column": "STREET"
+                    },
+                    {
+                        "fieldname": "pincode",
+                        "sl_column": "POSTAL_CODE"
+                    },
+                    {
+                        "fieldname": "city",
+                        "sl_column": "CITY"
+                    },
+                    {
+                        "fieldname": "country",
+                        "default": "Austria"
+                    },
+                    {
+                        "fieldname": "links",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "link_doctype",
+                                "default": "Lead"
+                            },
+                            {
+                                "_comment": "--- field_var: use the Lead name captured by post_field_vars ---",
+                                "table_fieldname": "link_name",
+                                "field_var": "lead_name",
+                                "force_str_type": 1,
+                                "reqd": 1
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "_comment": "=== TABLE MAPPING 12: Email Preferences (SQL subquery in sl_column) ===",
+        "idx": 12,
+        "type": "CustomerEmailPrefs",
+        "doc_type": "Customer",
+        "table_name": "CUSTOMERS",
+        "primary_key": "CUSTOMER_ID",
+        "timestamp_column_name": "LAST_MODIFIED",
+        "mapping": [
+            {
+                "doctype": "Customer",
+                "reqd": 1,
+                "doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
+                "fields": [
+                    {
+                        "fieldname": "name",
+                        "sl_column": "CUSTOMER_NO",
+                        "reqd": 1
+                    },
+                    {
+                        "_comment": "--- sl_column with SQL subquery expression; alt_key holds the alias ---",
+                        "fieldname": "custom_email_preferences",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "document_type",
+                                "default": "Sales Invoice"
+                            },
+                            {
+                                "table_fieldname": "email",
+                                "sl_column": "(SELECT TOP 1 EMAIL FROM EMAIL_PREFS WHERE ENTITY_TYPE = 'CU' AND DOC_TYPE = 'INV' AND ENTITY_NO = CUSTOMERS.CUSTOMER_NO) AS InvoiceEmail",
+                                "alt_key": "InvoiceEmail",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "file_type",
+                                "default": "PDF"
+                            }
+                        ]
+                    },
+                    {
+                        "fieldname": "custom_email_preferences",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "document_type",
+                                "default": "Delivery Note"
+                            },
+                            {
+                                "table_fieldname": "email",
+                                "sl_column": "(SELECT TOP 1 EMAIL FROM EMAIL_PREFS WHERE ENTITY_TYPE = 'CU' AND DOC_TYPE = 'DN' AND ENTITY_NO = CUSTOMERS.CUSTOMER_NO) AS DeliveryEmail",
+                                "alt_key": "DeliveryEmail",
+                                "reqd": 1
+                            },
+                            {
+                                "table_fieldname": "file_type",
+                                "default": "PDF"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]
