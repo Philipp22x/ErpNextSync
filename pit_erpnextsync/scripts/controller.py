@@ -862,9 +862,11 @@ def make_sql_string(
 	if not mapping_row_data.primary_key in col_to_fetch:
 		col_to_fetch.append(mapping_row_data.primary_key)
 
-	# add order_by columns if not already in coumns to fetch
-	if mapping_row_data.order_by and mapping_row_data.order_by not in col_to_fetch:
-		col_to_fetch.append(mapping_row_data.order_by)
+	# add order_by column if not already in columns to fetch (strip ASC/DESC suffix)
+	if mapping_row_data.order_by:
+		order_by_col_name = mapping_row_data.order_by.split()[0]
+		if order_by_col_name not in col_to_fetch:
+			col_to_fetch.append(order_by_col_name)
 
 	if db_ts_col_name:
 		col_to_fetch.append(db_ts_col_name)
