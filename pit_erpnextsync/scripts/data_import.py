@@ -466,6 +466,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                 if doc_tags:
                     try:
                         cur_doc: Document = frappe.get_doc(new_doc_result["created_doc"]["dt"], new_doc_result["created_doc"]["dn"])
+                        cur_doc.db_set("_user_tags", "")
                         for tag in doc_tags:
                             cur_doc.add_tag(tag)
 
