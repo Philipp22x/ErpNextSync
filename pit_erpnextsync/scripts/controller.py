@@ -244,7 +244,8 @@ def _fetch_data_4d(conn, sql: str, instance: str) -> list:
 
 
 def fetch_multiple_rows(
-	instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None
+	instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None,
+	columns: list | None = None,
 ) -> list:
 	"""Fetch multiple rows from a related table for dynamic child table creation.
 
@@ -254,6 +255,9 @@ def fetch_multiple_rows(
 	    condition (str): SQL WHERE condition (may include WHERE keyword which will be stripped)
 	    schema (str): Database schema (optional)
 	    parent_data (dict): Parent row data for placeholder replacement (e.g., {ColumnName: value})
+	    columns (list | None): Optional list of column names to fetch. When provided, builds an
+	        explicit SELECT instead of SELECT *. This avoids 4D driver failures on tables with
+	        blob/binary columns (DATA_TYPE 12, 18, 21) that cannot be fetched.
 
 	Returns:
 	    list: List of row dictionaries, empty list if no results or error
@@ -341,8 +345,25 @@ def fetch_multiple_rows(
 
 			condition_clean = re.sub(placeholder_pattern, replace_placeholder, condition_clean)
 
-		# Build SQL query
-		sql = f"""
+		# Build SQL query — use explicit columns when provided to avoid 4D blob failures
+		if columns:
+			if driver == "p4d":
+				# 4D needs table alias + bracket-quoted column names
+				col_string = ", ".join([f"t.[{c}]" for c in columns])
+				sql = f"""
+        SELECT {col_string}
+        FROM {schema_prefix}{table} t
+        WHERE {condition_clean}
+        """
+			else:
+				col_string = ", ".join(columns)
+				sql = f"""
+        SELECT {col_string}
+        FROM {schema_prefix}{table}
+        WHERE {condition_clean}
+        """
+		else:
+			sql = f"""
         SELECT *
         FROM {schema_prefix}{table}
         WHERE {condition_clean}

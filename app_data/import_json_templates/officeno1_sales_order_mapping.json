@@ -1,0 +1,134 @@
+[
+	{
+		"_comment": "=== Sales Order import from OfficeNo1 4D database ===",
+		"_comment2": "Imports orders with bestellt=true from AUFTRAG table, with line items from AUFTRAGpos",
+		"_comment3": "IMPORTANT: sl_column, primary_key, order_by, timestamp_column_name must be UPPERCASE because the 4D driver returns uppercase dict keys",
+		"idx": 1,
+		"type": "SalesOrder",
+		"doc_type": "Sales Order",
+		"table_name": "AUFTRAG",
+		"primary_key": "AUFTRAGSNR",
+		"order_by": "AUFTRAGSNR",
+		"timestamp_column_name": "LETZTEAENDERUNG",
+		"timestamp_column_type": "datetime",
+		"query_filter": "t.[bestellt] = true",
+		"mapping": [
+			{
+				"doctype": "Sales Order",
+				"reqd": 1,
+				"doctype_flags": [
+					{"ignore_validate": 1},
+					{"ignore_links": 1}
+				],
+				"fields": [
+					{
+						"_comment": "--- Store original 4D order number in header text ---",
+						"fieldname": "custom_header_text",
+						"sl_column": "AUFTRAGSNR",
+						"force_str_type": 1,
+						"reqd": 1
+					},
+					{
+						"fieldname": "customer",
+						"sl_column": "KUNDENNR",
+						"force_str_type": 1,
+						"reqd": 1
+					},
+					{
+						"fieldname": "transaction_date",
+						"sl_column": "AUFTRAGSDATUM",
+						"reqd": 1
+					},
+					{
+						"fieldname": "delivery_date",
+						"sl_column": "LIEFERDATUM"
+					},
+					{
+						"fieldname": "currency",
+						"sl_column": "WAEHRUNG",
+						"value_map": {
+							"Eur": "EUR",
+							"EUR": "EUR",
+							"USD": "USD",
+							"ATS": "EUR",
+							"DEM": "EUR",
+							"": "EUR"
+						},
+						"value_map_default": "EUR"
+					},
+					{
+						"fieldname": "po_no",
+						"sl_column": "KUNDEN_BESTNR"
+					},
+					{
+						"fieldname": "po_date",
+						"sl_column": "BESTELLDATUM"
+					},
+					{
+						"_comment": "--- Overall discount percentage ---",
+						"fieldname": "additional_discount_percentage",
+						"sl_column": "GESRABATT"
+					},
+					{
+						"fieldname": "payment_terms_template",
+						"sl_column": "ZAHLUNGSBEDKZ"
+					},
+					{
+						"_comment": "--- Kopftext / header notes ---",
+						"fieldname": "notes",
+						"sl_column": "KOPFTEXT"
+					},
+					{
+						"_comment": "--- Footer text into terms ---",
+						"fieldname": "terms",
+						"sl_column": "FUSSTEXT"
+					},
+					{
+						"_comment": "--- Internal remarks ---",
+						"fieldname": "custom_footer_text",
+						"sl_column": "BEMERKUNG"
+					},
+					{
+						"_comment": "--- Order line items from AUFTRAGpos ---",
+						"fieldname": "items",
+						"multiple_query": 1,
+						"multiple_query_table": "AUFTRAGpos",
+						"multiple_query_condition": "AuftragsNr = {AUFTRAGSNR}",
+						"table_fields": [
+							{
+								"table_fieldname": "item_code",
+								"sl_column": "ARTIKELNR",
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "qty",
+								"sl_column": "MENGE",
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "rate",
+								"sl_column": "PREIS"
+							},
+							{
+								"table_fieldname": "discount_percentage",
+								"sl_column": "RABATT"
+							},
+							{
+								"table_fieldname": "delivery_date",
+								"sl_column": "LIEFERDATUM"
+							},
+							{
+								"table_fieldname": "warehouse",
+								"default": "Lagerräume - LNG"
+							},
+							{
+								"table_fieldname": "description",
+								"sl_column": "POSBEZEICHNUNG"
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+]
