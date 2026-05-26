@@ -910,11 +910,17 @@ def make_sql_string(
 		# - ambiguity when column name matches table name (e.g. ZAHLUNGSBED.ZAHLUNGSBED)
 		# - reserved keyword conflicts (e.g. TEXT)
 		col_string: str = ",\n".join([f"t.[{col}]" for col in col_to_fetch])
+
+		# Handle ORDER BY direction suffix (e.g. "COLUMN DESC" -> "t.[COLUMN] DESC")
+		order_by_parts = order_by.split()
+		order_by_col = order_by_parts[0]
+		order_by_dir = f" {order_by_parts[1]}" if len(order_by_parts) > 1 else ""
+
 		fetch_sql: str = f"""
         SELECT {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name} t
         {query_filter_command}
-        ORDER BY t.[{order_by}]
+        ORDER BY t.[{order_by_col}]{order_by_dir}
         {limit_str}
         """
 
