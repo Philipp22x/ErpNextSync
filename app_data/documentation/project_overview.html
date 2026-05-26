@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>PIT ERPNextSync — Projektübersicht</title>
+<style>
+	@page {
+		size: A4;
+		margin: 16mm 14mm 18mm 14mm;
+		@bottom-center {
+			content: "— " counter(page) " —";
+			font-size: 7pt;
+			color: #999;
+			font-family: "Segoe UI", Roboto, sans-serif;
+		}
+	}
+	@page :first {
+		@bottom-center {
+			content: none;
+		}
+	}
+	*, *::before, *::after { box-sizing: border-box; }
+
+	body {
+		font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		font-size: 11pt;
+		line-height: 1.55;
+		color: #1a1a1a;
+		max-width: 900px;
+		margin: 0 auto;
+		padding: 20px 30px;
+	}
+
+	.logo {
+		height: 48px;
+		margin-right: 16px;
+	}
+
+	.header-row {
+		display: flex;
+		align-items: center;
+		margin-bottom: 4px;
+	}
+
+	h1 {
+		font-size: 22pt;
+		margin: 0 0 4px;
+		color: #5a6b00;
+		border-bottom: 3px solid #d5e449;
+		padding-bottom: 8px;
+	}
+	.subtitle {
+		font-size: 12pt;
+		color: #555;
+		margin: 0 0 30px;
+	}
+
+	h2 {
+		font-size: 15pt;
+		color: #5a6b00;
+		margin: 28px 0 10px;
+		border-bottom: 1px solid #ccc;
+		padding-bottom: 4px;
+	}
+	h3 {
+		font-size: 12pt;
+		color: #6b7d00;
+		margin: 18px 0 6px;
+	}
+
+	p, li { margin: 5px 0; }
+	ul, ol { padding-left: 22px; }
+	li { margin-bottom: 3px; }
+
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 10px 0 16px;
+		font-size: 10pt;
+	}
+	th {
+		background: #d5e449;
+		color: #1a1a1a;
+		padding: 7px 10px;
+		text-align: left;
+		font-weight: 600;
+	}
+	td {
+		padding: 6px 10px;
+		border-bottom: 1px solid #e0e0e0;
+		vertical-align: top;
+	}
+	tr:nth-child(even) td { background: #f9fbf3; }
+
+	.badge {
+		display: inline-block;
+		background: #f5f9e0;
+		color: #5a6b00;
+		padding: 1px 8px;
+		border-radius: 3px;
+		font-size: 9.5pt;
+		font-weight: 600;
+		margin-right: 4px;
+	}
+
+	.pros-box {
+		background: #f9fbf3;
+		border-left: 4px solid #d5e449;
+		padding: 12px 18px;
+		margin: 16px 0;
+		border-radius: 0 6px 6px 0;
+	}
+	.pros-box li::marker { color: #8a9a0a; }
+	.pros-box ul { padding-left: 20px; }
+
+	.diagram {
+		background: #f4f6f8;
+		border: 1px solid #d0d5db;
+		border-radius: 6px;
+		padding: 16px 24px;
+		margin: 12px 0 18px;
+		font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+		font-size: 9.5pt;
+		line-height: 1.7;
+		white-space: pre;
+		overflow-x: auto;
+	}
+
+	.page-break { page-break-before: always; }
+
+	@media print {
+		body {
+			padding: 0;
+			max-width: none;
+			font-size: 10pt;
+			line-height: 1.4;
+		}
+		h1 { font-size: 18pt; }
+		h2 { font-size: 12pt; margin-top: 16px; margin-bottom: 6px; page-break-after: avoid; }
+		h3 { font-size: 10.5pt; margin-top: 10px; page-break-after: avoid; }
+		.subtitle { font-size: 10pt; margin-bottom: 16px; }
+		table { page-break-inside: avoid; font-size: 8.5pt; }
+		th, td { padding: 4px 6px; }
+		tr { page-break-inside: avoid; }
+		.diagram { page-break-inside: avoid; font-size: 7pt; padding: 10px 14px; line-height: 1.35; }
+		.pros-box { page-break-inside: avoid; padding: 8px 14px; margin: 12px 0; }
+		ul, ol { page-break-inside: avoid; }
+		p { orphans: 2; widows: 2; }
+	}
+</style>
+</head>
+<body>
+
+<div class="header-row">
+	<img src="378-378-max.png" alt="Logo" class="logo" id="logo-img">
+	<h1 style="border-bottom:none; padding-bottom:0; margin:0;">PIT ERPNextSync</h1>
+</div>
+<p class="subtitle">Externe ERP-Systeme mit ERPNext verbinden — Eine bidirektionale Datensynchronisationsbrücke</p>
+
+<!-- ================================================================== -->
+<h2>1. Was ist das?</h2>
+
+<p>
+PIT ERPNextSync ist eine <strong>Frappe/ERPNext Custom App</strong> der PIT IT GmbH, die
+Stammdaten und transaktionale Datensätze von <strong>externen ERP-Systemen</strong>
+nach <strong>ERPNext</strong> synchronisiert. Sie fungiert als konfigurierbare,
+automatisierte Brücke zwischen zwei ERP-Welten.
+</p>
+
+<p>Die App verbindet sich direkt mit der Quelldatenbank &mdash; entweder</p>
+<ul>
+	<li><strong>Microsoft SQL Server</strong> (via <code>pymssql</code>), oder</li>
+	<li><strong>4D</strong> (via <code>p4d</code>)</li>
+</ul>
+&mdash; liest Quelldatensätze, transformiert sie über ein <strong>deklaratives JSON-Mapping</strong>
+und erstellt oder aktualisiert ERPNext-Dokumente. Keine Middleware, keine externen ETL-Tools.
+
+<!-- ================================================================== -->
+<h2>2. Welches Problem löst die App?</h2>
+
+<p>
+Viele Unternehmen betreiben ein externes ERP-System operativ und nutzen ERPNext parallel für
+E-Commerce, CRM oder Finanzkonsolidierung. Manuelles Übertragen von Daten zwischen beiden
+Systemen ist fehleranfällig und zeitaufwendig. PIT ERPNextSync automatisiert dies durch:
+</p>
+
+<ul>
+	<li><strong>Einmaliger Bulk-Import</strong> — Migration tausender Kunden, Artikel, Adressen
+	und Kontakte in einem Durchlauf.</li>
+	<li><strong>Inkrementelle, timestamp-basierte Updates</strong> — nach dem Initialimport werden
+	nur im Quellsystem geänderte Datensätze in ERPNext aktualisiert. Beide Systeme bleiben bei
+	minimaler Last synchron.</li>
+	<li><strong>Reconciliation (Abgleich)</strong> — vergleicht die aktuelle JSON-Mapping-Definition
+	mit den tatsächlich importierten Daten und meldet Abweichungen.</li>
+</ul>
+
+<!-- ================================================================== -->
+<h2>3. Architektur im Überblick</h2>
+
+<div class="diagram">
+                         ┌──────────────────────┐
+                         │    Externes ERP       │
+                         │  (MSSQL  oder  4D)    │
+                         └──────────┬───────────┘
+                                    │ pymssql / p4d
+                                    ▼
+┌───────────────────────────────────────────────────────┐
+│                 PIT ERPNextSync                        │
+│                                                        │
+│   ┌────────────┐  ┌──────────┐  ┌─────────────────┐  │
+│   │ Datenimport │  │  Update  │  │  Reconciliation  │  │
+│   │ (initial)   │  │(inkrem.) │  │  (Diff / Audit)  │  │
+│   └─────┬──────┘  └────┬─────┘  └────────┬────────┘  │
+│         │              │                 │            │
+│         └──────────────┼─────────────────┘            │
+│                        ▼                              │
+│              ┌─────────────────┐                      │
+│              │   Controller    │  (Core-Engine)        │
+│              │  + JSON-Mapping │                      │
+│              └────────┬────────┘                      │
+│                       │                               │
+│         ┌─────────────┼─────────────┐                 │
+│         ▼             ▼             ▼                 │
+│   Server-Script   Mapping-CRUD   Queue-Manager        │
+│   Hooks           (Sync Mapping)  (Redis)             │
+└───────────────────────┬───────────────────────────────┘
+                        │ frappe API
+                        ▼
+               ┌────────────────┐
+               │    ERPNext      │
+               │  (Kunden,       │
+               │   Artikel,      │
+               │   Adressen,     │
+               │   Kontakte…)    │
+               └────────────────┘
+</div>
+
+<!-- ================================================================== -->
+<h2>4. Kernfunktionen</h2>
+
+<h3>4.1 Deklaratives JSON-Mapping</h3>
+<p>
+Die gesamte Transformation wird durch eine <strong>einzige JSON-Struktur</strong> gesteuert,
+die im DocType <code>Sync Instance</code> hinterlegt ist. Für das Mapping neuer Tabellen ist
+kein Python-Code erforderlich. Wichtigste Mapping-Features:
+</p>
+
+<table>
+	<thead>
+		<tr><th>Feature</th><th>Beschreibung</th></tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td>Direktes Spalten-Mapping</td>
+			<td><code>sl_column</code> → ERPNext-Feldname zuweisen</td>
+		</tr>
+		<tr>
+			<td>Fallback-Spalten</td>
+			<td><code>alt_key</code> als Alternative, falls die primäre Spalte leer ist</td>
+		</tr>
+		<tr>
+			<td>Statische Standardwerte</td>
+			<td>Beliebiges Feld mit einem <code>default</code>-Literalwert belegen</td>
+		</tr>
+		<tr>
+			<td>Dynamische Feldvariablen</td>
+			<td><code>field_var</code> zur Laufzeit auflösen (z.&nbsp;B. <code>default_territory</code>)</td>
+		</tr>
+		<tr>
+			<td>Querverweis-Mappings</td>
+			<td>Zuvor importierten Datensatz via <code>mapped_value</code> nachschlagen</td>
+		</tr>
+		<tr>
+			<td>Child-Tables</td>
+			<td>ERPNext-Untertabellen aus derselben Zeile oder via <code>multiple_query</code> befüllen</td>
+		</tr>
+		<tr>
+			<td>Post-Field-Variablen</td>
+			<td>Generierte Dokument-IDs erfassen, um spätere Dokumente zu verknüpfen</td>
+		</tr>
+		<tr>
+			<td>Multi-Dokument-Zeilen</td>
+			<td>Eine Quellzeile kann mehrere DocTypes erzeugen (z.&nbsp;B. Kunde + Adresse)</td>
+		</tr>
+		<tr>
+			<td>Pflichtfeld-Prüfung</td>
+			<td>Drei Stufen: optional, Dokument überspringen wenn leer, Import abbrechen wenn leer</td>
+		</tr>
+	</tbody>
+</table>
+
+<h3>4.2 Import, Update, Reconciliation</h3>
+
+<table>
+	<thead>
+		<tr><th>Operation</th><th>Modul</th><th>Zweck</th></tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td><strong>Datenimport</strong></td>
+			<td><code>data_import.py</code> (1.227 Zeilen)</td>
+			<td>Massen-Erstellung von ERPNext-Dokumenten aus dem Quellsystem. Unterstützt
+			<code>top</code>-Limit, Typfilterung und automatische Telefonnummer-Formatierung.</td>
+		</tr>
+		<tr>
+			<td><strong>Bulk-Update</strong></td>
+			<td><code>update.py</code> (734 Zeilen)</td>
+			<td>Timestamp-basierte inkrementelle Synchronisation. Vergleicht den Zeitstempel
+			jedes gemappten Datensatzes mit dem Quellsystem; aktualisiert nur geänderte Dokumente.
+			Läuft als gestaffelte Hintergrundjobs.</td>
+		</tr>
+		<tr>
+			<td><strong>Reconciliation</strong></td>
+			<td><code>reconcile.py</code> (2.378 Zeilen)</td>
+			<td>Vergleicht die aktuelle JSON-Mapping-Definition mit den gespeicherten
+			<code>Sync Mapping</code>-Einträgen. Erkennt neue, entfernte und geänderte
+			Feld-Mappings ohne Zugriff auf das Quellsystem.</td>
+		</tr>
+	</tbody>
+</table>
+
+<h3>4.3 Zeitgesteuerte Automatisierung</h3>
+<p>
+Konfiguriert über die <code>hooks.py</code> Scheduler-Events kann jede <code>Sync Instance</code>
+in folgenden Intervallen ausgeführt werden: <strong>alle / täglich / stündlich / wöchentlich /
+monatlich</strong>. Der Scheduler-Zyklus führt aus:
+</p>
+<ol>
+	<li><code>start_import()</code> — neue Datensätze importieren</li>
+	<li><code>run_bulk_update()</code> — geänderte Datensätze aktualisieren</li>
+</ol>
+<p>
+Langlaufende Jobs nutzen <code>frappe.enqueue(queue="long", timeout=600)</code> mit
+Redis-gestütztem Job-Tracking. Die Batch-Größe ist pro Instanz konfigurierbar.
+</p>
+
+<h3>4.4 Server-Script-Hooks</h3>
+<p>
+Die <code>Sync Instance Hooks</code>-Untertabelle erlaubt das Anhängen von
+<strong>Server-Scripts</strong>, die <em>vor</em> und <em>nach</em> Import- und Update-Läufen
+ausgeführt werden. Dies ermöglicht benutzerdefinierte Validierungen, Datenanreicherungen
+oder Integrationen mit anderen Systemen, ohne die Sync-Kernlogik ändern zu müssen.
+</p>
+
+<!-- ================================================================== -->
+
+<h2>5. Wichtige DocTypes</h2>
+
+<table>
+	<thead>
+		<tr><th>DocType</th><th>Rolle</th></tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td><code>Sync Instance</code></td>
+			<td>Zentrale Konfiguration: DB-Zugangsdaten, Treiberauswahl,
+			JSON-Mapping-Definition, Scheduler-Intervall, Aktivierungsschalter,
+			Batch-Größe und Feldvariablen-Speicher.</td>
+		</tr>
+		<tr>
+			<td><code>Selectline Table Mapping</code></td>
+			<td>Untertabelle von Sync Instance. Jede Zeile enthält ein Mapping auf
+			Tabellenebene (das JSON, das definiert, wie eine Quelltabelle zu einem
+			ERPNext-DocType wird).</td>
+		</tr>
+		<tr>
+			<td><code>Sync Mapping</code></td>
+			<td>Verfolgt die Beziehung <strong>Quelldatensatz → ERPNext-Dokument</strong>.
+			Identifiziert durch die Mapping-ID:
+			<code>&lt;Instanz&gt;:&lt;Tabelle&gt;:&lt;Primärschlüssel&gt;</code></td>
+		</tr>
+		<tr>
+			<td><code>Sync Mapping Entry</code></td>
+			<td>Untertabelle von Sync Mapping. Eine Zeile pro tatsächlich nach ERPNext
+			geschriebenem Feld. Wird von der Reconciliation verwendet.</td>
+		</tr>
+		<tr>
+			<td><code>Sync Instance Hooks</code></td>
+			<td>Untertabelle von Sync Instance. Verweist auf Server-Script-Dokumente
+			für Before/After-Import/Update-Hooks.</td>
+		</tr>
+		<tr>
+			<td><code>PIT ERPNextSync Settings</code></td>
+			<td>Singleton-DocType für globale Einstellungen (z.&nbsp;B. Cascade-Delete-Schalter).</td>
+		</tr>
+	</tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2>6. Vorteile &amp; Alleinstellungsmerkmale</h2>
+
+<div class="pros-box">
+<ul>
+	<li><strong>No-Code-Mapping.</strong> Neue Tabellen werden durch Bearbeitung eines JSON-Arrays
+	im Sync-Instance-Formular hinzugefügt. Für routinemäßige Mapping-Arbeiten ist kein
+	Python-Code erforderlich.</li>
+
+	<li><strong>Dualer Datenbanktreiber.</strong> Arbeitet nativ mit MSSQL und 4D über einen
+	einheitlichen Dispatcher in <code>db_connect()</code>. SQL-Generierung, Spalten-Quoting und
+	Fetch-Logik passen sich automatisch pro Treiber an.</li>
+
+	<li><strong>Idempotente Synchronisation.</strong> Das eindeutige Mapping-ID-Format
+	(<code>Instanz:Tabelle:Primärschlüssel</code>) stellt sicher, dass derselbe
+	Quelldatensatz nie doppelt in ERPNext angelegt wird. Updates werden auf das
+	bestehende Dokument angewendet.</li>
+
+	<li><strong>Inkrementelle, timestamp-basierte Updates.</strong> Nach dem Initialimport werden
+	nur Datensätze aktualisiert, deren <code>last_changed</code>-Zeitstempel neuer als die letzte
+	Synchronisation ist. Minimiert die Datenbanklast auf beiden Seiten.</li>
+
+	<li><strong>Batch-Verarbeitung mit Queue-Isolation.</strong> Große Imports und Updates werden
+	in konfigurierbare Batches aufgeteilt und als separate langlebige Redis-Jobs eingereiht.
+	Der Job-Fortschritt wird verfolgt und ist einsehbar.</li>
+
+	<li><strong>Integrierte Reconciliation.</strong> Das System kann die aktuelle Mapping-Definition
+	mit den gespeicherten Mapping-Einträgen abgleichen und Abweichungen aufdecken — ohne
+	aktive Datenbankverbindung zum Quellsystem.</li>
+
+	<li><strong>Server-Script-Hooks.</strong> Beliebige Frappe-Server-Scripts können vor oder nach
+	Import/Update ausgeführt werden. Ermöglicht benutzerdefinierte Geschäftslogik,
+	Benachrichtigungen oder nachgelagerte Integrationen.</li>
+
+	<li><strong>Telefonnummer-Normalisierung.</strong> Formatiert Rufnummern automatisch ins
+	internationale Format (<code>+43…</code> für Österreich, konfigurierbar nach Land).</li>
+
+	<li><strong>Cascade-Delete-Unterstützung.</strong> Wird ein Quelldatensatz im Quellsystem
+	entfernt, kann das entsprechende ERPNext-Dokument optional gelöscht werden (konfigurierbar
+	über globale Einstellungen).</li>
+
+	<li><strong>Debug-freundlich.</strong> Debug-Modus pro Instanz für ausführliches Logging,
+	„Test Connection“-Button im Formular und alle Fehler im ERPNext Error Log (filterbar
+	nach App-Name).</li>
+
+	<li><strong>Konsistente Codebasis.</strong> Ruff-formatiert (Tabs, doppelte Anführungszeichen),
+	110 Zeichen Zeilenlänge, Pre-Commit-Hooks und ein klarer Einstiegspunkt pro Operation.</li>
+</ul>
+</div>
+
+<!-- ================================================================== -->
+<h2>7. Typischer Datenfluss</h2>
+
+<ol>
+	<li><strong>Konfigurieren</strong> — <code>Sync Instance</code> mit DB-Zugangsdaten,
+	Treiber, Mapping-JSON, Wiederholungsintervall und zu importierenden Typen anlegen.</li>
+	<li><strong>Testen</strong> — Auf <em>Test Connection</em> klicken, um die
+	Datenbankverbindung zu prüfen.</li>
+	<li><strong>Importieren</strong> — Manuellen Import mit kleinem <code>top</code>-Limit
+	durchführen, um das Mapping zu validieren.</li>
+	<li><strong>Abgleichen</strong> — Importergebnis mit der Mapping-Definition vergleichen
+	(Reconciliation).</li>
+	<li><strong>Einplanen</strong> — Scheduler aktivieren. Das System führt nun
+	<code>start_import()</code> + <code>run_bulk_update()</code> im konfigurierten Intervall aus.</li>
+	<li><strong>Überwachen</strong> — Error Log, Debug-Logs und Job-Queue auf Probleme prüfen.</li>
+</ol>
+
+<!-- ================================================================== -->
+<h2>8. Technologie-Stack</h2>
+
+<table>
+	<thead>
+		<tr><th>Schicht</th><th>Technologie</th></tr>
+	</thead>
+	<tbody>
+		<tr><td>Laufzeit</td><td>Python 3.10+</td></tr>
+		<tr><td>Framework</td><td>Frappe (ERPNext Custom App)</td></tr>
+		<tr><td>MSSQL-Treiber</td><td><code>pymssql &ge; 2.2.0</code></td></tr>
+		<tr><td>4D-Treiber</td><td><code>p4d &ge; 1.8</code></td></tr>
+		<tr><td>Job-Queue</td><td>Redis (via <code>frappe.enqueue</code> + RQ)</td></tr>
+		<tr><td>Build-System</td><td><code>flit_core</code></td></tr>
+		<tr><td>Linting &amp; Formatierung</td><td>Ruff (via Pre-Commit)</td></tr>
+		<tr><td>Parent-App-Abhängigkeit</td><td><code>pit_erpnext</code> (stellt gemeinsamen Logger bereit)</td></tr>
+	</tbody>
+</table>
+
+<!-- ================================================================== -->
+<h2>9. Zusammenfassung</h2>
+
+<p>
+PIT ERPNextSync ist eine <strong>praxiserprobte</strong> Datensynchronisationsschicht zwischen
+externen ERP-Systemen und ERPNext. Die JSON-gesteuerte Mapping-Engine eliminiert benutzerdefinierten Code
+für routine Integrationsaufgaben, während die Dual-Treiber-Architektur, Batch-Verarbeitung und
+integrierte Reconciliation die App auch für Produktivumgebungen mit großen Datenmengen und
+gemischten Datenbank-Backends geeignet macht.
+</p>
+
+<p style="margin-top: 20px; font-style: italic; color: #666;">
+	Dokumentation: <code>app_data/documentation/MAPPING_GUIDE.md</code> &nbsp;|&nbsp;
+	Architektur: <code>AGENTS.md</code> &nbsp;|&nbsp;
+	Quellcode: <code>pit_erpnextsync/scripts/</code>
+</p>
+
+</body>
+</html>

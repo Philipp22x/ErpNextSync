@@ -29,7 +29,7 @@ Supports two backends: **pymssql** (MSSQL) and **p4d** (4D). SQL generation, col
 | `reconcile.py` | Diffs current JSON mapping against stored Sync Mapping entries |
 | `scheduler.py` | Entry points for all/daily/hourly/weekly/monthly cron |
 | `custom_scripts.py` | Ad-hoc bulk operations (e.g. create Website Items) |
-| `field_vars.py` | Simple container for dynamic field variable resolution |
+| `classes/field_vars.py` | `FieldVars` class — dynamic field variable resolution (key-value store) |
 | `utils.py` | **Empty** — placeholder, do not use |
 
 ### Scheduler flow
