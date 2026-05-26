@@ -1,17 +1,16 @@
 [
 	{
 		"_comment": "=== Sales Order import from OfficeNo1 4D database ===",
-		"_comment2": "Imports orders with bestellt=true from AUFTRAG table, with line items from AUFTRAGpos",
+		"_comment2": "Imports orders from AUFTRAG table (youngest first), with line items from AUFTRAGpos",
 		"_comment3": "IMPORTANT: sl_column, primary_key, order_by, timestamp_column_name must be UPPERCASE because the 4D driver returns uppercase dict keys",
 		"idx": 1,
 		"type": "SalesOrder",
 		"doc_type": "Sales Order",
 		"table_name": "AUFTRAG",
 		"primary_key": "AUFTRAGSNR",
-		"order_by": "AUFTRAGSNR",
+		"order_by": "AUFTRAGSNR DESC",
 		"timestamp_column_name": "LETZTEAENDERUNG",
 		"timestamp_column_type": "datetime",
-		"query_filter": "t.[bestellt] = true",
 		"mapping": [
 			{
 				"doctype": "Sales Order",
@@ -70,18 +69,9 @@
 						"sl_column": "GESRABATT"
 					},
 					{
-						"fieldname": "payment_terms_template",
-						"sl_column": "ZAHLUNGSBEDKZ"
-					},
-					{
-						"_comment": "--- Kopftext / header notes ---",
-						"fieldname": "notes",
-						"sl_column": "KOPFTEXT"
-					},
-					{
-						"_comment": "--- Footer text into terms ---",
+						"_comment": "--- Kopftext into terms ---",
 						"fieldname": "terms",
-						"sl_column": "FUSSTEXT"
+						"sl_column": "KOPFTEXT"
 					},
 					{
 						"_comment": "--- Internal remarks ---",
