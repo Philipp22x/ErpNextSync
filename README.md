@@ -1,5 +1,5 @@
-# PIT ERPNextSync
-<img src="app_data/378-378-max.png" width="300" alt="Description">
+# PIT ERPNextSync <img src="app_data/378-378-max.png" width="80" alt="Description">
+
 
 **A Frappe/ERPNext app that synchronizes master data from legacy ERP systems into ERPNext.**
 
