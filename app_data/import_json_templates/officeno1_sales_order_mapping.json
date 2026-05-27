@@ -91,6 +91,15 @@
 								"reqd": 1
 							},
 							{
+								"table_fieldname": "item_name",
+								"sl_column": "POSBEZEICHNUNG",
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "uom",
+								"default": "Stk"
+							},
+							{
 								"table_fieldname": "qty",
 								"sl_column": "MENGE",
 								"reqd": 1
