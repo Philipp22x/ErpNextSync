@@ -46,12 +46,11 @@ def monthly() -> None:
 
 # run import / update
 def run(instances: list) -> None:
-    make_log(f"Scheduled import/update ({instance_data.get('repetation')}) for {instance_data.get('name')} is starting...", "INFO", controller.APP_NAME)
-
     if not instances:
         return
     
     for instance_data in instances:
+        make_log(f"Scheduled import/update ({instance_data.get('repetition')}) for {instance_data.get('name')} is starting...", "INFO", controller.APP_NAME)
 
         if not instance_data.get("enable_scheduler"):
             continue
@@ -68,7 +67,7 @@ def run(instances: list) -> None:
                 types_str=instance_data.get("types_to_import")
             )
 
-            make_log(f"Background jobs for import/update ({instance_data.get('repetation')}) for {instance_data.get('name')} created successfully", "INFO", controller.APP_NAME)
+            make_log(f"Background jobs for import/update ({instance_data.get('repetition')}) for {instance_data.get('name')} created successfully", "INFO", controller.APP_NAME)
 
         except Exception as e:
             make_log(f"Could not run scheduled import/update for {instance_data.get('name')}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
