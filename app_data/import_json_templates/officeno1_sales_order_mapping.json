@@ -69,6 +69,10 @@
 						"sl_column": "GESRABATT"
 					},
 					{
+						"fieldname": "ignore_pricing_rule",
+						"default": 1
+					},
+					{
 						"_comment": "--- Kopftext into terms ---",
 						"fieldname": "terms",
 						"sl_column": "KOPFTEXT"
@@ -106,6 +110,10 @@
 							},
 							{
 								"table_fieldname": "rate",
+								"sl_column": "PREIS"
+							},
+							{
+								"table_fieldname": "price_list_rate",
 								"sl_column": "PREIS"
 							},
 							{
