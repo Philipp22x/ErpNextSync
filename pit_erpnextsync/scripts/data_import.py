@@ -795,12 +795,16 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         country_code = table_field.get("phone_country_code", "AT")
                                         field_value = format_phone_number(field_value, country_code)
 
-                                    # check if field value is empty and reqd
+                                    # check if field value is empty and reqd — skip this ROW, not the whole doc
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
-                                        if doc_is_reqd in [0, None]:
-                                            return {"code": 101}
-                                        else:
-                                            return {"code": 102}
+                                        make_log(
+                                            f"Skipping child row for {mapped_doctype['doctype']}.{field['fieldname']}: "
+                                            f"required table field '{table_field['table_fieldname']}' (sl_column: {table_field.get('sl_column')}) is empty",
+                                            "WARNING",
+                                            controller.APP_NAME,
+                                        )
+                                        row_has_data = False
+                                        break
                                     else:
                                         new_child_row.set(table_field["table_fieldname"], field_value)
                                         if field_value not in ["", None]:
@@ -830,11 +834,16 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         if cached_value is not None:
                                             field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
 
+                                    # skip this ROW if reqd field is empty, not the whole doc
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
-                                        if doc_is_reqd in [0, None]:
-                                            return {"code": 101}
-                                        else:
-                                            return {"code": 102}
+                                        make_log(
+                                            f"Skipping child row for {mapped_doctype['doctype']}.{field['fieldname']}: "
+                                            f"required table field '{table_field['table_fieldname']}' (get_redis: {redis_key}) is empty",
+                                            "WARNING",
+                                            controller.APP_NAME,
+                                        )
+                                        row_has_data = False
+                                        break
                                     elif field_value not in ["", None]:
                                         new_child_row.set(table_field["table_fieldname"], field_value)
                                         row_has_data = True
