@@ -11,6 +11,7 @@
 		"order_by": "AUFTRAGSNR DESC",
 		"timestamp_column_name": "LETZTEAENDERUNG",
 		"timestamp_column_type": "datetime",
+		"query_filter": "t.[allesgeliefert] IS NULL OR t.[allesgeliefert] = false",
 		"mapping": [
 			{
 				"doctype": "Sales Order",
@@ -107,6 +108,10 @@
 								"table_fieldname": "qty",
 								"sl_column": "MENGE",
 								"reqd": 1
+							},
+							{
+								"table_fieldname": "delivered_qty",
+								"sl_column": "MENGEGELIEFERT"
 							},
 							{
 								"table_fieldname": "rate",
