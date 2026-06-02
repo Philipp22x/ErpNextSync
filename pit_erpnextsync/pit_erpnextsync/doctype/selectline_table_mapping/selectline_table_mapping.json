@@ -14,8 +14,9 @@
   "order_by",
   "timestamp_column_name",
   "timestamp_column_type",
-  "query_filter",
-  "mapping"
+   "query_filter",
+   "query_join",
+   "mapping"
  ],
  "fields": [
   {
@@ -52,13 +53,18 @@
    "fieldtype": "JSON",
    "label": "Mapping"
   },
-  {
-   "fieldname": "query_filter",
-   "fieldtype": "Text",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Query Filter"
-  },
+   {
+    "fieldname": "query_filter",
+    "fieldtype": "Text",
+    "in_list_view": 1,
+    "in_standard_filter": 1,
+    "label": "Query Filter"
+   },
+   {
+    "fieldname": "query_join",
+    "fieldtype": "Text",
+    "label": "Query Join"
+   },
   {
    "columns": 1,
    "fieldname": "order_by",
