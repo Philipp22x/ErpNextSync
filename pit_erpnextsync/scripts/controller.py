@@ -243,6 +243,14 @@ def _fetch_data_4d(conn, sql: str, instance: str) -> list:
 	return result
 
 
+def _quote_4d_col(col: str) -> str:
+	"""Wrap a column name in t.[...] for 4D SQL, but pass through SQL expressions as-is."""
+	upper = col.upper()
+	if col.startswith("(") or "SELECT " in upper or " AS " in upper:
+		return col
+	return f"t.[{col}]"
+
+
 def fetch_multiple_rows(
 	instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None,
 	columns: list | None = None,
@@ -349,7 +357,7 @@ def fetch_multiple_rows(
 		if columns:
 			if driver == "p4d":
 				# 4D needs table alias + bracket-quoted column names
-				col_string = ", ".join([f"t.[{c}]" for c in columns])
+				col_string = ", ".join([_quote_4d_col(c) for c in columns])
 				sql = f"""
         SELECT {col_string}
         FROM {schema_prefix}{table} t
@@ -911,7 +919,7 @@ def make_sql_string(
 		# Use table alias 't' and bracket-quote all column names to avoid:
 		# - ambiguity when column name matches table name (e.g. ZAHLUNGSBED.ZAHLUNGSBED)
 		# - reserved keyword conflicts (e.g. TEXT)
-		col_string: str = ",\n".join([f"t.[{col}]" for col in col_to_fetch])
+		col_string: str = ",\n".join([_quote_4d_col(col) for col in col_to_fetch])
 
 		# Handle ORDER BY direction suffix (e.g. "COLUMN DESC" -> "t.[COLUMN] DESC")
 		order_by_parts = order_by.split()
@@ -970,7 +978,7 @@ def make_sql_string_single_row(
 			WHERE {primary_key_col} = {quoted_pk}
 		"""
 	else:  # p4d - 4D SQL uses bracket-quoted column names
-		col_string = ", ".join([f"t.[{col}]" for col in columns])
+		col_string = ", ".join([_quote_4d_col(col) for col in columns])
 		sql = f"""
 			SELECT {col_string}
 			FROM {schema_dot}{table_name} t
