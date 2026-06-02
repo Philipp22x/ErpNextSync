@@ -891,6 +891,11 @@ def make_sql_string(
 		else:  # p4d - 4D SQL uses LIMIT (after ORDER BY)
 			limit_str = f"LIMIT {top}"
 
+	# handle joins if exists in mapping
+	query_join: str = mapping_row_data.get("query_join") or ""
+	if query_join:
+		query_join = query_join.replace(chr(34), "")
+
 	# handle filters if exists in mapping
 	query_filter: str = mapping_row_data.get("query_filter")
 	query_filter_command: str = ""
@@ -912,6 +917,7 @@ def make_sql_string(
 		fetch_sql: str = f"""
         SELECT {top_str} {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}
+        {query_join}
         {query_filter_command}
         ORDER BY {order_by}
         """
@@ -929,6 +935,7 @@ def make_sql_string(
 		fetch_sql: str = f"""
         SELECT {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name} t
+        {query_join}
         {query_filter_command}
         ORDER BY t.[{order_by_col}]{order_by_dir}
         {limit_str}
