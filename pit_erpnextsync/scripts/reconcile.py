@@ -1098,19 +1098,21 @@ def apply_field_additions(
 					f"{doctype}:{docname}:{fieldname}:{child_group_key}" if child_group_key else None
 				)
 				
-				# Find or create child row
-				child_info = child_rows_cache.get(child_cache_key) if child_cache_key else None
-				if not child_info:
-					child_info = get_or_create_child_row(
-						mapping_name=mapping_name,
-						doctype=doctype,
-						docname=docname,
-						fieldname=fieldname,
-						field_def=field_def,
-						allow_create=has_trackable_source,
-						resolved_value=field_value,
-					)
-					if child_cache_key and child_info:
+			# Find or create child row
+			child_info = child_rows_cache.get(child_cache_key) if child_cache_key else None
+			if not child_info:
+				child_names_in_use = {c.get("child_name") for c in child_rows_cache.values() if c.get("child_name")}
+				child_info = get_or_create_child_row(
+					mapping_name=mapping_name,
+					doctype=doctype,
+					docname=docname,
+					fieldname=fieldname,
+					field_def=field_def,
+					allow_create=has_trackable_source,
+					resolved_value=field_value,
+					child_names_in_use=child_names_in_use,
+				)
+				if child_cache_key and child_info:
 						child_rows_cache[child_cache_key] = child_info
 				
 				if child_info:
@@ -1897,6 +1899,7 @@ def get_or_create_child_row(
 	field_def: Dict,
 	allow_create: bool = True,
 	resolved_value: Any = None,
+	child_names_in_use: set = None,
 ) -> Optional[Dict]:
 	"""
 	Finds or creates a child table row for adding new fields.
@@ -1928,7 +1931,9 @@ def get_or_create_child_row(
 				fields=["child_row_name", "child_row_doctype"],
 				limit=1,
 			)
-			if existing_children and existing_children[0].get("child_row_name"):
+			if existing_children and existing_children[0].get("child_row_name") and (
+				child_names_in_use is None or existing_children[0]["child_row_name"] not in child_names_in_use
+			):
 				return {
 					"child_doctype": existing_children[0]["child_row_doctype"],
 					"child_name": existing_children[0]["child_row_name"],
@@ -1967,7 +1972,9 @@ def get_or_create_child_row(
 					fields=["child_row_name", "child_row_doctype"],
 					limit=1,
 				)
-				if sibling_entries:
+				if sibling_entries and (
+					child_names_in_use is None or sibling_entries[0]["child_row_name"] not in child_names_in_use
+				):
 					return {
 						"child_doctype": sibling_entries[0]["child_row_doctype"],
 						"child_name": sibling_entries[0]["child_row_name"],
