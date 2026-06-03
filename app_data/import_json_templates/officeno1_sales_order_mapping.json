@@ -44,6 +44,14 @@
 						"sl_column": "LIEFERDATUM"
 					},
 					{
+						"fieldname": "custom_shipping_type",
+						"sl_column": "TXTVERSANDBEDIN"
+					},
+					{
+						"fieldname": "sales_partner",
+						"sl_column": "VERTRETER"
+					},
+					{
 						"fieldname": "currency",
 						"sl_column": "WAEHRUNG",
 						"value_map": {

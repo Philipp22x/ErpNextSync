@@ -1,11 +1,11 @@
-# <img src="app_data/378-378-max.png" width="50" alt="Description"> PIT ERPNextSync
+# ERPNextSync
 
 
 **A Frappe/ERPNext app that synchronizes master data from legacy ERP systems into ERPNext.**
 
-PIT ERPNextSync connects directly to external databases (Microsoft SQL Server, 4D, and more), reads source records via configurable JSON mappings, and creates or updates the corresponding ERPNext documents automatically. It supports scheduled background sync, incremental timestamp-based updates, cross-reference resolution between related documents, and hook scripts for custom pre-/post-processing.
+ERPNextSync connects directly to external databases (Microsoft SQL Server, 4D, and more), reads source records via configurable JSON mappings, and creates or updates the corresponding ERPNext documents automatically. It supports scheduled background sync, incremental timestamp-based updates, cross-reference resolution between related documents, and hook scripts for custom pre-/post-processing.
 
-Originally built for [SelectLine](https://www.selectline.de/), the connector is designed to work with **any legacy ERP system** that exposes its data through a supported database protocol.
+Designed to work with **any legacy ERP system** that exposes its data through a supported database protocol.
 
 ---
 
@@ -72,9 +72,7 @@ Click **Test Connection** to verify connectivity.
 
 ### 2. Add Table Mappings
 
-In the **Selectline Table Mapping** child table on the Sync Instance, add one or more mapping entries. Each entry contains a JSON definition that maps a source database table to one or more ERPNext DocTypes.
-
-> **Note:** The DocType is named "Selectline Table Mapping" for historical reasons but works with any supported database source.
+In the **Table Mapping** child table on the Sync Instance, add one or more mapping entries. Each entry contains a JSON definition that maps a source database table to one or more ERPNext DocTypes.
 
 Minimal example -- import customers:
 
@@ -127,7 +125,7 @@ On the Sync Instance, check **Enable Scheduler** and set the **Repetition** inte
 ### How Sync Works
 
 ```
-Source ERP DB                  PIT ERPNextSync                    ERPNext
+Source ERP DB                  ERPNextSync                    ERPNext
   (MSSQL/4D)                                                    (MariaDB)
       |                              |                              |
       |  1. Connect (pymssql/p4d)    |                              |
@@ -156,11 +154,11 @@ Source ERP DB                  PIT ERPNextSync                    ERPNext
 | DocType | Type | Purpose |
 |---------|------|---------|
 | **Sync Instance** | Regular | Database connection config, table mappings, scheduler settings |
-| **Selectline Table Mapping** | Child of Sync Instance | JSON mapping definition for one source table |
+| **Table Mapping** | Child of Sync Instance | JSON mapping definition for one source table |
 | **Sync Instance Hooks** | Child of Sync Instance | Server Script hooks (before/after import/update) |
 | **Sync Mapping** | Regular | Tracks one source record to ERPNext document relationship |
 | **Sync Mapping Entry** | Child of Sync Mapping | Field-level mapping audit trail |
-| **PIT ERPNextSync Settings** | Single | Global settings (e.g. cascade-delete toggle) |
+| **ERPNextSync Settings** | Single | Global settings (e.g. cascade-delete toggle) |
 
 ### Mapping ID Format
 
@@ -214,7 +212,7 @@ Long-running jobs are enqueued via `frappe.enqueue(queue="long", timeout=600)`.
 
 ## JSON Mapping Reference
 
-The mapping system is the core of PIT ERPNextSync. Each table mapping entry is a JSON array that describes how to read one source table and create one or more ERPNext documents per row.
+The mapping system is the core of ERPNextSync. Each table mapping entry is a JSON array that describes how to read one source table and create one or more ERPNext documents per row.
 
 For a narrative walkthrough with worked examples, see the **[Mapping Guide](app_data/documentation/MAPPING_GUIDE.md)**.
 
@@ -401,7 +399,7 @@ When child data lives in a different source table, add these keywords at the fie
 
 ### Global Settings
 
-Navigate to **PIT ERPNextSync Settings** (single DocType) to configure:
+Navigate to **ERPNextSync Settings** (single DocType) to configure:
 
 - Cascade-delete behavior when Sync Mappings are removed
 - Other global defaults
@@ -479,11 +477,11 @@ pit_erpnextsync/
         sync_instance/
         sync_mapping/
         sync_mapping_entry/
-        selectline_table_mapping/
+        table_mapping/
         sync_instance_hooks/
         pit_erpnextsync_settings/
       page/
-        selectline_sync_dash/ # Dashboard page
+        sync_dashboard/ # Dashboard page
       workspace/              # Desk workspace definitions
 app_data/
   documentation/
@@ -556,9 +554,9 @@ The `app_data/import_json_templates/` directory contains mapping examples that c
 | **[`complete_example_mapping.json`](app_data/import_json_templates/complete_example_mapping.json)** | Comprehensive reference example that demonstrates **every available keyword** across 12 table mappings (Item Groups, Payment Terms, Customers with Address/Contact chains, Suppliers, Item Attributes with `multiple_query`, Items with variants/barcodes/UOM conversions, Pricing Rules, Leads with `post_field_vars`/`field_var`, and more). Start here to understand the full capabilities. |
 | `cobra_default_mapping.json` | Customers, Contacts, Leads, and Addresses from a CRM system (Cobra) |
 | `lang_officeno1_mapping.json` | Full integration: Payment Terms, Customers, Suppliers, Item Groups, Items with barcodes/UOMs/supplier items, Item Prices, Pricing Rules, Delivery Addresses, Stock Bins |
-| `mwlaser_selectline_mapping.json` | Customers with email preferences (SQL subqueries), CRM Addresses/Contacts via `mapped_value`, Items with barcodes |
-| `selectline_default_mapping_hellatex_V2.json` | Item Attributes with `multiple_query`, variant parent/child Items with `deduplicate_on` |
-| `selectline_default_mapping873f88.json` | Customers with CRM addresses, Items with barcodes |
+| `mwlaser_mapping.json` | Customers with email preferences (SQL subqueries), CRM Addresses/Contacts via `mapped_value`, Items with barcodes |
+| `default_mapping_hellatex_V2.json` | Item Attributes with `multiple_query`, variant parent/child Items with `deduplicate_on` |
+| `default_mapping873f88.json` | Customers with CRM addresses, Items with barcodes |
 | `steinmassl_customer_mapping.json` | Payment Terms, Customers with `set_redis`/`get_redis` linking, CRM Addresses via `mapped_value` |
 
 ---
@@ -571,4 +569,4 @@ This project is licensed under the [MIT License](license.txt).
 
 ## Authors
 
-**[PIT IT GmbH](https://www.pit-it.at/)** -- digital@pit-it.at
+The ERPNextSync Contributors
