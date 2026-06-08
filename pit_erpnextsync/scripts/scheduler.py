@@ -6,69 +6,87 @@ from pit_erpnextsync.scripts.data_import import start_import
 from pit_erpnextsync.scripts.update import run_bulk_update
 
 
-
 # get list of db instances
 def get_instances(repetition: str) -> list:
-    enabled_instances: list = frappe.get_all(
-        "Sync Instance",
-        filters={
-            "enabled": 1,
-            "repetition": repetition
-        },
-        fields=[
-            "name", 
-            "enable_scheduler", 
-            "repetition",
-            "amount_of_data_rows",
-            "types_to_import"
-        ]
-    )
+	enabled_instances: list = frappe.get_all(
+		"Sync Instance",
+		filters={
+			"enabled": 1,
+			"repetition": repetition
+		},
+		fields=[
+			"name",
+			"enable_scheduler",
+			"repetition",
+			"amount_of_data_rows",
+			"types_to_import"
+		]
+	)
 
-    return enabled_instances
+	return enabled_instances
 
 
 # scheduler event hooks
-def all() -> None:
-    run(get_instances("all"))
+def run_all() -> None:
+	run(get_instances("all"))
 
-def daily() -> None:
-    run(get_instances("daily"))
+def run_daily() -> None:
+	run(get_instances("daily"))
 
-def hourly() -> None:
-    run(get_instances("hourly"))
+def run_hourly() -> None:
+	run(get_instances("hourly"))
 
-def weekly() -> None:
-    run(get_instances("weekly"))
+def run_weekly() -> None:
+	run(get_instances("weekly"))
 
-def monthly() -> None:
-    run(get_instances("monthly"))
+def run_monthly() -> None:
+	run(get_instances("monthly"))
 
 
 # run import / update
 def run(instances: list) -> None:
-    if not instances:
-        return
-    
-    for instance_data in instances:
-        make_log(f"Scheduled import/update ({instance_data.get('repetition')}) for {instance_data.get('name')} is starting...", "INFO", controller.APP_NAME)
+	if not instances:
+		return
 
-        if not instance_data.get("enable_scheduler"):
-            continue
+	for instance_data in instances:
+		if not instance_data.get("enable_scheduler"):
+			continue
 
-        try:   
-            start_import(
-                instance=instance_data.get("name"), 
-                top=instance_data.get("amount_of_data_rows"), 
-                types_str=instance_data.get("types_to_import")
-            )
+		instance_name = instance_data.get("name")
+		repetition = instance_data.get("repetition")
 
-            run_bulk_update(
-                instance=instance_data.get("name"), 
-                types_str=instance_data.get("types_to_import")
-            )
+		make_log(
+			f"Scheduled import/update ({repetition}) for {instance_name} is starting...",
+			"INFO",
+			controller.APP_NAME,
+		)
 
-            make_log(f"Background jobs for import/update ({instance_data.get('repetition')}) for {instance_data.get('name')} created successfully", "INFO", controller.APP_NAME)
+		try:
+			# Enqueue import and wait for it to finish before starting update,
+			# so updates don't race against imports on the same records.
+			import_job_id: str = start_import(
+				instance=instance_name,
+				top=instance_data.get("amount_of_data_rows"),
+				types_str=instance_data.get("types_to_import"),
+			)
+			controller.wait_for_jobs([import_job_id])
 
-        except Exception as e:
-            make_log(f"Could not run scheduled import/update for {instance_data.get('name')}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
-            continue
+			run_bulk_update(
+				instance=instance_name,
+				types_str=instance_data.get("types_to_import"),
+			)
+
+			make_log(
+				f"Background jobs for import/update ({repetition}) for {instance_name} created successfully",
+				"INFO",
+				controller.APP_NAME,
+			)
+
+		except Exception as e:
+			make_log(
+				f"Could not run scheduled import/update for {instance_name}: {e}",
+				"ERROR",
+				controller.APP_NAME,
+				with_traceback=True,
+			)
+			continue

@@ -12,17 +12,23 @@ from pit_erpnextsync.scripts.data_import import format_phone_number
 
 
 @frappe.whitelist()
-def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
-    """Entry point - enqueues the actual update as a long-running background job."""
+def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
+    """Entry point - enqueues the actual update as a long-running background job.
+
+    Returns:
+        str: The job_id of the enqueued background job.
+    """
+    job_id = f"pes_update_main:{uuid.uuid4().hex[:8]}"
     frappe.enqueue(
         "pit_erpnextsync.scripts.update._run_bulk_update",
         queue="long",
         timeout=600,
-        job_id=f"pes_update_main:{uuid.uuid4().hex[:8]}",
+        job_id=job_id,
         instance=instance,
         types_str=types_str,
         ignore_ts=ignore_ts
     )
+    return job_id
 
 
 def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
@@ -48,8 +54,8 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
         make_log(f"Could not get instance doc {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
         return None
 
-    # convert types str to a list
-    arg_types_list: list = json.loads(types_str)
+    # convert types str to a list (handles JSON arrays, CSV strings, None, and "")
+    arg_types_list: list = controller.parse_types_input(types_str)
 
     types_list: list = []
 
@@ -125,6 +131,21 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
         "INFO",
         controller.APP_NAME,
     )
+
+    # Wait for all batch jobs to complete before triggering after-hooks,
+    # mirroring _run_import's wait_for_jobs behavior.
+    if all_job_ids:
+        make_log(
+            f"Waiting for {len(all_job_ids)} update batch jobs to complete...",
+            "INFO",
+            controller.APP_NAME,
+        )
+        controller.wait_for_jobs(all_job_ids)
+        make_log(
+            f"All update batch jobs completed for instance {instance}",
+            "INFO",
+            controller.APP_NAME,
+        )
 
     # Commit to close the current transaction so the after-hook sees data committed
     # by batch jobs (REPEATABLE READ isolation would otherwise keep a stale snapshot).
