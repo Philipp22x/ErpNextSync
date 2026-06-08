@@ -601,6 +601,10 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
     # child row list
     child_doc_list: list = []
 
+    # maps original child hash name -> child doc object, so we can fix up
+    # doc_mapping_data after insert (Frappe may rename children during parent insert)
+    child_name_map: dict[str, Document] = {}
+
     # set field values
     for field in mapped_doctype["fields"]:
 
@@ -855,6 +859,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             # only add child row if it has data
                             if row_has_data:
                                 child_doc_list.append(new_child_row)
+                                child_name_map[new_child_row.name] = new_child_row
                             else:
                                 make_log(
                                     f"Skipping child row with no data for {mapped_doctype['doctype']}.{field['fieldname']} (row keys: {list(row_data.keys())})",
@@ -874,6 +879,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                     })
 
                     child_doc_list.append(new_child_row)
+                    child_name_map[new_child_row.name] = new_child_row
 
                     # child row fields
                     for table_field in field["table_fields"]:
@@ -935,9 +941,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 if table_field.get("alt_key"):
                                     if fetched_obj[table_field["alt_key"]] in ["", None]:
                                         child_doc_list.remove(new_child_row)
+                                        child_name_map.pop(new_child_row.name, None)
                                 else:
                                     if fetched_obj[table_field["sl_column"]] in ["", None]:
                                         child_doc_list.remove(new_child_row)
+                                        child_name_map.pop(new_child_row.name, None)
 
                         # get_redis standalone for child table fields
                         elif table_field.get("get_redis") and not table_field.get("sl_column"):
@@ -965,7 +973,13 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
 
     # insert new doc
     before_doc_insert_hook(new_doc=new_doc, fetched_obj=fetched_obj, table_mapping_row=table_mapping_row)
-    
+
+    # Attach child rows to parent before insert so doctypes that validate
+    # children during insert (e.g. Stock Reconciliation) see them.
+    # Frappe's Document.insert() will auto-insert attached children.
+    for child_doc in child_doc_list:
+        new_doc.append(child_doc.parentfield, child_doc)
+
     try:
         new_doc.insert(
             ignore_permissions=True,
@@ -975,14 +989,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
         
         mapping_doc_name: str = new_doc.name
 
-        for child_doc in child_doc_list:
-            child_doc.parent = new_doc.name
-            child_doc.flags.name_set = True
-            child_doc.insert(
-                ignore_permissions=True,
-                ignore_mandatory=True,
-                ignore_links=True
-            )
+        # Frappe may have renamed child rows during insert (set_new_name).
+        # Fix up doc_mapping_data entries that reference old child hash names.
+        for entry in doc_mapping_data:
+            old_name = entry.get("child_row_name")
+            if old_name and old_name in child_name_map:
+                entry["child_row_name"] = child_name_map[old_name].name
 
         frappe.db.commit()
 
@@ -1052,7 +1064,12 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             except Exception as e:
                 make_log(f"Could not add child rows to existing {new_doc.doctype} {existing_name}: {e}", "ERROR", controller.APP_NAME)
 
+        # Fix up child_row_name in mapping data (Frappe may have renamed children
+        # during the failed parent insert's set_new_name pass)
         for entry in doc_mapping_data:
+            old_name = entry.get("child_row_name")
+            if old_name and old_name in child_name_map:
+                entry["child_row_name"] = child_name_map[old_name].name
             entry["docname"] = existing_name
         return {
             "code": 100,
