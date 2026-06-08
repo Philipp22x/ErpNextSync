@@ -331,6 +331,12 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
         except Exception as e:
             make_log(f"Could not fetch data from {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
 
+    # Commit to close the current transaction so the after-hook sees data committed
+    # by batch jobs (which run in separate RQ workers with their own transactions).
+    # Without this, REPEATABLE READ isolation keeps the stale snapshot from before
+    # the batch jobs ran, and e.g. frappe.get_all() in hook scripts returns nothing.
+    frappe.db.commit()
+
     # after import hooks - trigger once after ALL types have been processed sequentially
     controller.trigger_hooks(instance=instance, before_after="after", import_update="import")
     make_log(f"Import completed for instance {instance}", "INFO", controller.APP_NAME)

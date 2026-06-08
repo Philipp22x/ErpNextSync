@@ -126,6 +126,10 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
         controller.APP_NAME,
     )
 
+    # Commit to close the current transaction so the after-hook sees data committed
+    # by batch jobs (REPEATABLE READ isolation would otherwise keep a stale snapshot).
+    frappe.db.commit()
+
     # after update hooks
     controller.trigger_hooks(instance=instance, before_after="after", import_update="update")
     make_log(f"Update dispatch completed for instance {instance}", "INFO", controller.APP_NAME)
