@@ -150,19 +150,19 @@ after_install = "pit_erpnextsync.install.after_install"
 
 scheduler_events = {
 	"all": [
-		"pit_erpnextsync.scripts.scheduler.all"
+		"pit_erpnextsync.scripts.scheduler.run_all"
 	],
 	"daily": [
-		"pit_erpnextsync.scripts.scheduler.daily"
+		"pit_erpnextsync.scripts.scheduler.run_daily"
 	],
 	"hourly": [
-		"pit_erpnextsync.scripts.scheduler.hourly"
+		"pit_erpnextsync.scripts.scheduler.run_hourly"
 	],
 	"weekly": [
-		"pit_erpnextsync.scripts.scheduler.weekly"
+		"pit_erpnextsync.scripts.scheduler.run_weekly"
 	],
 	"monthly": [
-		"pit_erpnextsync.scripts.scheduler.monthly"
+		"pit_erpnextsync.scripts.scheduler.run_monthly"
 	],
 }
 

@@ -177,17 +177,23 @@ def repair_address_customer_links(instance: str, dry_run: bool = True) -> dict:
 
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
-def start_import(instance: str, top: int, types_str: str = "") -> None:
-    """Entry point - enqueues the actual import as a long-running background job."""
+def start_import(instance: str, top: int, types_str: str = "") -> str:
+    """Entry point - enqueues the actual import as a long-running background job.
+
+    Returns:
+        str: The job_id of the enqueued background job.
+    """
+    job_id = f"pes_import:{instance}:{uuid.uuid4().hex[:8]}"
     frappe.enqueue(
         "pit_erpnextsync.scripts.data_import._run_import",
         queue="long",
         timeout=3600,
-        job_id=f"pes_import:{instance}:{uuid.uuid4().hex[:8]}",
+        job_id=job_id,
         instance=instance,
         top=top,
         types_str=types_str
     )
+    return job_id
 
 
 def _run_import(instance: str, top: int, types_str: str = "") -> None:
@@ -206,8 +212,8 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
         make_log(f"Could not get instance doc {instance}: {e} {frappe.get_traceback()}", "ERROR", controller.APP_NAME)
         return None
 
-    # convert types str to a list
-    types: list = json.loads(types_str)
+    # convert types str to a list (handles JSON arrays, CSV strings, None, and "")
+    types: list = controller.parse_types_input(types_str)
 
     types_rows_to_import: list = controller.get_types_to_import(instance=instance, types_args=types)
 

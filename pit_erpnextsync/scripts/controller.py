@@ -649,6 +649,37 @@ def trigger_hooks(instance: str, before_after: str, import_update: str) -> None:
 # *## UTILS ##################################################################################
 
 
+def parse_types_input(types_input: str | None) -> list:
+	"""Parse types input from JSON string, comma-separated string, or None/empty.
+
+	Accepts:
+	  - JSON array:  '["Customer","Supplier"]'
+	  - CSV string:  'Customer, Supplier'
+	  - None / "":    returns []
+
+	Returns:
+	    list of type name strings (stripped, non-empty)
+	"""
+	if not types_input:
+		return []
+
+	types_input = str(types_input).strip()
+	if not types_input:
+		return []
+
+	# Accept JSON list (e.g. '["Item","Customer"]') for compatibility.
+	if types_input.startswith("["):
+		try:
+			parsed = json.loads(types_input)
+			if isinstance(parsed, list):
+				return [str(t).strip() for t in parsed if str(t).strip()]
+		except Exception:
+			pass
+
+	# Fallback: comma-separated values from Sync Instance field.
+	return [t.strip() for t in types_input.split(",") if t.strip()]
+
+
 def wait_for_jobs(job_ids: list, poll_interval: int = 2, timeout: int = 3600) -> bool:
 	"""Wait for a list of background jobs to complete before proceeding.
 
