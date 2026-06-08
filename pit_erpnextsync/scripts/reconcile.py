@@ -1097,31 +1097,31 @@ def apply_field_additions(
 				child_cache_key = (
 					f"{doctype}:{docname}:{fieldname}:{child_group_key}" if child_group_key else None
 				)
-				
-			# Find or create child row
-			child_info = child_rows_cache.get(child_cache_key) if child_cache_key else None
-			if not child_info:
-				child_names_in_use = {c.get("child_name") for c in child_rows_cache.values() if c.get("child_name")}
-				child_info = get_or_create_child_row(
-					mapping_name=mapping_name,
-					doctype=doctype,
-					docname=docname,
-					fieldname=fieldname,
-					field_def=field_def,
-					allow_create=has_trackable_source,
-					resolved_value=field_value,
-					child_names_in_use=child_names_in_use,
-				)
-				if child_cache_key and child_info:
+
+				# Find or create child row
+				child_info = child_rows_cache.get(child_cache_key) if child_cache_key else None
+				if not child_info:
+					child_names_in_use = {c.get("child_name") for c in child_rows_cache.values() if c.get("child_name")}
+					child_info = get_or_create_child_row(
+						mapping_name=mapping_name,
+						doctype=doctype,
+						docname=docname,
+						fieldname=fieldname,
+						field_def=field_def,
+						allow_create=has_trackable_source,
+						resolved_value=field_value,
+						child_names_in_use=child_names_in_use,
+					)
+					if child_cache_key and child_info:
 						child_rows_cache[child_cache_key] = child_info
-				
+
 				if child_info:
 					make_log(
 						f"Got child info: {child_info}",
 						"DEBUG",
 						APP_NAME
 					)
-					
+
 					# Update child row field
 					frappe.db.set_value(
 						child_info["child_doctype"],
@@ -1129,7 +1129,7 @@ def apply_field_additions(
 						child_row_fieldname,
 						field_value
 					)
-					
+
 					# Skip creating mapping entry for pure default fields (no sl_column, no get_redis)
 					if not has_trackable_source:
 						make_log(
@@ -1138,7 +1138,7 @@ def apply_field_additions(
 							APP_NAME
 						)
 						continue
-					
+
 					# Check if mapping entry already exists
 					existing_entry = frappe.db.exists(
 						"Sync Mapping Entry",
@@ -1151,7 +1151,7 @@ def apply_field_additions(
 							"selectline_column": field_def.get("sl_column")
 						}
 					)
-					
+
 					if not existing_entry:
 						# Create mapping entry
 						result = controller.insert_mapping_row(
