@@ -346,10 +346,12 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             raise Exception("Could not get mapping table data")
 
         # Filter out invalid/error columns (columns starting with _ are error codes)
+        # and child table columns (child_row_fieldname set) — those come from a
+        # different source table via multiple_query, not from the parent table.
         valid_columns = [
             d["selectline_column"] 
             for d in mapping_table_data 
-            if d.get("selectline_column") and not d["selectline_column"].startswith("_")
+            if d.get("selectline_column") and not d["selectline_column"].startswith("_") and not d.get("child_row_fieldname")
         ]
         col_string = ",\n".join(dict.fromkeys(valid_columns))
 
@@ -462,6 +464,106 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 f"Key:{primary_key_col} ID:{id_data.get('primary_key')}"
             )
         
+        # Fetch multiple_query child table data so child rows can be updated.
+        # Maps child_row_name -> {COLUMN: value, ...} from the source child table.
+        mq_child_data: dict[str, dict] = {}
+        for mapped_doctype in mapping_json:
+            doctype_name = mapped_doctype.get("doctype")
+            for field in mapped_doctype.get("fields", []):
+                if not field.get("multiple_query") or not field.get("table_fields"):
+                    continue
+
+                mq_table = field.get("multiple_query_table")
+                mq_condition = field.get("multiple_query_condition")
+                if not mq_table or not mq_condition:
+                    continue
+
+                # Extract explicit column names to avoid SELECT * (4D blob column failures)
+                mq_columns: list = []
+                for tf in field.get("table_fields", []):
+                    if tf.get("sl_column") and tf["sl_column"] not in mq_columns:
+                        mq_columns.append(tf["sl_column"])
+                    if tf.get("alt_key") and tf["alt_key"] not in mq_columns:
+                        mq_columns.append(tf["alt_key"])
+
+                source_rows = controller.fetch_multiple_rows(
+                    instance=instance,
+                    table=mq_table,
+                    condition=mq_condition,
+                    schema=schema,
+                    parent_data=fetched_data[0],
+                    columns=mq_columns if mq_columns else None,
+                )
+
+                if not source_rows:
+                    continue
+
+                # Build a key field map: find the first reqd sl_column to use as match key
+                # between source rows and ERPNext child rows.
+                match_sl_col = None
+                match_child_fieldname = None
+                for tf in field.get("table_fields", []):
+                    if tf.get("sl_column") and tf.get("reqd") == 1:
+                        match_sl_col = tf["sl_column"]
+                        match_child_fieldname = tf["table_fieldname"]
+                        break
+
+                if not match_sl_col or not match_child_fieldname:
+                    # No key field — can't match source rows to child rows
+                    continue
+
+                # Build case-insensitive column lookup (4D returns PascalCase)
+                def _get_col(row_data: dict, col: str):
+                    if col in row_data:
+                        return row_data[col]
+                    upper = col.upper()
+                    for k, v in row_data.items():
+                        if k.upper() == upper:
+                            return v
+                    return None
+
+                # Build source lookup: match_value -> source_row
+                source_by_key: dict = {}
+                for srow in source_rows:
+                    key_val = _get_col(srow, match_sl_col)
+                    if key_val is not None:
+                        source_by_key[str(key_val)] = srow
+
+                # Find mapping entries for this child table and match to source rows
+                fieldname = field.get("fieldname")
+                child_row_names = set()
+                for mrow in mapping_doc.mapping_table:
+                    if (
+                        mrow.mapping_doctype == doctype_name
+                        and mrow.fieldname == fieldname
+                        and mrow.child_row_name
+                        and mrow.child_row_fieldname == match_child_fieldname
+                    ):
+                        child_row_names.add(mrow.child_row_name)
+
+                # For each child_row_name, look up the current value in ERPNext to find the source row
+                child_doctype = None
+                try:
+                    child_doctype = frappe.get_meta(doctype_name).get_field(fieldname).options
+                except Exception:
+                    pass
+
+                for crn in child_row_names:
+                    if child_doctype and frappe.db.exists(child_doctype, crn):
+                        current_val = frappe.db.get_value(child_doctype, crn, match_child_fieldname)
+                        if current_val is not None:
+                            matched_source = source_by_key.get(str(current_val))
+                            if matched_source:
+                                mq_child_data[crn] = matched_source
+
+                if mq_child_data:
+                    make_log(
+                        f"Fetched {len(source_rows)} child rows from {mq_table}, "
+                        f"matched {len(mq_child_data)} to existing child docs",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:
             try:
@@ -481,14 +583,26 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     continue
 
                 # Get value from fetched data.
-                # When selectline_column contains a SQL expression with an alias
-                # (e.g. "(SELECT ...) AS EmailRechnung"), the database returns the
-                # result under the alias name, not the full expression.
+                # For multiple_query child rows, use child data from the source child table.
+                # For parent fields and non-multiple_query child fields, use parent data.
                 col_key = row.selectline_column
                 if ") AS " in col_key or ") as " in col_key:
                     # Extract alias from "... AS AliasName" or "... as AliasName"
                     col_key = col_key.rsplit(" AS ", 1)[-1].rsplit(" as ", 1)[-1].strip()
-                field_value = fetched_data[0].get(col_key)
+
+                if row.child_row_name and row.child_row_name in mq_child_data:
+                    # multiple_query child row — look up value from child table data
+                    child_source = mq_child_data[row.child_row_name]
+                    field_value = child_source.get(col_key)
+                    # Case-insensitive fallback (4D returns PascalCase)
+                    if field_value is None:
+                        upper = col_key.upper()
+                        for k, v in child_source.items():
+                            if k.upper() == upper:
+                                field_value = v
+                                break
+                else:
+                    field_value = fetched_data[0].get(col_key)
 
                 # Apply value_map translation if configured in mapping JSON
                 if row.child_row_fieldname:
@@ -559,13 +673,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         frappe.db.commit()
         make_log(f"Mapping {mapping_name} updated successfully", "INFO", controller.APP_NAME)
         
-        # Update job counts
-        controller.update_jobs(instance=instance)
+        # Update job counts (skip hooks — after-hooks are managed by _run_bulk_update)
+        controller.update_jobs(instance=instance, skip_hooks=True)
 
     except Exception as e:
         make_log(f"Could not update mapping {mapping_name}: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
         # Update job counts even on error
-        controller.update_jobs(instance=instance)
+        controller.update_jobs(instance=instance, skip_hooks=True)
         return None
 
 
