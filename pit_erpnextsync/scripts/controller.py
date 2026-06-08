@@ -996,17 +996,16 @@ def make_sql_string_single_row(
 	driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 	schema_dot: str = f"{schema}." if schema else ""
 	
-	# Modified by PIT Agent Dev 1 - 2026-03-30: For 4D, always quote PK to support numeric-like VARCHAR keys (e.g. KUNDENNR).
-	# Modified by PIT Agent Dev 1 - 2026-04-15: For 4D, restore spaces from underscores in PK.
+	# Restore spaces from underscores in PK for 4D.
 	# create_object_id() replaces spaces with underscores to keep the colon-delimited ID format valid.
 	# 4D uses fixed-width CHAR fields padded with trailing spaces, so we must reverse the substitution
 	# before querying. 4D article/customer numbers do not use underscores, making this substitution safe.
 	if driver == "p4d":
 		primary_key_val = primary_key_val.replace("_", " ")
-		quoted_pk = f"'{primary_key_val}'"
-	else:
-		# MSSQL: quote only non-numeric values
-		quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
+
+	# Quote only non-numeric values — 4D (and MSSQL) reject string literals on integer columns.
+	# VARCHAR keys like KUNDENNR need quotes; integer keys like AuftragsNr must not be quoted.
+	quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
 	
 	if driver == "pymssql":
 		col_string = ", ".join(columns)
