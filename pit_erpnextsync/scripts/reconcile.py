@@ -742,13 +742,49 @@ def _handle_multiple_query_group(
 			if sl_id not in mq_columns:
 				mq_columns.append(sl_id)
 
+	# If all fields are defaults (no sl_column), skip the source fetch entirely
+	# and apply defaults directly to existing child rows. This avoids SELECT *
+	# on 4D tables with blob columns (which causes "Unrecognized 4D type" errors).
+	if not mq_columns:
+		child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+		if not child_doctype:
+			raise Exception(f"Could not determine child doctype for {doctype}.{fieldname}")
+
+		parent_doc = frappe.get_doc(doctype, docname)
+		existing_rows = list(parent_doc.get(fieldname) or [])
+
+		if not existing_rows:
+			make_log(
+				f"No existing child rows to apply defaults to for {doctype}.{fieldname}",
+				"WARNING",
+				APP_NAME,
+			)
+			return
+
+		make_log(
+			f"Applying defaults to {len(existing_rows)} existing child rows "
+			f"for {doctype}.{fieldname} (no source columns needed)",
+			"INFO",
+			APP_NAME,
+		)
+
+		for existing_row in existing_rows:
+			for field_def in group_fields:
+				child_fn = field_def.get("child_row_fieldname")
+				if field_def.get("default") is not None:
+					frappe.db.set_value(
+						child_doctype, existing_row.name, child_fn, field_def["default"]
+					)
+
+		return
+
 	source_rows = controller.fetch_multiple_rows(
 		instance=instance,
 		table=mq_table,
 		condition=mq_condition,
 		schema=schema,
 		parent_data=fetched_obj,
-		columns=mq_columns if mq_columns else None,
+		columns=mq_columns,
 	)
 
 	if not source_rows:
