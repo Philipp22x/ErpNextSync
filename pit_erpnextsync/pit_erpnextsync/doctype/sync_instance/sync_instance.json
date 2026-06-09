@@ -54,6 +54,7 @@
   "scheduler_section",
   "enable_scheduler",
   "repetition",
+  "cron_expression",
   "column_break_pozb",
   "column_break_jrhk",
   "column_break_dras",
@@ -269,7 +270,15 @@
    "fieldname": "repetition",
    "fieldtype": "Select",
    "label": "Repetition",
-   "options": "all\ndaily\nhourly\nweekly\nmonthly"
+   "options": "all\ndaily\nhourly\nweekly\nmonthly\ncron"
+  },
+  {
+   "depends_on": "eval:doc.repetition=='cron'",
+   "description": "Cron expression, e.g. \"*/5 * * * *\" (every 5 minutes)",
+   "fieldname": "cron_expression",
+   "fieldtype": "Data",
+   "label": "Cron Expression",
+   "mandatory_depends_on": "eval:doc.repetition=='cron'"
   },
   {
    "collapsible": 1,
