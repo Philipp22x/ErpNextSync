@@ -1,7 +1,6 @@
-from datetime import datetime
-
 import frappe
 from croniter import croniter
+from frappe.utils import now_datetime
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
@@ -53,7 +52,7 @@ def run_cron() -> None:
 	if not instances:
 		return
 
-	now = datetime.now().replace(second=0, microsecond=0)
+	now = now_datetime().replace(second=0, microsecond=0)
 	due_instances = []
 
 	for inst in instances:
