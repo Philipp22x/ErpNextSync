@@ -164,6 +164,11 @@ scheduler_events = {
 	"monthly": [
 		"pit_erpnextsync.scripts.scheduler.run_monthly"
 	],
+	"cron": {
+		"* * * * *": [
+			"pit_erpnextsync.scripts.scheduler.run_cron"
+		],
+	},
 }
 
 # scheduler_events = {

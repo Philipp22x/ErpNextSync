@@ -1,4 +1,7 @@
+from datetime import datetime
+
 import frappe
+from croniter import croniter
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
@@ -19,7 +22,8 @@ def get_instances(repetition: str) -> list:
 			"enable_scheduler",
 			"repetition",
 			"amount_of_data_rows",
-			"types_to_import"
+			"types_to_import",
+			"cron_expression",
 		]
 	)
 
@@ -41,6 +45,32 @@ def run_weekly() -> None:
 
 def run_monthly() -> None:
 	run(get_instances("monthly"))
+
+
+def run_cron() -> None:
+	"""Check all cron-based instances and run those whose expression matches now."""
+	instances = get_instances("cron")
+	if not instances:
+		return
+
+	now = datetime.now().replace(second=0, microsecond=0)
+	due_instances = []
+
+	for inst in instances:
+		cron_expr = inst.get("cron_expression")
+		if not cron_expr:
+			continue
+		try:
+			if croniter.match(cron_expr, now):
+				due_instances.append(inst)
+		except (ValueError, KeyError):
+			make_log(
+				f"Invalid cron expression '{cron_expr}' for instance {inst.get('name')}",
+				"ERROR",
+				controller.APP_NAME,
+			)
+
+	run(due_instances)
 
 
 # run import / update
