@@ -975,6 +975,14 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
 
                         elif table_field.get("default"):
                             new_child_row.set(table_field["table_fieldname"], table_field["default"])
+                            data: dict = {
+                                "mapping_doctype": new_doc.doctype,
+                                "fieldname": field["fieldname"],
+                                "child_row_fieldname": table_field["table_fieldname"],
+                                "child_row_name": new_child_row.name,
+                                "child_row_doctype": new_child_row.doctype
+                            }
+                            doc_mapping_data.append(data)
 
             except Exception as e:
                 make_log(f"Could not create child doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -1187,6 +1195,11 @@ def before_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_r
             new_doc.flags.name_set = True
         case "Item":
             new_doc.flags.name_set = True
+        case "Contact":
+            kundennr = fetched_obj.get("KUNDENNR", "")
+            if new_doc.get("first_name") and kundennr:
+                new_doc.name = f"{new_doc.first_name}-{kundennr}"
+                new_doc.flags.name_set = True
 
 
 def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
