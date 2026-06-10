@@ -927,7 +927,8 @@ def _handle_multiple_query_group(
 				)
 
 			# Create mapping entry for trackable fields (has sl_column or get_redis)
-			if field_def.get("sl_column"):
+			# Also create for default-only fields so reconciliation can track them
+			if field_def.get("sl_column") or field_def.get("default") is not None:
 				existing_entry = frappe.db.exists(
 					"Sync Mapping Entry",
 					{
@@ -1166,10 +1167,11 @@ def apply_field_additions(
 						field_value
 					)
 
-					# Skip creating mapping entry for pure default fields (no sl_column, no get_redis)
-					if not has_trackable_source:
+					# For default-only fields (no sl_column), still create mapping entry
+					# so reconciliation can track them. Skip only for parent-level defaults.
+					if not has_trackable_source and not child_row_fieldname:
 						make_log(
-							f"Skipping child mapping entry for {doctype}.{fieldname}.{child_row_fieldname}: no sl_column or get_redis (default/static value)",
+							f"Skipping mapping entry for {doctype}.{fieldname}: no sl_column or get_redis (default/static value)",
 							"DEBUG",
 							APP_NAME
 						)

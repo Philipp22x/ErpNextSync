@@ -683,6 +683,53 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         return None
 
 
+def get_child_table_defaults(mapping_name: str, parent_doctype: str, fieldname: str) -> dict:
+    """
+    Get default values for child table fields from the JSON mapping.
+    Returns dict of {fieldname: default_value} for table_fields with default but no sl_column.
+    """
+    defaults = {}
+    try:
+        mapping_doc = frappe.get_doc("Sync Mapping", mapping_name)
+        if not mapping_doc:
+            return defaults
+
+        mapping_type = mapping_doc.type
+        if not mapping_type:
+            return defaults
+
+        instance = frappe.db.get_value("Sync Mapping", mapping_name, "selectline_db_instance")
+        if not instance:
+            return defaults
+
+        instance_doc = frappe.get_doc("Sync Instance", instance)
+        json_mapping = None
+        for row in instance_doc.table_mapping:
+            if row.type == mapping_type and row.mapping:
+                json_mapping = json.loads(row.mapping)
+                break
+
+        if not json_mapping:
+            return defaults
+
+        for doctype_def in json_mapping:
+            if doctype_def.get("doctype") != parent_doctype:
+                continue
+            for field in doctype_def.get("fields", []):
+                if field.get("fieldname") != fieldname:
+                    continue
+                for table_field in field.get("table_fields", []):
+                    if table_field.get("default") is not None and not table_field.get("sl_column"):
+                        tf_name = table_field.get("table_fieldname")
+                        if tf_name:
+                            defaults[tf_name] = table_field["default"]
+
+    except Exception as e:
+        make_log(f"Could not get child table defaults for {parent_doctype}.{fieldname}: {e}", "WARNING", controller.APP_NAME)
+
+    return defaults
+
+
 def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
     """Ensure mapped child row exists; recreate and re-link mapping entries if missing."""
     child_doctype = mapping_row.child_row_doctype
@@ -716,6 +763,11 @@ def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
         "parentfield": mapping_row.fieldname,
         "name": new_child_name,
     })
+
+    table_defaults = get_child_table_defaults(mapping_name, mapping_row.mapping_doctype, mapping_row.fieldname)
+    for field_name, default_value in table_defaults.items():
+        new_child.set(field_name, default_value)
+
     new_child.flags.name_set = True
     new_child.insert(ignore_permissions=True, ignore_mandatory=True)
 
