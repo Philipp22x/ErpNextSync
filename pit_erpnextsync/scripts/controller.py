@@ -1003,9 +1003,12 @@ def make_sql_string_single_row(
 	if driver == "p4d":
 		primary_key_val = primary_key_val.replace("_", " ")
 
-	# Quote only non-numeric values — 4D (and MSSQL) reject string literals on integer columns.
-	# VARCHAR keys like KUNDENNR need quotes; integer keys like AuftragsNr must not be quoted.
-	quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
+	# 4D uses CHAR fields for all primary keys (even numeric-looking ones like KUNDENNR),
+	# so always quote for p4d. MSSQL may have true integer columns, so only quote non-numeric values.
+	if driver == "p4d":
+		quoted_pk = f"'{primary_key_val}'"
+	else:
+		quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
 	
 	if driver == "pymssql":
 		col_string = ", ".join(columns)
