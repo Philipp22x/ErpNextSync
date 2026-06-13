@@ -660,6 +660,32 @@ def validate_dependencies(
 	}
 
 
+def _values_match(actual: Any, expected: Any) -> bool:
+	"""Compare values from ERPNext (actual) and 4D source (expected) loosely.
+
+	Handles:
+	- 4D CHAR fields padded with trailing spaces
+	- Numeric type differences (int 24 vs float 24.0)
+	- None / empty string equivalence
+	"""
+	if actual is None or actual == "":
+		return expected is None or expected == "" or str(expected).strip() == ""
+
+	a_str = str(actual).strip()
+	e_str = str(expected).strip()
+	if a_str == e_str:
+		return True
+
+	# Try numeric comparison (e.g. 24.0 == 24, 1.68 == 1.68)
+	try:
+		if float(a_str) == float(e_str):
+			return True
+	except (ValueError, TypeError):
+		pass
+
+	return False
+
+
 def _handle_multiple_query_group(
 	instance: str,
 	mapping_name: str,
@@ -827,9 +853,7 @@ def _handle_multiple_query_group(
 		return
 
 	make_log(
-		f"Fetched {len(source_rows)} rows from {mq_table} for {doctype}.{fieldname}. "
-		f"mq_columns={mq_columns}, existing_child_entries={len(existing_child_entries)}, "
-		f"source_row_keys={list(source_rows[0].keys()) if source_rows else []}",
+		f"Fetched {len(source_rows)} rows from {mq_table} for {doctype}.{fieldname}",
 		"INFO",
 		APP_NAME,
 	)
@@ -871,9 +895,9 @@ def _handle_multiple_query_group(
 			sl_field_map[fn] = col
 
 	make_log(
-		f"sl_field_map for {doctype}.{fieldname}: {sl_field_map}, "
-		f"existing_rows={len(existing_rows)}, source_rows={len(source_rows)}",
-		"INFO",
+		f"Matching {doctype}.{fieldname}: sl_field_map={sl_field_map}, "
+		f"existing_rows={len(existing_rows)}",
+		"DEBUG",
 		APP_NAME,
 	)
 
@@ -933,14 +957,8 @@ def _handle_multiple_query_group(
 				for child_fn, sl_col in sl_field_map.items():
 					expected = _get_col(source_row, sl_col)
 					actual = existing_row.get(child_fn)
-					if expected is not None and str(actual or "") != str(expected):
+					if expected is not None and not _values_match(actual, expected):
 						all_match = False
-						make_log(
-							f"Match failed: {child_fn}={actual!r} vs {sl_col}={expected!r} "
-							f"(row {existing_row.name})",
-							"INFO",
-							APP_NAME,
-						)
 						break
 				if all_match:
 					existing_child_name = existing_row.name
@@ -951,18 +969,7 @@ def _handle_multiple_query_group(
 			# Reuse existing child row — update its values
 			target_child_doctype = child_doctype
 			target_child_name = existing_child_name
-			make_log(
-				f"Matched source row to existing child {existing_child_name}",
-				"INFO",
-				APP_NAME,
-			)
 		else:
-			make_log(
-				f"No match found for source row, creating new child row. "
-				f"sl_field_map={sl_field_map}, source_keys={list(source_row.keys())[:5]}",
-				"WARNING",
-				APP_NAME,
-			)
 			# Create new child row as standalone (not via parent.save())
 			# to avoid saving the entire parent doc which could overwrite
 			# in-progress changes from other reconciliation steps.
