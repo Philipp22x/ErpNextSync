@@ -855,26 +855,17 @@ def _handle_multiple_query_group(
 				return v
 		return None
 
-	# Build lookup: child_fieldname → sl_column for matching existing rows.
-	# Include BOTH the new fields being added AND the already-stored mapping
-	# entries for this child table (only columns present in mq_table).
-	# Without the stored entries, new fields (e.g. uom default) can't find
-	# the existing child row (e.g. the one with item_code=X) and create
-	# empty duplicate rows instead.
+	# Build lookup: child_fieldname → sl_column for matching source rows to
+	# existing child rows. Use ONLY already-stored mapping entries (columns
+	# that already have values on existing rows). Do NOT include the new
+	# fields being added — those don't have values on existing rows yet and
+	# would cause every match to fail, creating empty duplicate rows.
 	sl_field_map: Dict[str, str] = {}
-	# Reuse the mq_columns list (already validated against the child table)
-	# as the source of truth for which sl_columns are available in source rows.
 	mq_columns_upper: set = {c.upper() for c in mq_columns}
 	for entry in existing_child_entries:
 		col = entry.get("selectline_column")
 		fn = entry.get("child_row_fieldname")
 		if col and fn and fn not in sl_field_map and col.upper() in mq_columns_upper:
-			sl_field_map[fn] = col
-	# Also add columns from the new fields being added
-	for f in group_fields:
-		fn = f.get("child_row_fieldname")
-		col = f.get("sl_column")
-		if col and fn and fn not in sl_field_map:
 			sl_field_map[fn] = col
 
 	# Track which existing rows have been matched (to avoid reusing the same row
