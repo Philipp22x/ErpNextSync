@@ -742,6 +742,37 @@ def _handle_multiple_query_group(
 			if sl_id not in mq_columns:
 				mq_columns.append(sl_id)
 
+	# Also include columns from already-stored mapping entries for this child
+	# table. These are needed for matching source rows to existing child rows
+	# (e.g. ARTIKELNR → item_code) when the new fields being added don't have
+	# enough data to identify the correct row.
+	# Only include columns that actually exist in the child table (mq_table),
+	# since some mapping entries reference parent-table columns (e.g. LIEFERDATUM
+	# from AUFTRAG applied to all child rows).
+	existing_child_entries = frappe.get_all(
+		"Sync Mapping Entry",
+		filters={
+			"parent": mapping_name,
+			"mapping_doctype": doctype,
+			"fieldname": fieldname,
+			"child_row_fieldname": ["is", "set"],
+			"selectline_column": ["is", "set"],
+		},
+		fields=["child_row_fieldname", "selectline_column"],
+		group_by="child_row_fieldname, selectline_column",
+	)
+	if existing_child_entries:
+		driver = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
+		valid_cols = get_table_columns(instance=instance, table_name=mq_table, driver=driver)
+		valid_upper = {c.upper() for c in valid_cols} if valid_cols else None
+		for entry in existing_child_entries:
+			col = entry.get("selectline_column")
+			if col and col not in mq_columns:
+				# Skip columns not present in the child table
+				if valid_upper is not None and col.upper() not in valid_upper:
+					continue
+				mq_columns.append(col)
+
 	# If all fields are defaults (no sl_column), skip the source fetch entirely
 	# and apply defaults directly to existing child rows. This avoids SELECT *
 	# on 4D tables with blob columns (which causes "Unrecognized 4D type" errors).
@@ -824,12 +855,27 @@ def _handle_multiple_query_group(
 				return v
 		return None
 
-	# Build lookup: child_fieldname → sl_column for matching existing rows
-	sl_field_map = {
-		f.get("child_row_fieldname"): f.get("sl_column")
-		for f in group_fields
-		if f.get("sl_column")
-	}
+	# Build lookup: child_fieldname → sl_column for matching existing rows.
+	# Include BOTH the new fields being added AND the already-stored mapping
+	# entries for this child table (only columns present in mq_table).
+	# Without the stored entries, new fields (e.g. uom default) can't find
+	# the existing child row (e.g. the one with item_code=X) and create
+	# empty duplicate rows instead.
+	sl_field_map: Dict[str, str] = {}
+	# Reuse the mq_columns list (already validated against the child table)
+	# as the source of truth for which sl_columns are available in source rows.
+	mq_columns_upper: set = {c.upper() for c in mq_columns}
+	for entry in existing_child_entries:
+		col = entry.get("selectline_column")
+		fn = entry.get("child_row_fieldname")
+		if col and fn and fn not in sl_field_map and col.upper() in mq_columns_upper:
+			sl_field_map[fn] = col
+	# Also add columns from the new fields being added
+	for f in group_fields:
+		fn = f.get("child_row_fieldname")
+		col = f.get("sl_column")
+		if col and fn and fn not in sl_field_map:
+			sl_field_map[fn] = col
 
 	# Track which existing rows have been matched (to avoid reusing the same row
 	# for multiple source rows).
