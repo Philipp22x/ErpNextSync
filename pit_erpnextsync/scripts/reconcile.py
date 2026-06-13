@@ -827,7 +827,9 @@ def _handle_multiple_query_group(
 		return
 
 	make_log(
-		f"Fetched {len(source_rows)} rows from {mq_table} for {doctype}.{fieldname}",
+		f"Fetched {len(source_rows)} rows from {mq_table} for {doctype}.{fieldname}. "
+		f"mq_columns={mq_columns}, existing_child_entries={len(existing_child_entries)}, "
+		f"source_row_keys={list(source_rows[0].keys()) if source_rows else []}",
 		"INFO",
 		APP_NAME,
 	)
@@ -867,6 +869,13 @@ def _handle_multiple_query_group(
 		fn = entry.get("child_row_fieldname")
 		if col and fn and fn not in sl_field_map and col.upper() in mq_columns_upper:
 			sl_field_map[fn] = col
+
+	make_log(
+		f"sl_field_map for {doctype}.{fieldname}: {sl_field_map}, "
+		f"existing_rows={len(existing_rows)}, source_rows={len(source_rows)}",
+		"INFO",
+		APP_NAME,
+	)
 
 	# Track which existing rows have been matched (to avoid reusing the same row
 	# for multiple source rows).
@@ -923,8 +932,15 @@ def _handle_multiple_query_group(
 				all_match = True
 				for child_fn, sl_col in sl_field_map.items():
 					expected = _get_col(source_row, sl_col)
-					if expected is not None and str(existing_row.get(child_fn) or "") != str(expected):
+					actual = existing_row.get(child_fn)
+					if expected is not None and str(actual or "") != str(expected):
 						all_match = False
+						make_log(
+							f"Match failed: {child_fn}={actual!r} vs {sl_col}={expected!r} "
+							f"(row {existing_row.name})",
+							"INFO",
+							APP_NAME,
+						)
 						break
 				if all_match:
 					existing_child_name = existing_row.name
@@ -935,7 +951,18 @@ def _handle_multiple_query_group(
 			# Reuse existing child row — update its values
 			target_child_doctype = child_doctype
 			target_child_name = existing_child_name
+			make_log(
+				f"Matched source row to existing child {existing_child_name}",
+				"INFO",
+				APP_NAME,
+			)
 		else:
+			make_log(
+				f"No match found for source row, creating new child row. "
+				f"sl_field_map={sl_field_map}, source_keys={list(source_row.keys())[:5]}",
+				"WARNING",
+				APP_NAME,
+			)
 			# Create new child row as standalone (not via parent.save())
 			# to avoid saving the entire parent doc which could overwrite
 			# in-progress changes from other reconciliation steps.
