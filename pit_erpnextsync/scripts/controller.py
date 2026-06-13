@@ -243,6 +243,69 @@ def _fetch_data_4d(conn, sql: str, instance: str) -> list:
 	return result
 
 
+# Cache for 4D column type lookups: {(instance, table, column_upper): bool}
+_4d_integer_column_cache: dict[tuple[str, str, str], bool] = {}
+
+# 4D DATA_TYPE values that are integer/numeric (must NOT be string-quoted in WHERE).
+# 3=Int16, 4=Int32, 5=Int64, 6=Real
+_4D_INTEGER_TYPES: set[int] = {3, 4, 5, 6}
+
+
+def _is_4d_integer_column(instance: str, table_name: str, column_name: str) -> bool:
+	"""Check if a 4D column is an integer/numeric type (should not be string-quoted).
+
+	Queries _USER_COLUMNS for all columns of the table (cached per table),
+	then matches case-insensitively because 4D stores PascalCase column names
+	while the mapping config uses UPPERCASE.
+	Returns False (= use string quoting) on any error, to preserve
+	backwards compatibility with CHAR columns that contain numeric-looking values.
+	"""
+	cache_key = (instance, table_name, column_name.upper())
+	if cache_key in _4d_integer_column_cache:
+		return _4d_integer_column_cache[cache_key]
+
+	try:
+		conn = db_connect(instance=instance)
+		if conn is None:
+			return False
+		try:
+			cur = conn.cursor()
+			cur.execute(
+				f"SELECT COLUMN_NAME, DATA_TYPE FROM _USER_COLUMNS "
+				f"WHERE TABLE_NAME = '{table_name}'"
+			)
+			rows = cur.fetchall()
+			cur.close()
+		finally:
+			try:
+				conn.close()
+			except Exception:
+				pass
+
+		if rows:
+			# Build a lookup and cache all columns of this table at once
+			for row in rows:
+				col_name = row[0]
+				if isinstance(col_name, bytes):
+					col_name = col_name.decode("utf-8")
+				data_type = row[1]
+				key = (instance, table_name, col_name.upper())
+				_4d_integer_column_cache[key] = data_type in _4D_INTEGER_TYPES
+
+			if cache_key in _4d_integer_column_cache:
+				return _4d_integer_column_cache[cache_key]
+	except Exception as e:
+		make_log(
+			f"Could not determine column type for {table_name}.{column_name}: {e}",
+			"WARNING",
+			APP_NAME,
+		)
+
+	# Default to string quoting (safe for CHAR columns)
+	_4d_integer_column_cache[cache_key] = False
+	return False
+
+
 def _quote_4d_col(col: str) -> str:
 	"""Wrap a column name in t.[...] for 4D SQL, but pass through SQL expressions as-is."""
 	upper = col.upper()
@@ -996,17 +1059,23 @@ def make_sql_string_single_row(
 	driver: str = frappe.db.get_value("Sync Instance", instance, "driver") or "pymssql"
 	schema_dot: str = f"{schema}." if schema else ""
 	
-	# Restore spaces from underscores in PK for 4D.
-	# create_object_id() replaces spaces with underscores to keep the colon-delimited ID format valid.
-	# 4D uses fixed-width CHAR fields padded with trailing spaces, so we must reverse the substitution
-	# before querying. 4D article/customer numbers do not use underscores, making this substitution safe.
+	# Determine quoting for the primary key value.
+	# 4D is strict about type matching: CHAR columns need string-quoted values,
+	# integer columns must NOT be string-quoted (causes "Failed to execute statement").
+	# Most 4D tables use CHAR PKs (e.g. KUNDEN.KUNDENNR looks numeric but is type 10),
+	# while some like AUFTRAG.AUFTRAGSNR are true integers (type 4).
+	# For p4d: query the column type to decide; for pymssql: use isdigit() heuristic.
 	if driver == "p4d":
-		primary_key_val = primary_key_val.replace("_", " ")
-
-	# 4D uses CHAR fields for all primary keys (even numeric-looking ones like KUNDENNR),
-	# so always quote for p4d. MSSQL may have true integer columns, so only quote non-numeric values.
-	if driver == "p4d":
-		quoted_pk = f"'{primary_key_val}'"
+		pk_is_integer = _is_4d_integer_column(instance, table_name, primary_key_col)
+		if pk_is_integer:
+			quoted_pk = str(primary_key_val).strip()
+		else:
+			# Restore spaces from underscores for CHAR PKs only.
+			# create_object_id() replaces spaces with underscores to keep the
+			# colon-delimited ID format valid. 4D uses fixed-width CHAR fields
+			# padded with trailing spaces, so we reverse the substitution here.
+			primary_key_val = primary_key_val.replace("_", " ")
+			quoted_pk = f"'{primary_key_val}'"
 	else:
 		quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
 	
