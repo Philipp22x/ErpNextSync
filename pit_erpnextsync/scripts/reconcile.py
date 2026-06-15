@@ -666,10 +666,26 @@ def _values_match(actual: Any, expected: Any) -> bool:
 	Handles:
 	- 4D CHAR fields padded with trailing spaces
 	- Numeric type differences (int 24 vs float 24.0)
+	- Date vs datetime (date(2026,6,23) vs datetime(2026,6,23,0,0))
 	- None / empty string equivalence
 	"""
+	import datetime
+
 	if actual is None or actual == "":
 		return expected is None or expected == "" or str(expected).strip() == ""
+
+	# Date vs datetime: compare date parts only
+	if isinstance(actual, (datetime.date, datetime.datetime)) or isinstance(expected, (datetime.date, datetime.datetime)):
+		try:
+			a_date = actual.date() if isinstance(actual, datetime.datetime) else actual
+			e_date = expected.date() if isinstance(expected, datetime.datetime) else expected
+			if isinstance(a_date, str):
+				a_date = datetime.date.fromisoformat(a_date)
+			if isinstance(e_date, str):
+				e_date = datetime.date.fromisoformat(e_date)
+			return a_date == e_date
+		except (AttributeError, ValueError, TypeError):
+			pass
 
 	a_str = str(actual).strip()
 	e_str = str(expected).strip()
@@ -947,9 +963,13 @@ def _handle_multiple_query_group(
 				)
 			continue
 
-		# Try to find an existing child row with matching sl_column values
+		# Try to find an existing child row with matching sl_column values.
+		# Two-pass approach: first try exact match on all fields, then fall
+		# back to matching on string-type fields only (skip dates/numbers
+		# which often have type mismatches between 4D and ERPNext).
 		existing_child_name = None
 		if sl_field_map:
+			# Pass 1: match on all fields
 			for existing_row in existing_rows:
 				if existing_row.name in matched_row_names:
 					continue
@@ -964,6 +984,31 @@ def _handle_multiple_query_group(
 					existing_child_name = existing_row.name
 					matched_row_names.add(existing_row.name)
 					break
+
+			# Pass 2: match only on string-type source values (skip dates, numbers)
+			# This handles cases where date/datetime or int/float type mismatches
+			# prevent an exact match on all fields.
+			if not existing_child_name:
+				for existing_row in existing_rows:
+					if existing_row.name in matched_row_names:
+						continue
+					all_match = True
+					matched_any = False
+					for child_fn, sl_col in sl_field_map.items():
+						expected = _get_col(source_row, sl_col)
+						if expected is None:
+							continue
+						if not isinstance(expected, str):
+							continue
+						actual = existing_row.get(child_fn)
+						if not _values_match(actual, expected):
+							all_match = False
+							break
+						matched_any = True
+					if all_match and matched_any:
+						existing_child_name = existing_row.name
+						matched_row_names.add(existing_row.name)
+						break
 
 		if existing_child_name:
 			# Reuse existing child row — update its values
