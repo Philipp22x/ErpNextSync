@@ -634,6 +634,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
                 # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
+                    old_child_name = row.child_row_name
+                    old_child_doctype = row.child_row_doctype
+
                     repaired_child = ensure_child_row_exists(mapping_name=mapping_name, mapping_row=row)
                     target_child_doctype = repaired_child.get("child_row_doctype")
                     target_child_name = repaired_child.get("child_row_name")
@@ -643,6 +646,27 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                             f"Could not resolve child row for {mapping_name} "
                             f"{row.mapping_doctype}.{row.fieldname}.{row.child_row_fieldname}"
                         )
+
+                    # Sync in-memory mapping_doc rows so subsequent fields of the
+                    # same child table see the new child_row_name/doctype.
+                    # Without this, ensure_child_row_exists is called again for
+                    # each sibling field and creates duplicate empty child rows.
+                    if target_child_name != old_child_name or target_child_doctype != old_child_doctype:
+                        for sibling in mapping_doc.mapping_table:
+                            if (
+                                sibling.mapping_doctype == row.mapping_doctype
+                                and sibling.docname == row.docname
+                                and sibling.fieldname == row.fieldname
+                                and sibling.child_row_name == old_child_name
+                            ):
+                                sibling.child_row_name = target_child_name
+                                sibling.child_row_doctype = target_child_doctype
+
+                    # Skip set_value when field_value is None to avoid clearing
+                    # existing child fields (e.g. when multiple_query matching
+                    # fails and the column doesn't exist in parent data).
+                    if field_value is None:
+                        continue
 
                     lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
@@ -685,22 +709,29 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
 def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
     """Ensure mapped child row exists; recreate and re-link mapping entries if missing."""
-    child_doctype = mapping_row.child_row_doctype
     child_row_name = mapping_row.child_row_name
 
-    # Already valid
+    # Resolve child doctype: use mapping row value, fall back to parent meta.
+    # This must happen BEFORE the existence check so that entries with an empty
+    # child_row_doctype (e.g. created by older code paths) still find the
+    # existing child row instead of creating a duplicate.
+    child_doctype = mapping_row.child_row_doctype
+    if not child_doctype:
+        try:
+            child_table_field = frappe.get_meta(mapping_row.mapping_doctype).get_field(mapping_row.fieldname)
+            if child_table_field and child_table_field.options:
+                child_doctype = child_table_field.options
+        except Exception:
+            pass
+
+    # Already valid — child exists in DB
     if child_doctype and child_row_name and frappe.db.exists(child_doctype, child_row_name):
         return {
             "child_row_doctype": child_doctype,
             "child_row_name": child_row_name
         }
 
-    # Determine child doctype from parent table field metadata as primary source
-    meta = frappe.get_meta(mapping_row.mapping_doctype)
-    child_table_field = meta.get_field(mapping_row.fieldname)
     resolved_child_doctype = child_doctype
-    if child_table_field and child_table_field.options:
-        resolved_child_doctype = child_table_field.options
 
     if not resolved_child_doctype:
         raise Exception(
