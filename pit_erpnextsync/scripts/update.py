@@ -345,16 +345,6 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         if not mapping_table_data:
             raise Exception("Could not get mapping table data")
 
-        # Filter out invalid/error columns (columns starting with _ are error codes)
-        # and child table columns (child_row_fieldname set) — those come from a
-        # different source table via multiple_query, not from the parent table.
-        valid_columns = [
-            d["selectline_column"] 
-            for d in mapping_table_data 
-            if d.get("selectline_column") and not d["selectline_column"].startswith("_") and not d.get("child_row_fieldname")
-        ]
-        col_string = ",\n".join(dict.fromkeys(valid_columns))
-
         # get timestamp column name from table mapping and load mapping JSON
         instance_doc = frappe.get_doc("Sync Instance", instance)
         time_stamp_col_name: str = None
@@ -366,14 +356,39 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 mapping_json = json.loads(tm_row.mapping)
                 table_mapping_row = tm_row
                 break
+
+        # Build set of multiple_query child table fieldnames — their sl_columns
+        # come from a separate source table, NOT from the parent table, so they
+        # must be excluded from the parent SQL query.
+        mq_fieldnames: set = set()
+        for mapped_doctype in mapping_json:
+            for field in mapped_doctype.get("fields", []):
+                if field.get("multiple_query") and field.get("table_fields"):
+                    mq_fieldnames.add(field.get("fieldname"))
+
+        # Filter out invalid/error columns (columns starting with _ are error codes).
+        # Include parent columns AND non-multiple_query child table columns (those
+        # come from the parent table). Exclude multiple_query child columns (those
+        # come from a different source table via multiple_query).
+        valid_columns = [
+            d["selectline_column"]
+            for d in mapping_table_data
+            if d.get("selectline_column")
+            and not d["selectline_column"].startswith("_")
+            and (not d.get("child_row_fieldname") or d.get("fieldname") not in mq_fieldnames)
+        ]
+        col_string = ",\n".join(dict.fromkeys(valid_columns))
         # Build columns list
         columns = [c.strip() for c in col_string.split(",") if c.strip()]
         if time_stamp_col_name:
             columns.append(time_stamp_col_name)
-        
-        # Build phone + value_map lookups from mapping JSON
+
+
+        # Build phone + value_map + mapped_value + child_defaults lookups from mapping JSON
         phone_field_lookup: dict = {}
         value_map_lookup: dict = {}
+        mapped_value_lookup: dict = {}
+        child_defaults_lookup: dict = {}
         for mapped_doctype in mapping_json:
             doctype = mapped_doctype.get("doctype")
             for field in mapped_doctype.get("fields", []):
@@ -391,13 +406,22 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "default": field.get("value_map_default")
                     }
 
-                # Also check table_fields for phone numbers
+                if field.get("mapped_value") and field.get("sl_column"):
+                    mv = field.get("mapped_value")
+                    key = f"{doctype}:{fieldname}:{field.get('sl_column')}"
+                    mapped_value_lookup[key] = {
+                        "table_name": mv.get("table_name"),
+                        "sl_id": mv.get("sl_id"),
+                        "doc_type": mv.get("doc_type"),
+                        "fieldname": mv.get("fieldname"),
+                    }
+
+                # Also check table_fields for phone numbers, value_maps, mapped_values, defaults
                 if field.get("table_fields"):
                     for table_field in field.get("table_fields", []):
                         table_fieldname = table_field.get("table_fieldname")
                         table_sl_column = table_field.get("sl_column")
                         if table_field.get("is_phone_no") == 1:
-                            # For child table fields, use child doctype
                             try:
                                 child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
                                 key = f"{child_doctype}:{table_fieldname}"
@@ -418,8 +442,39 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                             except:
                                 pass
 
+                        if table_field.get("mapped_value") and table_sl_column:
+                            try:
+                                child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+                                mv = table_field.get("mapped_value")
+                                key = f"{child_doctype}:{table_fieldname}:{table_sl_column}"
+                                mapped_value_lookup[key] = {
+                                    "table_name": mv.get("table_name"),
+                                    "sl_id": mv.get("sl_id"),
+                                    "doc_type": mv.get("doc_type"),
+                                    "fieldname": mv.get("fieldname"),
+                                }
+                            except:
+                                pass
+
+                        # Collect default values for child fields (used when recreating child rows)
+                        if table_field.get("default") is not None:
+                            try:
+                                child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+                                ck = f"{child_doctype}:{table_fieldname}"
+                                child_defaults_lookup[ck] = table_field["default"]
+                            except:
+                                pass
+
         # get db schema from instance
         schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+
+        # Add mapped_value.sl_id columns needed for cross-reference resolution.
+        # These are parent-table columns that provide the SelectLine ID used
+        # to look up the corresponding ERPNext document name.
+        for mv_config in mapped_value_lookup.values():
+            sl_id_col = mv_config.get("sl_id")
+            if sl_id_col and sl_id_col not in columns and sl_id_col not in mq_fieldnames:
+                columns.append(sl_id_col)
 
         # get name of primary key column from mapping doc
         primary_key_col: str = mapping_doc.primary_key_column
@@ -485,6 +540,10 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         mq_columns.append(tf["sl_column"])
                     if tf.get("alt_key") and tf["alt_key"] not in mq_columns:
                         mq_columns.append(tf["alt_key"])
+                    if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
+                        sl_id = tf["mapped_value"]["sl_id"]
+                        if sl_id not in mq_columns:
+                            mq_columns.append(sl_id)
 
                 source_rows = controller.fetch_multiple_rows(
                     instance=instance,
@@ -616,6 +675,32 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     map_default = map_data.get("default")
                     field_value = value_map.get(str(field_value), map_default if map_default is not None else field_value)
 
+                # Apply mapped_value cross-reference resolution if configured.
+                # This translates a raw SelectLine ID into the corresponding
+                # ERPNext document name (e.g. KUNDENNR "4711" -> "ACC-CUST-001").
+                if value_map_key in mapped_value_lookup and field_value is not None:
+                    mv_config = mapped_value_lookup[value_map_key]
+                    sl_id_col = mv_config.get("sl_id")
+                    # Get the sl_id value from the appropriate fetched data
+                    if row.child_row_name and row.child_row_name in mq_child_data:
+                        sl_id_value = mq_child_data[row.child_row_name].get(sl_id_col)
+                        if sl_id_value is None:
+                            upper = sl_id_col.upper()
+                            for k, v in mq_child_data[row.child_row_name].items():
+                                if k.upper() == upper:
+                                    sl_id_value = v
+                                    break
+                    else:
+                        sl_id_value = fetched_data[0].get(sl_id_col)
+                    if sl_id_value is not None:
+                        resolved = controller.get_mapped_value(
+                            sl_id=f"{instance}:{mv_config.get('table_name')}:{sl_id_value}",
+                            doc_type=mv_config.get("doc_type"),
+                            fieldname=mv_config.get("fieldname"),
+                        )
+                        if resolved:
+                            field_value = str(resolved) if row.child_row_fieldname and row.child_row_doctype else resolved
+
                 # Handle _user_tags - add/remove tags instead of set_value
                 if row.fieldname == "_user_tags":
                     try:
@@ -634,6 +719,11 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
                 # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
+                    # Skip entirely when source has no value — don't create
+                    # empty child rows and don't clear existing fields.
+                    if field_value is None:
+                        continue
+
                     old_child_name = row.child_row_name
                     old_child_doctype = row.child_row_doctype
 
@@ -642,10 +732,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     target_child_name = repaired_child.get("child_row_name")
 
                     if not target_child_doctype or not target_child_name:
-                        raise Exception(
-                            f"Could not resolve child row for {mapping_name} "
-                            f"{row.mapping_doctype}.{row.fieldname}.{row.child_row_fieldname}"
+                        make_log(
+                            f"Skipping {row.mapping_doctype}.{row.fieldname}.{row.child_row_fieldname} "
+                            f"for {mapping_name} — child row could not be resolved",
+                            "WARNING",
+                            controller.APP_NAME,
                         )
+                        continue
 
                     # Sync in-memory mapping_doc rows so subsequent fields of the
                     # same child table see the new child_row_name/doctype.
@@ -662,11 +755,19 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                                 sibling.child_row_name = target_child_name
                                 sibling.child_row_doctype = target_child_doctype
 
-                    # Skip set_value when field_value is None to avoid clearing
-                    # existing child fields (e.g. when multiple_query matching
-                    # fails and the column doesn't exist in parent data).
-                    if field_value is None:
-                        continue
+                        # When a new child row was created, populate default
+                        # values from the mapping JSON (e.g. link_doctype="Customer").
+                        # These fields have no mapping entry (no sl_column) and
+                        # would otherwise remain empty on the recreated row.
+                        if target_child_name != old_child_name:
+                            for def_key, def_value in child_defaults_lookup.items():
+                                def_doctype, def_fieldname = def_key.split(":", 1)
+                                if def_doctype == target_child_doctype:
+                                    frappe.db.set_value(
+                                        target_child_doctype, target_child_name,
+                                        def_fieldname, def_value,
+                                        update_modified=False,
+                                    )
 
                     lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
@@ -731,6 +832,23 @@ def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
             "child_row_name": child_row_name
         }
 
+    # When child_row_name is NULL, we can't know which group of fields belongs
+    # to the same child row. Creating a new row per field would produce one
+    # empty row per field (e.g. 6 empty UOM rows for 6 UOM fields). Instead,
+    # skip — the user should re-import or re-reconcile to restore correct rows.
+    if not child_row_name:
+        make_log(
+            f"Skipping child row creation for {mapping_name}: "
+            f"{mapping_row.mapping_doctype}.{mapping_row.fieldname} "
+            f"has no child_row_name — re-import or re-reconcile needed",
+            "WARNING",
+            controller.APP_NAME,
+        )
+        return {
+            "child_row_doctype": child_doctype,
+            "child_row_name": None
+        }
+
     resolved_child_doctype = child_doctype
 
     if not resolved_child_doctype:
@@ -750,15 +868,16 @@ def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
     new_child.flags.name_set = True
     new_child.insert(ignore_permissions=True, ignore_mandatory=True)
 
-    # Re-link all mapping rows that pointed to the missing child row
+    # Re-link mapping rows that pointed to the missing child row.
+    # child_row_name is not NULL here (we returned early above), so this
+    # only re-links entries with the SAME specific old child_row_name.
     relink_filters = {
         "parent": mapping_name,
         "mapping_doctype": mapping_row.mapping_doctype,
         "docname": mapping_row.docname,
         "fieldname": mapping_row.fieldname,
+        "child_row_name": child_row_name,
     }
-    if child_row_name:
-        relink_filters["child_row_name"] = child_row_name
 
     entries_to_relink = frappe.get_all("Sync Mapping Entry", filters=relink_filters, pluck="name")
     if not entries_to_relink and mapping_row.name:
@@ -771,7 +890,7 @@ def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
     make_log(
         f"Repaired missing child row for mapping {mapping_name}: "
         f"{mapping_row.mapping_doctype}.{mapping_row.fieldname} "
-        f"{child_row_name or '<empty>'} -> {new_child_name}",
+        f"{child_row_name} -> {new_child_name}",
         "WARNING",
         controller.APP_NAME,
     )

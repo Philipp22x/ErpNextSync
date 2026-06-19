@@ -893,6 +893,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                     child_doc_list.append(new_child_row)
                     child_name_map[new_child_row.name] = new_child_row
 
+                    row_has_data = False
+                    pending_mapping_entries: list = []
+
                     # child row fields
                     for table_field in field["table_fields"]:
 
@@ -928,36 +931,27 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 field_value = format_phone_number(field_value, country_code)
 
                             # check if field value is empty and reqd
-                            if field_value in ["", None] and field.get("reqd") == 1:
+                            if field_value in ["", None] and table_field.get("reqd") == 1:
                                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
                             else:
                                 new_child_row.set(table_field["table_fieldname"], field_value)
+
+                            if field_value not in ["", None]:
+                                row_has_data = True
 
                             # set_redis - store value in local context for later use within the same object
                             if table_field.get("set_redis") and field_value not in ["", None] and redis_context is not None:
                                 redis_context[table_field["set_redis"]] = str(field_value)
 
-                            # create new mapping doc row data for every field
-                            data: dict = {
+                            # collect mapping entry — only committed if row_has_data at the end
+                            pending_mapping_entries.append({
                                 "mapping_doctype": new_doc.doctype,
                                 "fieldname": field["fieldname"],
                                 "selectline_column": table_field["sl_column"],
                                 "child_row_fieldname": table_field["table_fieldname"],
                                 "child_row_name": new_child_row.name,
                                 "child_row_doctype": new_child_row.doctype
-                            }
-                            doc_mapping_data.append(data)
-
-                            # remove empty row if no
-                            if table_field.get("sl_column"):
-                                if table_field.get("alt_key"):
-                                    if fetched_obj[table_field["alt_key"]] in ["", None]:
-                                        child_doc_list.remove(new_child_row)
-                                        child_name_map.pop(new_child_row.name, None)
-                                else:
-                                    if fetched_obj[table_field["sl_column"]] in ["", None]:
-                                        child_doc_list.remove(new_child_row)
-                                        child_name_map.pop(new_child_row.name, None)
+                            })
 
                         # get_redis standalone for child table fields
                         elif table_field.get("get_redis") and not table_field.get("sl_column"):
@@ -972,9 +966,23 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
                             elif field_value not in ["", None]:
                                 new_child_row.set(table_field["table_fieldname"], field_value)
+                                row_has_data = True
 
                         elif table_field.get("default"):
                             new_child_row.set(table_field["table_fieldname"], table_field["default"])
+                            row_has_data = True
+
+                    # Only keep the child row if it has actual data
+                    if not row_has_data:
+                        child_doc_list.remove(new_child_row)
+                        child_name_map.pop(new_child_row.name, None)
+                        make_log(
+                            f"Skipping child row with no data for {mapped_doctype['doctype']}.{field['fieldname']}",
+                            "WARNING",
+                            controller.APP_NAME,
+                        )
+                    else:
+                        doc_mapping_data.extend(pending_mapping_entries)
 
             except Exception as e:
                 make_log(f"Could not create child doc: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
@@ -1071,6 +1079,25 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         "INFO",
                                         controller.APP_NAME
                                     )
+                    else:
+                        # For non-Dynamic-Link child tables that already have rows:
+                        # insert the new child row alongside existing ones instead
+                        # of silently dropping it (which would leave orphaned mapping
+                        # entries pointing to a child_row_name that was never inserted).
+                        child_doc.parent = existing_name
+                        child_doc.flags.name_set = True
+                        child_doc.insert(
+                            ignore_permissions=True,
+                            ignore_mandatory=True,
+                            ignore_links=True
+                        )
+                        make_log(
+                            f"Added child row {child_doc.doctype} {child_doc.name} "
+                            f"to existing {new_doc.doctype} {existing_name} "
+                            f"(field: {child_doc.parentfield}, existing rows: {len(existing_children)})",
+                            "INFO",
+                            controller.APP_NAME
+                        )
                 frappe.db.commit()
                 make_log(f"Added child rows to existing {new_doc.doctype} {existing_name}", "INFO", controller.APP_NAME)
             except Exception as e:
