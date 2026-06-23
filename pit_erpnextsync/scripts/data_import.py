@@ -438,13 +438,6 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                         "WARNING",
                         controller.APP_NAME
                     )
-                    # Add a placeholder mapping entry so we don't retry this record indefinitely
-                    obj_mapping_data.append([{
-                        "mapping_doctype": mapped_doctype["doctype"],
-                        "fieldname": "_skipped",
-                        "selectline_column": "_error_code_" + str(new_doc_result["code"]),
-                        "error": True
-                    }])
                     continue
 
                 if new_doc_result["code"] == 102:
