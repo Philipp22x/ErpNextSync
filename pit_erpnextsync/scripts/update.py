@@ -728,7 +728,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 if row.child_row_fieldname:
                     # Skip entirely when source has no value — don't create
                     # empty child rows and don't clear existing fields.
-                    if field_value is None:
+                    if field_value is None or field_value == "":
                         continue
 
                     old_child_name = row.child_row_name
