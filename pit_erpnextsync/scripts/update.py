@@ -791,17 +791,19 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 make_log(f"{er}", "ERROR", controller.APP_NAME, with_traceback=True)
                 continue
         
-        # Update timestamp and last_update on mapping doc
+        # Update timestamp and last_update on mapping doc — use db.set_value
+        # to skip validation of all child table entries (major performance gain
+        # for mappings with 30-45 Sync Mapping Entry rows).
         if time_stamp_col_name:
             try:
                 raw_timestamp = fetched_data[0].get(time_stamp_col_name)
                 time_stamp_type = mapping_doc.time_stamp_type or "datetime"
-                mapping_doc.db_time_stamp = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
+                ts_str = controller.convert_timestamp_to_string(raw_timestamp, time_stamp_type)
+                frappe.db.set_value("Sync Mapping", mapping_name, "db_time_stamp", ts_str, update_modified=False)
             except Exception as ts_err:
                 make_log(f"Could not update timestamp for {mapping_name}: {ts_err}", "ERROR", controller.APP_NAME)
-        mapping_doc.last_update = datetime.datetime.now()
-        mapping_doc.save()
-        
+        frappe.db.set_value("Sync Mapping", mapping_name, "last_update", datetime.datetime.now(), update_modified=False)
+
         frappe.db.commit()
         make_log(f"Mapping {mapping_name} updated successfully", "INFO", controller.APP_NAME)
         
