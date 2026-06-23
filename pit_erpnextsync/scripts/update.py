@@ -357,25 +357,32 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 table_mapping_row = tm_row
                 break
 
-        # Build set of multiple_query child table fieldnames — their sl_columns
-        # come from a separate source table, NOT from the parent table, so they
-        # must be excluded from the parent SQL query.
-        mq_fieldnames: set = set()
+        # Build set of sl_columns that belong to multiple_query child table
+        # definitions — these come from a separate source table, NOT from the
+        # parent table, so they must be excluded from the parent SQL query.
+        # Keyed by column name (not fieldname) so that a non-mq definition
+        # sharing the same fieldname as an mq definition is not wrongly excluded.
+        mq_sl_columns: set = set()
         for mapped_doctype in mapping_json:
             for field in mapped_doctype.get("fields", []):
                 if field.get("multiple_query") and field.get("table_fields"):
-                    mq_fieldnames.add(field.get("fieldname"))
+                    for tf in field.get("table_fields", []):
+                        if tf.get("sl_column"):
+                            mq_sl_columns.add(tf["sl_column"])
+                        if tf.get("alt_key"):
+                            mq_sl_columns.add(tf["alt_key"])
+                        if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
+                            mq_sl_columns.add(tf["mapped_value"]["sl_id"])
 
-        # Filter out invalid/error columns (columns starting with _ are error codes).
-        # Include parent columns AND non-multiple_query child table columns (those
-        # come from the parent table). Exclude multiple_query child columns (those
-        # come from a different source table via multiple_query).
+        # Filter out invalid/error columns (columns starting with _ are error codes)
+        # and multiple_query child columns (those come from a different source table).
+        # Non-multiple_query child columns ARE included (they come from the parent table).
         valid_columns = [
             d["selectline_column"]
             for d in mapping_table_data
             if d.get("selectline_column")
             and not d["selectline_column"].startswith("_")
-            and (not d.get("child_row_fieldname") or d.get("fieldname") not in mq_fieldnames)
+            and d["selectline_column"] not in mq_sl_columns
         ]
         col_string = ",\n".join(dict.fromkeys(valid_columns))
         # Build columns list
@@ -473,7 +480,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # to look up the corresponding ERPNext document name.
         for mv_config in mapped_value_lookup.values():
             sl_id_col = mv_config.get("sl_id")
-            if sl_id_col and sl_id_col not in columns and sl_id_col not in mq_fieldnames:
+            if sl_id_col and sl_id_col not in columns and sl_id_col not in mq_sl_columns:
                 columns.append(sl_id_col)
 
         # get name of primary key column from mapping doc
@@ -645,7 +652,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 # For multiple_query child rows, use child data from the source child table.
                 # For parent fields and non-multiple_query child fields, use parent data.
                 col_key = row.selectline_column
-                if ") AS " in col_key or ") as " in col_key:
+                if " AS " in col_key or " as " in col_key:
                     # Extract alias from "... AS AliasName" or "... as AliasName"
                     col_key = col_key.rsplit(" AS ", 1)[-1].rsplit(" as ", 1)[-1].strip()
 
