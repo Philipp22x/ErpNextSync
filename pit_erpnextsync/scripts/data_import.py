@@ -930,9 +930,18 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 country_code = table_field.get("phone_country_code", "AT")
                                 field_value = format_phone_number(field_value, country_code)
 
-                            # check if field value is empty and reqd
+                            # check if field value is empty and reqd — skip this
+                            # child row only (not the entire doctype), matching
+                            # the multiple_query path's behavior.
                             if field_value in ["", None] and table_field.get("reqd") == 1:
-                                return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
+                                make_log(
+                                    f"Skipping child row for {mapped_doctype['doctype']}.{field['fieldname']}: "
+                                    f"required table field '{table_field['table_fieldname']}' is empty",
+                                    "WARNING",
+                                    controller.APP_NAME,
+                                )
+                                row_has_data = False
+                                break
                             else:
                                 new_child_row.set(table_field["table_fieldname"], field_value)
 
