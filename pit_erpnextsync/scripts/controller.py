@@ -610,6 +610,7 @@ def get_mapping_table_data(mapping_name: str) -> list:
 		"Sync Mapping Entry",
 		filters={"parenttype": "Sync Mapping", "parentfield": "mapping_table", "parent": mapping_name},
 		fields=[
+			"name",
 			"mapping_doctype",
 			"docname",
 			"fieldname",
