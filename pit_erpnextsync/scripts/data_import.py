@@ -438,13 +438,6 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
                         "WARNING",
                         controller.APP_NAME
                     )
-                    # Add a placeholder mapping entry so we don't retry this record indefinitely
-                    obj_mapping_data.append([{
-                        "mapping_doctype": mapped_doctype["doctype"],
-                        "fieldname": "_skipped",
-                        "selectline_column": "_error_code_" + str(new_doc_result["code"]),
-                        "error": True
-                    }])
                     continue
 
                 if new_doc_result["code"] == 102:
@@ -1035,6 +1028,61 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             return {"code": 102}
         else:
             return {"code": 103}
+
+    except frappe.exceptions.UniqueValidationError as e:
+        # A child row (e.g. barcode) violates a unique constraint — the value
+        # already exists from an orphaned row of a previously deleted document.
+        # Remove the offending child row and retry the insert.
+        make_log(f"UniqueValidationError on insert: {e}", "WARNING", controller.APP_NAME)
+        child_doctype = None
+        child_name = None
+        if hasattr(e, "args") and len(e.args) >= 2:
+            child_doctype = e.args[0]
+            child_name = e.args[1]
+
+        if child_doctype and child_name:
+            # Remove from new_doc's child tables
+            for tf in new_doc.meta.get_table_fields():
+                children = new_doc.get(tf.fieldname) or []
+                for child in list(children):
+                    if child.doctype == child_doctype and child.name == child_name:
+                        children.remove(child)
+                        break
+
+            # Remove from tracking lists
+            child_doc_list[:] = [c for c in child_doc_list if not (c.doctype == child_doctype and c.name == child_name)]
+            child_name_map.pop(child_name, None)
+            doc_mapping_data[:] = [d for d in doc_mapping_data if d.get("child_row_name") != child_name]
+
+            make_log(
+                f"Removed duplicate {child_doctype} '{child_name}' and retrying insert",
+                "WARNING",
+                controller.APP_NAME,
+            )
+
+            try:
+                new_doc.insert(
+                    ignore_permissions=True,
+                    ignore_mandatory=True,
+                    ignore_links=True
+                )
+                mapping_doc_name: str = new_doc.name
+                for entry in doc_mapping_data:
+                    old_name = entry.get("child_row_name")
+                    if old_name and old_name in child_name_map:
+                        entry["child_row_name"] = child_name_map[old_name].name
+                frappe.db.commit()
+            except Exception as retry_err:
+                make_log(f"Retry insert also failed: {retry_err}", "ERROR", controller.APP_NAME, with_traceback=True)
+                if doc_is_reqd:
+                    return {"code": 102}
+                else:
+                    return {"code": 103}
+        else:
+            if doc_is_reqd:
+                return {"code": 102}
+            else:
+                return {"code": 103}
 
     except frappe.exceptions.ValidationError as e:
         make_log(f"Could not insert document: {e}", "ERROR", controller.APP_NAME, with_traceback=True)
