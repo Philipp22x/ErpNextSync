@@ -391,11 +391,10 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             columns.append(time_stamp_col_name)
 
 
-        # Build phone + value_map + mapped_value + child_defaults lookups from mapping JSON
+        # Build phone + value_map + mapped_value lookups from mapping JSON
         phone_field_lookup: dict = {}
         value_map_lookup: dict = {}
         mapped_value_lookup: dict = {}
-        child_defaults_lookup: dict = {}
         for mapped_doctype in mapping_json:
             doctype = mapped_doctype.get("doctype")
             for field in mapped_doctype.get("fields", []):
@@ -460,15 +459,6 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                                     "doc_type": mv.get("doc_type"),
                                     "fieldname": mv.get("fieldname"),
                                 }
-                            except:
-                                pass
-
-                        # Collect default values for child fields (used when recreating child rows)
-                        if table_field.get("default") is not None:
-                            try:
-                                child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
-                                ck = f"{child_doctype}:{table_fieldname}"
-                                child_defaults_lookup[ck] = table_field["default"]
                             except:
                                 pass
 
@@ -726,55 +716,26 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
 
                 # Check if this is a phone field and apply formatting
                 if row.child_row_fieldname:
-                    # Skip entirely when source has no value — don't create
-                    # empty child rows and don't clear existing fields.
+                    # Skip when source has no value — don't clear existing fields.
                     if field_value is None or field_value == "":
                         continue
 
-                    old_child_name = row.child_row_name
-                    old_child_doctype = row.child_row_doctype
+                    # Resolve child doctype from mapping entry or meta
+                    target_child_doctype = row.child_row_doctype
+                    if not target_child_doctype:
+                        try:
+                            target_child_doctype = frappe.get_meta(row.mapping_doctype).get_field(row.fieldname).options
+                        except Exception:
+                            pass
 
-                    repaired_child = ensure_child_row_exists(mapping_name=mapping_name, mapping_row=row)
-                    target_child_doctype = repaired_child.get("child_row_doctype")
-                    target_child_name = repaired_child.get("child_row_name")
+                    target_child_name = row.child_row_name
 
+                    # Update ONLY updates existing child rows. Never creates.
+                    # If the child row is missing, skip — reconcile will fix it.
                     if not target_child_doctype or not target_child_name:
-                        make_log(
-                            f"Skipping {row.mapping_doctype}.{row.fieldname}.{row.child_row_fieldname} "
-                            f"for {mapping_name} — child row could not be resolved",
-                            "WARNING",
-                            controller.APP_NAME,
-                        )
                         continue
-
-                    # Sync in-memory mapping_doc rows so subsequent fields of the
-                    # same child table see the new child_row_name/doctype.
-                    # Without this, ensure_child_row_exists is called again for
-                    # each sibling field and creates duplicate empty child rows.
-                    if target_child_name != old_child_name or target_child_doctype != old_child_doctype:
-                        for sibling in mapping_doc.mapping_table:
-                            if (
-                                sibling.mapping_doctype == row.mapping_doctype
-                                and sibling.docname == row.docname
-                                and sibling.fieldname == row.fieldname
-                                and sibling.child_row_name == old_child_name
-                            ):
-                                sibling.child_row_name = target_child_name
-                                sibling.child_row_doctype = target_child_doctype
-
-                        # When a new child row was created, populate default
-                        # values from the mapping JSON (e.g. link_doctype="Customer").
-                        # These fields have no mapping entry (no sl_column) and
-                        # would otherwise remain empty on the recreated row.
-                        if target_child_name != old_child_name:
-                            for def_key, def_value in child_defaults_lookup.items():
-                                def_doctype, def_fieldname = def_key.split(":", 1)
-                                if def_doctype == target_child_doctype:
-                                    frappe.db.set_value(
-                                        target_child_doctype, target_child_name,
-                                        def_fieldname, def_value,
-                                        update_modified=False,
-                                    )
+                    if not frappe.db.exists(target_child_doctype, target_child_name):
+                        continue
 
                     lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
@@ -815,99 +776,6 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # Update job counts even on error
         controller.update_jobs(instance=instance, skip_hooks=True)
         return None
-
-
-def ensure_child_row_exists(mapping_name: str, mapping_row: Document) -> dict:
-    """Ensure mapped child row exists; recreate and re-link mapping entries if missing."""
-    child_row_name = mapping_row.child_row_name
-
-    # Resolve child doctype: use mapping row value, fall back to parent meta.
-    # This must happen BEFORE the existence check so that entries with an empty
-    # child_row_doctype (e.g. created by older code paths) still find the
-    # existing child row instead of creating a duplicate.
-    child_doctype = mapping_row.child_row_doctype
-    if not child_doctype:
-        try:
-            child_table_field = frappe.get_meta(mapping_row.mapping_doctype).get_field(mapping_row.fieldname)
-            if child_table_field and child_table_field.options:
-                child_doctype = child_table_field.options
-        except Exception:
-            pass
-
-    # Already valid — child exists in DB
-    if child_doctype and child_row_name and frappe.db.exists(child_doctype, child_row_name):
-        return {
-            "child_row_doctype": child_doctype,
-            "child_row_name": child_row_name
-        }
-
-    # When child_row_name is NULL, we can't know which group of fields belongs
-    # to the same child row. Creating a new row per field would produce one
-    # empty row per field (e.g. 6 empty UOM rows for 6 UOM fields). Instead,
-    # skip — the user should re-import or re-reconcile to restore correct rows.
-    if not child_row_name:
-        make_log(
-            f"Skipping child row creation for {mapping_name}: "
-            f"{mapping_row.mapping_doctype}.{mapping_row.fieldname} "
-            f"has no child_row_name — re-import or re-reconcile needed",
-            "WARNING",
-            controller.APP_NAME,
-        )
-        return {
-            "child_row_doctype": child_doctype,
-            "child_row_name": None
-        }
-
-    resolved_child_doctype = child_doctype
-
-    if not resolved_child_doctype:
-        raise Exception(
-            f"Could not determine child doctype for "
-            f"{mapping_row.mapping_doctype}.{mapping_row.fieldname}"
-        )
-
-    new_child_name = frappe.generate_hash(length=8)
-    new_child = frappe.get_doc({
-        "doctype": resolved_child_doctype,
-        "parenttype": mapping_row.mapping_doctype,
-        "parent": mapping_row.docname,
-        "parentfield": mapping_row.fieldname,
-        "name": new_child_name,
-    })
-    new_child.flags.name_set = True
-    new_child.insert(ignore_permissions=True, ignore_mandatory=True)
-
-    # Re-link mapping rows that pointed to the missing child row.
-    # child_row_name is not NULL here (we returned early above), so this
-    # only re-links entries with the SAME specific old child_row_name.
-    relink_filters = {
-        "parent": mapping_name,
-        "mapping_doctype": mapping_row.mapping_doctype,
-        "docname": mapping_row.docname,
-        "fieldname": mapping_row.fieldname,
-        "child_row_name": child_row_name,
-    }
-
-    entries_to_relink = frappe.get_all("Sync Mapping Entry", filters=relink_filters, pluck="name")
-    if not entries_to_relink and mapping_row.name:
-        entries_to_relink = [mapping_row.name]
-
-    for entry_name in entries_to_relink:
-        frappe.db.set_value("Sync Mapping Entry", entry_name, "child_row_name", new_child_name)
-        frappe.db.set_value("Sync Mapping Entry", entry_name, "child_row_doctype", resolved_child_doctype)
-
-    make_log(
-        f"Repaired missing child row for mapping {mapping_name}: "
-        f"{mapping_row.mapping_doctype}.{mapping_row.fieldname} "
-        f"{child_row_name} -> {new_child_name}",
-        "WARNING",
-        controller.APP_NAME,
-    )
-
-    return {
-        "child_row_doctype": resolved_child_doctype,
-        "child_row_name": new_child_name
-    }
 
 
 # Modified by PIT Agent Dev 1 - 2026-03-30: Resolve legacy type-prefixed table names for update SQL queries.
