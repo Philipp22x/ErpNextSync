@@ -227,20 +227,28 @@ def reconcile_single_mapping(
 		stored_entries: List[Dict] = controller.get_mapping_table_data(mapping_name)
 
 		# Verify child rows actually exist in the DB. If a child_row_name
-		# points to a deleted row, clear it so the diff detects it as missing
-		# and reconcile recreates the child row properly.
+		# points to a deleted row, DELETE the mapping entry entirely so the
+		# diff detects it as missing and reconcile recreates the child row.
+		# (Just clearing child_row_name is not enough — the entry still
+		# matches by field key and the diff sees it as "already configured".)
+		stale_entry_names: List[str] = []
 		for entry in stored_entries:
 			crn = entry.get("child_row_name")
 			crd = entry.get("child_row_doctype")
-			if crn and crd:
-				if not frappe.db.exists(crd, crn):
-					frappe.db.set_value(
-						"Sync Mapping Entry", entry.get("name"),
-						{"child_row_name": None, "child_row_doctype": None},
-						update_modified=False,
-					)
-					entry["child_row_name"] = None
-					entry["child_row_doctype"] = None
+			if crn and crd and not frappe.db.exists(crd, crn):
+				stale_entry_names.append(entry.get("name"))
+
+		if stale_entry_names:
+			for entry_name in stale_entry_names:
+				frappe.delete_doc("Sync Mapping Entry", entry_name, ignore_permissions=True, force=True)
+			# Re-fetch stored entries after deletion
+			stored_entries = controller.get_mapping_table_data(mapping_name)
+			make_log(
+				f"Removed {len(stale_entry_names)} stale child entries for {mapping_name} "
+				f"(child rows deleted from DB)",
+				"WARNING",
+				APP_NAME,
+			)
 		
 		# First detect changes to know what columns we need to fetch
 		# We do a preliminary comparison without fetched_obj
