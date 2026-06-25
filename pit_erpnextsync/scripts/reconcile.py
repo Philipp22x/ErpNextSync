@@ -2131,7 +2131,12 @@ def get_or_create_child_row(
 			# but the child row may already exist on the document (e.g. mapping entry
 			# was never stored during import, or was deleted). Check the actual
 			# document to avoid creating a duplicate child row.
-			if docname and resolved_value is not None:
+			# Only use this fallback if the field has no group_key — grouped fields
+			# (like multiple UOM definitions) are handled by the child_rows_cache
+			# in apply_field_additions and must NOT match by value here, because
+			# different source columns can have the same value (e.g. GEBINDE_2=16
+			# and UEBERVERPACKUNGMENGE=16 would wrongly merge onto one row).
+			if docname and resolved_value is not None and not field_def.get("child_row_group_key"):
 				parent_doc = frappe.get_doc(doctype, docname)
 				existing_child_rows = parent_doc.get(fieldname) or []
 				for row in existing_child_rows:
