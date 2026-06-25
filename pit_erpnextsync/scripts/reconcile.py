@@ -226,16 +226,21 @@ def reconcile_single_mapping(
 		# Get stored mapping entries
 		stored_entries: List[Dict] = controller.get_mapping_table_data(mapping_name)
 
-		# Verify child rows actually exist in the DB. If a child_row_name
-		# points to a deleted row, DELETE the mapping entry entirely so the
-		# diff detects it as missing and reconcile recreates the child row.
-		# (Just clearing child_row_name is not enough — the entry still
-		# matches by field key and the diff sees it as "already configured".)
+		# Remove broken child mapping entries so the diff detects them as
+		# missing and reconcile recreates the child rows properly.
+		# Two cases:
+		#   1. child_row_name is set but the child row was deleted from DB
+		#   2. child_row_name is NULL — entry is incomplete, can't be used
 		stale_entry_names: List[str] = []
 		for entry in stored_entries:
 			crn = entry.get("child_row_name")
 			crd = entry.get("child_row_doctype")
+			cf = entry.get("child_row_fieldname")
+			if not cf:
+				continue  # parent field, not a child entry
 			if crn and crd and not frappe.db.exists(crd, crn):
+				stale_entry_names.append(entry.get("name"))
+			elif not crn and cf:
 				stale_entry_names.append(entry.get("name"))
 
 		if stale_entry_names:
