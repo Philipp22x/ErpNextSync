@@ -500,13 +500,20 @@ def get_field_key(field_def: Dict) -> str:
 	child_row = field_def.get("child_row_fieldname", "")
 	source_column = field_def.get("sl_column") or field_def.get("selectline_column")
 	default_value = field_def.get("default")
+	group_key = field_def.get("child_row_group_key", "")
 	
 	if child_row:
+		# Include group_key to distinguish fields from different child row
+		# definitions that share the same fieldname and default value
+		# (e.g. barcode_type=EAN for EAN, EAN2, EAN3 groups).
+		prefix = f"{doctype}:{fieldname}:{child_row}"
+		if group_key:
+			prefix = f"{prefix}:{group_key}"
 		if source_column:
-			return f"{doctype}:{fieldname}:{child_row}:src:{source_column}"
+			return f"{prefix}:src:{source_column}"
 		if default_value is not None:
-			return f"{doctype}:{fieldname}:{child_row}:default:{default_value}"
-		return f"{doctype}:{fieldname}:{child_row}"
+			return f"{prefix}:default:{default_value}"
+		return prefix
 	return f"{doctype}:{fieldname}"
 
 
