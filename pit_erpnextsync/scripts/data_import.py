@@ -1093,72 +1093,11 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
 
     except frappe.exceptions.DuplicateEntryError:
         make_log(f"{new_doc.doctype} {new_doc.name} already exists -> using existing", "INFO", controller.APP_NAME)
-        # Document already exists in ERPNext - treat as success and map to the existing doc
+        # Document already exists in ERPNext - treat as success and map to the existing doc.
+        # IMPORTANT: Do NOT insert child rows into the existing document — it belongs
+        # to a different SelectLine record (e.g. a different customer with the same name).
+        # The child rows (like Dynamic Link) would cross-link the wrong documents.
         existing_name = new_doc.name
-
-        # Insert child rows into the existing document if it has no children yet,
-        # or update existing Dynamic Link rows that have an empty link_name.
-        if child_doc_list:
-            try:
-                existing_doc = frappe.get_doc(new_doc.doctype, existing_name)
-                for child_doc in child_doc_list:
-                    # Check if this child table already has rows
-                    existing_children = existing_doc.get(child_doc.parentfield) or []
-                    if not existing_children:
-                        child_doc.parent = existing_name
-                        child_doc.flags.name_set = True
-                        child_doc.insert(
-                            ignore_permissions=True,
-                            ignore_mandatory=True,
-                            ignore_links=True
-                        )
-                    elif child_doc.doctype == "Dynamic Link":
-                        # For Dynamic Link rows: if an existing row has the same link_doctype
-                        # but an empty link_name, update it with the correct value.
-                        new_link_name = child_doc.get("link_name")
-                        new_link_doctype = child_doc.get("link_doctype")
-                        if new_link_name and new_link_doctype:
-                            for existing_child in existing_children:
-                                if (
-                                    existing_child.get("link_doctype") == new_link_doctype
-                                    and not existing_child.get("link_name")
-                                ):
-                                    frappe.db.set_value(
-                                        "Dynamic Link",
-                                        existing_child.name,
-                                        "link_name",
-                                        new_link_name,
-                                        update_modified=False
-                                    )
-                                    make_log(
-                                        f"Updated empty link_name on Dynamic Link {existing_child.name} "
-                                        f"for {new_doc.doctype} {existing_name} -> {new_link_name}",
-                                        "INFO",
-                                        controller.APP_NAME
-                                    )
-                    else:
-                        # For non-Dynamic-Link child tables that already have rows:
-                        # insert the new child row alongside existing ones instead
-                        # of silently dropping it (which would leave orphaned mapping
-                        # entries pointing to a child_row_name that was never inserted).
-                        child_doc.parent = existing_name
-                        child_doc.flags.name_set = True
-                        child_doc.insert(
-                            ignore_permissions=True,
-                            ignore_mandatory=True,
-                            ignore_links=True
-                        )
-                        make_log(
-                            f"Added child row {child_doc.doctype} {child_doc.name} "
-                            f"to existing {new_doc.doctype} {existing_name} "
-                            f"(field: {child_doc.parentfield}, existing rows: {len(existing_children)})",
-                            "INFO",
-                            controller.APP_NAME
-                        )
-                frappe.db.commit()
-                make_log(f"Added child rows to existing {new_doc.doctype} {existing_name}", "INFO", controller.APP_NAME)
-            except Exception as e:
-                make_log(f"Could not add child rows to existing {new_doc.doctype} {existing_name}: {e}", "ERROR", controller.APP_NAME)
 
         # Fix up child_row_name in mapping data (Frappe may have renamed children
         # during the failed parent insert's set_new_name pass)
