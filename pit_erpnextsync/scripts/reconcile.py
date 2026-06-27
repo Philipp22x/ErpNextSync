@@ -410,9 +410,22 @@ def get_mapping_changes(
 	
 	# Create lookup dicts
 	new_fields_dict: Dict[str, Dict] = {}
+	# Default-only child fields are collected separately — they share keys
+	# across groups (e.g. barcode_type=EAN for EAN, EAN2, EAN3) and would
+	# collapse in the dict. Always include them in fields_to_add so each
+	# group's child row gets the default set via the group cache.
+	default_only_child_fields: List[Dict] = []
 	for field in new_fields:
-		key = get_field_key(field)
-		new_fields_dict[key] = field
+		is_default_only_child = (
+			field.get("child_row_fieldname")
+			and not field.get("sl_column")
+			and field.get("default") is not None
+		)
+		if is_default_only_child:
+			default_only_child_fields.append(field)
+		else:
+			key = get_field_key(field)
+			new_fields_dict[key] = field
 	
 	stored_fields_dict: Dict[str, Dict] = {}
 	for field in stored_fields:
@@ -433,6 +446,12 @@ def get_mapping_changes(
 				"DEBUG",
 				APP_NAME
 			)
+
+	# Always add default-only child fields — they're idempotent (set_value
+	# just overwrites) and the group cache in apply_field_additions ensures
+	# the default lands on the correct child row.
+	for field_def in default_only_child_fields:
+		fields_to_add.append(field_def)
 	
 	# Fields to remove (in stored but not in new)
 	for key, field_info in stored_fields_dict.items():
@@ -500,20 +519,13 @@ def get_field_key(field_def: Dict) -> str:
 	child_row = field_def.get("child_row_fieldname", "")
 	source_column = field_def.get("sl_column") or field_def.get("selectline_column")
 	default_value = field_def.get("default")
-	group_key = field_def.get("child_row_group_key", "")
 	
 	if child_row:
-		# Include group_key to distinguish fields from different child row
-		# definitions that share the same fieldname and default value
-		# (e.g. barcode_type=EAN for EAN, EAN2, EAN3 groups).
-		prefix = f"{doctype}:{fieldname}:{child_row}"
-		if group_key:
-			prefix = f"{prefix}:{group_key}"
 		if source_column:
-			return f"{prefix}:src:{source_column}"
+			return f"{doctype}:{fieldname}:{child_row}:src:{source_column}"
 		if default_value is not None:
-			return f"{prefix}:default:{default_value}"
-		return prefix
+			return f"{doctype}:{fieldname}:{child_row}:default:{default_value}"
+		return f"{doctype}:{fieldname}:{child_row}"
 	return f"{doctype}:{fieldname}"
 
 
