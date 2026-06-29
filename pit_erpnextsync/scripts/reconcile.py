@@ -1256,20 +1256,20 @@ def apply_field_additions(
 						)
 						
 						# Get or create document with the field value
-						new_doc = create_new_doc_for_reconciliation(
-							doctype=doctype,
-							field_def=field_def,
-							fetched_obj=fetched_obj,
-							instance=instance,
-							field_vars_obj=field_vars_obj
-						)
-						
-						if new_doc:
-							docname = new_doc.name
-							created_docs_cache[doctype] = docname
-							# Don't continue here - we still need to create the mapping entry for this field
-						else:
-							raise Exception(f"Failed to create new document for doctype {doctype}")
+					new_doc = create_new_doc_for_reconciliation(
+						doctype=doctype,
+						field_def=field_def,
+						fetched_obj=fetched_obj,
+						instance=instance,
+						field_vars_obj=field_vars_obj,
+					mapping_doc=mapping_doc
+				)
+				
+				if new_doc:
+					docname = new_doc.name
+					created_docs_cache[doctype] = docname
+				else:
+					raise Exception(f"Failed to create new document for doctype {doctype}")
 			
 			# Get the value based on mapping type
 			field_value = get_field_value(
@@ -2505,7 +2505,8 @@ def create_new_doc_for_reconciliation(
 	field_def: Dict,
 	fetched_obj: Dict,
 	instance: str,
-	field_vars_obj: FieldVars
+	field_vars_obj: FieldVars,
+	mapping_doc: Document = None
 ) -> Optional[Document]:
 	"""
 	Creates a new document during reconciliation for doctypes that weren't in the original mapping.
@@ -2517,11 +2518,85 @@ def create_new_doc_for_reconciliation(
 		fetched_obj: Data from SelectLine
 		instance: Sync Instance name
 		field_vars_obj: FieldVars object for variable resolution
+		mapping_doc: Sync Mapping doc (for selectline_id and type lookup)
 	
 	Returns:
 		The newly created or existing Document, or None if failed
 	"""
 	try:
+		# Check if this doctype uses name_set in the mapping JSON
+		# If so, use the primary key from selectline_id as the document name
+		# to avoid collisions when multiple source records share field values
+		# (e.g. multiple customers with the same NAMEZEILE1 → same Contact first_name)
+		uses_name_set = False
+		if mapping_doc:
+			instance_doc = frappe.get_doc("Sync Instance", mapping_doc.selectline_db_instance)
+			for tm_row in instance_doc.table_mapping:
+				if tm_row.type != mapping_doc.type:
+					continue
+				import json
+				mj = json.loads(tm_row.mapping)
+				for dt_def in mj:
+					if dt_def.get("doctype") != doctype:
+						continue
+					flags = dt_def.get("doctype_flags") or []
+					for flag in flags:
+						if flag.get("name_set"):
+							uses_name_set = True
+							break
+				break
+
+		if uses_name_set and mapping_doc:
+			# Use the primary key from selectline_id as the document name
+			id_data = parse_object_id(mapping_doc.selectline_id)
+			primary_key_val = id_data.get("primary_key")
+			if primary_key_val:
+				existing = frappe.db.exists(doctype, primary_key_val)
+				if existing:
+					make_log(
+						f"Using existing {doctype} '{primary_key_val}' (name_set) during reconciliation",
+						"INFO",
+						APP_NAME
+					)
+					return frappe.get_doc(doctype, primary_key_val)
+
+				# Create new document with the primary key as name
+				new_doc = frappe.new_doc(doctype)
+				new_doc.flags.name_set = True
+
+				# Set the field value
+				fieldname = field_def.get("fieldname")
+				field_value = get_field_value(
+					field_def=field_def,
+					fetched_obj=fetched_obj,
+					instance=instance,
+					field_vars_obj=field_vars_obj,
+					mapping_name=""
+				)
+				if fieldname and field_value is not None:
+					new_doc.set(fieldname, field_value)
+
+				# Set any default fields that are required
+				meta = frappe.get_meta(doctype)
+				for df in meta.fields:
+					if df.reqd and not new_doc.get(df.fieldname):
+						if df.default:
+							new_doc.set(df.fieldname, df.default)
+
+				new_doc.insert(
+					ignore_permissions=True,
+					ignore_mandatory=True,
+					ignore_links=True
+				)
+				frappe.db.commit()
+				make_log(
+					f"Created new {doctype} '{new_doc.name}' (name_set={primary_key_val}) during reconciliation",
+					"INFO",
+					APP_NAME
+				)
+				return new_doc
+
+		# Fallback: original logic for doctypes without name_set
 		# Get the field value first to determine document name
 		fieldname = field_def.get("fieldname")
 		field_value = get_field_value(
@@ -2533,7 +2608,6 @@ def create_new_doc_for_reconciliation(
 		)
 		
 		# Check if document with this name already exists
-		# For many DocTypes (like UOM), the name is the same as the field value
 		potential_name = str(field_value) if field_value else None
 		
 		if potential_name:
@@ -2547,7 +2621,6 @@ def create_new_doc_for_reconciliation(
 				return frappe.get_doc(doctype, potential_name)
 			
 			# Also check if there's a document with this value in the specific field
-			# This handles cases where name != field value
 			existing_by_field = frappe.get_all(
 				doctype,
 				filters={fieldname: field_value},
