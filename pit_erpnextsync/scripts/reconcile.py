@@ -1287,6 +1287,23 @@ def apply_field_additions(
 			
 			# Handle child table fields
 			if child_row_fieldname:
+				# Skip if the source value is empty and the field is required.
+				# This prevents creating empty child rows for items where the
+				# source column has no data (e.g. GEBINDE1_EH is empty).
+				if field_value in [None, ""] and field_def.get("reqd") == 1:
+					make_log(
+						f"Skipping {doctype}.{fieldname}.{child_row_fieldname}: "
+						f"required field value is empty (sl_column={field_def.get('sl_column')})",
+						"DEBUG",
+						APP_NAME
+					)
+					continue
+
+				# Also skip if the source value is empty for non-required fields
+				# that have a sl_column — no point creating a child row with no data.
+				if field_value in [None, ""] and field_def.get("sl_column"):
+					continue
+
 				make_log(
 					f"Handling child table field: {doctype}.{fieldname}.{child_row_fieldname}",
 					"DEBUG",
