@@ -1151,6 +1151,8 @@ def apply_field_additions(
 	# Track child rows per mapping block so table_fields in the same block
 	# (e.g. uom + conversion_factor) are written to the same row.
 	child_rows_cache: Dict[str, Dict] = {}
+	# Track groups where a reqd field was empty — skip all fields in these groups
+	skipped_groups: set = set()
 
 	# Separate multiple_query child table fields — these fetch data from a
 	# related table (not from the parent row) and can produce multiple child rows.
@@ -1287,16 +1289,27 @@ def apply_field_additions(
 			
 			# Handle child table fields
 			if child_row_fieldname:
+				child_group_key = field_def.get("child_row_group_key")
+				child_cache_key = (
+					f"{doctype}:{docname}:{fieldname}:{child_group_key}" if child_group_key else None
+				)
+
 				# Skip if the source value is empty and the field is required.
-				# This prevents creating empty child rows for items where the
-				# source column has no data (e.g. GEBINDE1_EH is empty).
+				# Mark the entire group as skipped so sibling default fields
+				# don't create a child row either.
 				if field_value in [None, ""] and field_def.get("reqd") == 1:
+					if child_cache_key:
+						skipped_groups.add(child_cache_key)
 					make_log(
 						f"Skipping {doctype}.{fieldname}.{child_row_fieldname}: "
 						f"required field value is empty (sl_column={field_def.get('sl_column')})",
 						"DEBUG",
 						APP_NAME
 					)
+					continue
+
+				# Skip if this group was marked as skipped by a reqd field
+				if child_cache_key and child_cache_key in skipped_groups:
 					continue
 
 				# Also skip if the source value is empty for non-required fields
@@ -1308,11 +1321,6 @@ def apply_field_additions(
 					f"Handling child table field: {doctype}.{fieldname}.{child_row_fieldname}",
 					"DEBUG",
 					APP_NAME
-				)
-
-				child_group_key = field_def.get("child_row_group_key")
-				child_cache_key = (
-					f"{doctype}:{docname}:{fieldname}:{child_group_key}" if child_group_key else None
 				)
 
 				# Find or create child row

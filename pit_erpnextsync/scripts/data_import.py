@@ -615,7 +615,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
 
         # fields
         if field.get("sl_column"):
-            if field.get("alt_key"):
+            if field.get("alt_key") and fetched_obj.get(field["alt_key"]) not in (None, ""):
                 field_value = str(fetched_obj[field["alt_key"]]) if field.get("force_str_type") == 1 else fetched_obj[field["alt_key"]]
             else:
                 field_value = str(fetched_obj[field["sl_column"]]) if field.get("force_str_type") == 1 else fetched_obj[field["sl_column"]]
@@ -775,7 +775,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             for table_field in field["table_fields"]:
                                 # fetched child row fields
                                 if table_field.get("sl_column"):
-                                    if table_field.get("alt_key"):
+                                    if table_field.get("alt_key") and row_data.get(table_field["alt_key"]) not in (None, ""):
                                         field_value = str(row_data[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else row_data[table_field["alt_key"]]
                                     else:
                                         field_value = str(row_data[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else row_data[table_field["sl_column"]]
@@ -894,7 +894,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
 
                         # fetched child row fields
                         if table_field.get("sl_column"):
-                            if table_field.get("alt_key"):
+                            if table_field.get("alt_key") and fetched_obj.get(table_field["alt_key"]) not in (None, ""):
                                 field_value = str(fetched_obj[table_field["alt_key"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["alt_key"]]
                             else:
                                 field_value = str(fetched_obj[table_field["sl_column"]]) if table_field.get("force_str_type") == 1 else fetched_obj[table_field["sl_column"]]
