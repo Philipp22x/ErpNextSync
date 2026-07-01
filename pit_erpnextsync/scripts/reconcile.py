@@ -1256,20 +1256,20 @@ def apply_field_additions(
 						)
 						
 						# Get or create document with the field value
-					new_doc = create_new_doc_for_reconciliation(
-						doctype=doctype,
-						field_def=field_def,
-						fetched_obj=fetched_obj,
-						instance=instance,
-						field_vars_obj=field_vars_obj,
-					mapping_doc=mapping_doc
-				)
-				
-				if new_doc:
-					docname = new_doc.name
-					created_docs_cache[doctype] = docname
-				else:
-					raise Exception(f"Failed to create new document for doctype {doctype}")
+						new_doc = create_new_doc_for_reconciliation(
+							doctype=doctype,
+							field_def=field_def,
+							fetched_obj=fetched_obj,
+							instance=instance,
+							field_vars_obj=field_vars_obj,
+							mapping_doc=mapping_doc
+						)
+						
+						if new_doc:
+							docname = new_doc.name
+							created_docs_cache[doctype] = docname
+						else:
+							raise Exception(f"Failed to create new document for doctype {doctype}")
 			
 			# Get the value based on mapping type
 			field_value = get_field_value(
