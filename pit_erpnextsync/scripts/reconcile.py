@@ -2580,6 +2580,7 @@ def create_new_doc_for_reconciliation(
 				# Create new document with the primary key as name
 				new_doc = frappe.new_doc(doctype)
 				new_doc.flags.name_set = True
+				new_doc.name = primary_key_val
 
 				# Set the field value
 				fieldname = field_def.get("fieldname")
@@ -2612,6 +2613,7 @@ def create_new_doc_for_reconciliation(
 					APP_NAME
 				)
 				return new_doc
+			# If primary_key_val is empty, fall through to fallback logic below
 
 		# Fallback: original logic for doctypes without name_set
 		# Get the field value first to determine document name
