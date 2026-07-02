@@ -1196,6 +1196,34 @@ def apply_field_additions(
 		key=lambda f: 0 if (f.get("sl_column") or f.get("get_redis")) else 1,
 	)
 
+	# Pre-scan: check all reqd fields in each group. If ANY reqd field has
+	# an empty value, skip the entire group upfront — before any child row
+	# is created by a non-reqd sibling (e.g. SPRACHKZ creates a row before
+	# DRUCKTEXT's reqd check can mark the group as skipped).
+	for field_def in sorted_fields_to_add:
+		if field_def.get("child_row_fieldname") and field_def.get("reqd") == 1:
+			pre_value = get_field_value(
+				field_def=field_def,
+				fetched_obj=fetched_obj,
+				instance=instance,
+				field_vars_obj=field_vars_obj,
+				mapping_name=mapping_name
+			)
+			if pre_value in [None, ""]:
+				group_key = field_def.get("child_row_group_key")
+				if group_key:
+					doctype_pre = field_def.get("doctype")
+					fieldname_pre = field_def.get("fieldname")
+					docname_pre = created_docs_cache.get(doctype_pre)
+					if not docname_pre:
+						existing = frappe.get_all("Sync Mapping Entry",
+							filters={"parent": mapping_name, "mapping_doctype": doctype_pre},
+							limit=1, pluck="docname")
+						if existing:
+							docname_pre = existing[0]
+					cache_key = f"{doctype_pre}:{docname_pre}:{fieldname_pre}:{group_key}" if docname_pre else f"{doctype_pre}::{fieldname_pre}:{group_key}"
+					skipped_groups.add(cache_key)
+
 	for field_def in sorted_fields_to_add:
 		try:
 			doctype = field_def.get("doctype")
