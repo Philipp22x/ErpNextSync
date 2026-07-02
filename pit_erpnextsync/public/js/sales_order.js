@@ -39,9 +39,9 @@ function pit_sync_show_delete_dialog(frm) {
 				fieldtype: "HTML",
 				options: `
 					<div class="pb-3">
-						<p>This Sales Order is synced from SelectLine via PIT ERPNextSync.</p>
-						<p>Deleting it will also remove the associated Sync Mapping.</p>
-						<p><strong>Add an Import Ignore Rule to prevent this order from being re-imported?</strong></p>
+						<p>${__("This Sales Order is synced from SelectLine via PIT ERPNextSync.")}</p>
+						<p>${__("Deleting it will also remove the associated Sync Mapping.")}</p>
+						<p><strong>${__("Add an Import Ignore Rule to prevent this order from being re-imported?")}</strong></p>
 					</div>
 				`,
 			},
