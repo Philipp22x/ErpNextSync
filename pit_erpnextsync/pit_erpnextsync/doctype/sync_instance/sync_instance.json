@@ -42,13 +42,15 @@
   "import_settings_section",
   "column_break_jgvh",
   "types_to_import",
-  "column_break_ojon",
   "amount_of_data_rows",
-  "column_break_hrbn",
   "reset",
-  "column_break_ifrk",
+  "column_break_ojon",
   "import_batch_size",
+  "column_break_hrbn",
+  "column_break_ifrk",
   "column_break_ximu",
+  "import_ignore_rules_section",
+  "import_ignore_rules_list",
   "section_break_pwqo",
   "hooks",
   "scheduler_section",
@@ -334,6 +336,18 @@
   {
    "fieldname": "current_run_stats_html",
    "fieldtype": "HTML"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "import_ignore_rules_section",
+   "fieldtype": "Section Break",
+   "label": "Import Ignore Rules"
+  },
+  {
+   "fieldname": "import_ignore_rules_list",
+   "fieldtype": "Table",
+   "label": "Import Ignore Rules List",
+   "options": "Sync Import Ignore Rule"
   }
  ],
  "grid_page_length": 50,
@@ -344,7 +358,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-03-23 20:49:43.113253",
+ "modified": "2026-07-02 12:26:37.022660",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",

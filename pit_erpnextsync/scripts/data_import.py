@@ -224,6 +224,10 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
 
     all_job_ids: list = []
 
+    # load import ignore rules once for the whole run - lets the user
+    # exclude individual source-db rows by (type, table_name, primary_key)
+    ignore_rules: dict[tuple[str, str], set[str]] = controller.get_import_ignore_rules(instance=instance)
+
     # fetch db data for every row - sequential by idx to prevent race conditions
     for row in types_rows_to_import:
         try:
@@ -259,11 +263,21 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
 
             for idx, fetched_obj in enumerate(fetched_data):
                 
+                # check import ignore rules - skip rows the user explicitly excluded
+                pk_value: str = str(fetched_obj.get(row.primary_key))
+                if pk_value in ignore_rules.get((row.type, row.table_name), set()):
+                    make_log(
+                        f"Skipping ignored source row {row.type}:{row.table_name}:{pk_value}",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+                    continue
+
                 # get new mapping id
                 obj_id: str = controller.create_object_id(
                     instance=instance,
                     table_name=row.table_name,
-                    primary_key=str(fetched_obj.get(row.primary_key)),
+                    primary_key=pk_value,
                     mapping_type=row.type
                 )
 
