@@ -856,6 +856,39 @@ def create_object_id(instance: str, table_name: str, primary_key: str, mapping_t
 	return f"{instance.replace(chr(32), chr(95))}:{table_name.replace(chr(32), chr(95))}:{primary_key.replace(chr(32), chr(95))}"
 
 
+# get import ignore rules for an instance
+def get_import_ignore_rules(instance: str) -> dict[tuple[str, str], set[str]]:
+	"""Get import ignore rules for an instance, grouped by (type, table_name).
+
+	Each rule marks a specific source-db primary key to skip during import,
+	so the user can exclude individual rows without deleting them from the source.
+
+	Args:
+	    instance (str): Name of the Sync Instance doc
+
+	Returns:
+	    dict mapping (type, table_name) -> set of primary_key strings to ignore.
+	    Empty dict if no rules configured or on error.
+	"""
+	try:
+		instance_doc: Document = frappe.get_doc("Sync Instance", instance)
+		if not instance_doc:
+			return {}
+	except Exception as e:
+		make_log(f"Could not get instance {instance} for ignore rules: {e}", "ERROR", APP_NAME)
+		return {}
+
+	ignore_map: dict[tuple[str, str], set[str]] = {}
+
+	for row in instance_doc.import_ignore_rules_list:
+		key = (row.type, row.table_name)
+		if key not in ignore_map:
+			ignore_map[key] = set()
+		ignore_map[key].add(str(row.primary_key))
+
+	return ignore_map
+
+
 # get db credentials from instance doc
 def get_instance_data(instance: str) -> dict | None:
 	"""Gives the data / credentials for db connection
