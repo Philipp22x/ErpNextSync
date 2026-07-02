@@ -25,6 +25,11 @@ class SyncMapping(Document):
 	# check for deleting mapped doctypes
 	def on_delete_mapping(self) -> bool:
 
+		# Skip cascade when the mapping is being cleaned up as part of a
+		# synced ERPNext document's deletion (see sales_order_sync.py).
+		if frappe.flags.get("pit_skip_sync_cascade"):
+			return True
+
 		if not frappe.get_single_value("Pit ErpNextSync Settings", "delete_document"):
 			return True
 

@@ -44,6 +44,7 @@ app_license = "mit"
 
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Sales Order" : "public/js/sales_order.js"}
 doctype_list_js = {"Item" : "public/js/item_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -137,13 +138,11 @@ after_install = "pit_erpnextsync.install.after_install"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Sales Order": {
+		"before_delete": "pit_erpnextsync.scripts.sales_order_sync.before_delete_sales_order",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
