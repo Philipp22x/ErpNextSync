@@ -123,7 +123,7 @@ def delete_synced_sales_order(sales_order_name: str, add_ignore_rule: bool = Fal
 	# Link entries are gone before the Sales Order's link validation runs.
 	_delete_mappings(mapping_names)
 
-	# The before_delete hook sees the cascade-skip flag is already unset
+	# The on_trash hook sees the cascade-skip flag is already unset
 	# (we unset it in _delete_mappings) and finds no remaining mappings,
 	# so it becomes a no-op.  Link validation passes and the SO is deleted.
 	frappe.delete_doc("Sales Order", sales_order_name, ignore_permissions=True)
@@ -132,11 +132,12 @@ def delete_synced_sales_order(sales_order_name: str, add_ignore_rule: bool = Fal
 # * HOOKS ############################################################################################
 
 
-def before_delete_sales_order(doc, method: str) -> None:
-	"""before_delete hook on Sales Order.
+def on_trash_sales_order(doc, method: str) -> None:
+	"""on_trash hook on Sales Order.
 
-	Cleans up Sync Mappings *before* Frappe's link validation runs, so
-	deleting a synced Sales Order does not raise a LinkValidationError.
+	Frappe calls on_trash *before* check_if_doc_is_linked /
+	check_if_doc_is_dynamically_linked, so deleting the Sync Mappings
+	here removes the Dynamic Link entries before validation runs.
 
 	The form-path is handled by :func:`delete_synced_sales_order` which
 	sets the cascade-skip flag and deletes mappings explicitly.  This hook
