@@ -7,6 +7,11 @@ from pit_erpnextsync.scripts import controller
 # back to the ERPNext document we are already deleting ourselves.
 SKIP_CASCADE_FLAG = "pit_skip_sync_cascade"
 
+# Doctypes whose deletion should trigger the sync-mapping cleanup +
+# ignore-rule dialog.  Kept in sync with the doc_events and doctype_js
+# entries in hooks.py.
+SYNCED_DTYPES: list[str] = ["Sales Order", "Item", "Customer", "Supplier"]
+
 
 # * HELPERS ##########################################################################################
 
@@ -96,58 +101,59 @@ def _delete_mappings(mapping_names: list[str]) -> None:
 
 
 @frappe.whitelist()
-def is_sales_order_synced(sales_order_name: str) -> bool:
-	"""Check whether a Sales Order has an associated Sync Mapping."""
-	return bool(_find_sync_mappings_for_doc("Sales Order", sales_order_name))
+def is_doc_synced(doctype: str, docname: str) -> bool:
+	"""Check whether a document has an associated Sync Mapping."""
+	return bool(_find_sync_mappings_for_doc(doctype, docname))
 
 
 @frappe.whitelist()
-def delete_synced_sales_order(sales_order_name: str, add_ignore_rule: bool = False) -> None:
-	"""Delete a synced Sales Order together with its Sync Mapping(s).
+def delete_synced_doc(doctype: str, docname: str, add_ignore_rule: bool = False) -> None:
+	"""Delete a synced document together with its Sync Mapping(s).
 
 	Args:
-	    sales_order_name: Name of the Sales Order to delete.
+	    doctype: DocType of the document to delete (e.g. "Sales Order").
+	    docname: Name of the document to delete.
 	    add_ignore_rule: If True, add an Import Ignore Rule row to the
 	        Sync Instance so the source row is skipped on the next import.
 	"""
 	if isinstance(add_ignore_rule, str):
 		add_ignore_rule = add_ignore_rule.lower() in ("true", "1", "yes")
 
-	mapping_names = _find_sync_mappings_for_doc("Sales Order", sales_order_name)
+	mapping_names = _find_sync_mappings_for_doc(doctype, docname)
 
 	if add_ignore_rule:
 		for name in mapping_names:
 			_create_ignore_rule_from_mapping(name)
 
 	# Delete Sync Mappings first (with cascade suppressed) so the Dynamic
-	# Link entries are gone before the Sales Order's link validation runs.
+	# Link entries are gone before the document's link validation runs.
 	_delete_mappings(mapping_names)
 
 	# The on_trash hook sees the cascade-skip flag is already unset
 	# (we unset it in _delete_mappings) and finds no remaining mappings,
-	# so it becomes a no-op.  Link validation passes and the SO is deleted.
-	frappe.delete_doc("Sales Order", sales_order_name, ignore_permissions=True)
+	# so it becomes a no-op.  Link validation passes and the doc is deleted.
+	frappe.delete_doc(doctype, docname, ignore_permissions=True)
 
 
 # * HOOKS ############################################################################################
 
 
-def on_trash_sales_order(doc, method: str) -> None:
-	"""on_trash hook on Sales Order.
+def on_trash_synced_doc(doc, method: str) -> None:
+	"""on_trash hook for synced doctypes (Sales Order, Item, Customer, Supplier).
 
 	Frappe calls on_trash *before* check_if_doc_is_linked /
 	check_if_doc_is_dynamically_linked, so deleting the Sync Mappings
 	here removes the Dynamic Link entries before validation runs.
 
-	The form-path is handled by :func:`delete_synced_sales_order` which
-	sets the cascade-skip flag and deletes mappings explicitly.  This hook
-	covers list-view and any other delete path.
+	The form-path is handled by :func:`delete_synced_doc` which sets the
+	cascade-skip flag and deletes mappings explicitly.  This hook covers
+	list-view and any other delete path.
 	"""
-	# delete_synced_sales_order already handled cleanup — bail out.
+	# delete_synced_doc already handled cleanup — bail out.
 	if frappe.flags.get(SKIP_CASCADE_FLAG):
 		return
 
-	mapping_names = _find_sync_mappings_for_doc("Sales Order", doc.name)
+	mapping_names = _find_sync_mappings_for_doc(doc.doctype, doc.name)
 	if not mapping_names:
 		return
 
