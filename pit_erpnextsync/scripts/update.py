@@ -374,6 +374,30 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
                             mq_sl_columns.add(tf["mapped_value"]["sl_id"])
 
+        # Remove columns that are also used by non-multiple_query fields (parent
+        # fields and non-mq child table fields). These columns come from the
+        # parent source table and must remain in the parent SQL even if the same
+        # column is also used by an mq child field (which fetches separately from
+        # the child source table). Without this, a parent field sharing a column
+        # name with an mq child field would have its column excluded from the
+        # parent SQL, causing fetched_data[0].get(col) to return None and
+        # overwriting the ERPNext field with None.
+        non_mq_sl_columns: set = set()
+        for mapped_doctype in mapping_json:
+            for field in mapped_doctype.get("fields", []):
+                if field.get("multiple_query"):
+                    continue
+                if field.get("sl_column"):
+                    non_mq_sl_columns.add(field["sl_column"])
+                if field.get("mapped_value") and field["mapped_value"].get("sl_id"):
+                    non_mq_sl_columns.add(field["mapped_value"]["sl_id"])
+                for tf in field.get("table_fields", []):
+                    if tf.get("sl_column"):
+                        non_mq_sl_columns.add(tf["sl_column"])
+                    if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
+                        non_mq_sl_columns.add(tf["mapped_value"]["sl_id"])
+        mq_sl_columns -= non_mq_sl_columns
+
         # Filter out invalid/error columns (columns starting with _ are error codes)
         # and multiple_query child columns (those come from a different source table).
         # Non-multiple_query child columns ARE included (they come from the parent table).
@@ -743,6 +767,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     frappe.db.set_value(target_child_doctype, target_child_name, row.child_row_fieldname, field_value)
                     
                 else:
+                    # Skip when source has no value — don't clear existing fields.
+                    if field_value is None or field_value == "":
+                        continue
                     lookup_key = f"{row.mapping_doctype}:{row.fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
                         field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
