@@ -44,7 +44,13 @@ app_license = "mit"
 
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
-doctype_js = {"Sales Order" : "public/js/sales_order.js"}
+_synced_js = "public/js/sync_delete.js"
+doctype_js = {
+	"Sales Order": _synced_js,
+	"Item": _synced_js,
+	"Customer": _synced_js,
+	"Supplier": _synced_js,
+}
 doctype_list_js = {"Item" : "public/js/item_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -140,7 +146,16 @@ after_install = "pit_erpnextsync.install.after_install"
 
 doc_events = {
 	"Sales Order": {
-		"on_trash": "pit_erpnextsync.scripts.sales_order_sync.on_trash_sales_order",
+		"on_trash": "pit_erpnextsync.scripts.sync_delete.on_trash_synced_doc",
+	},
+	"Item": {
+		"on_trash": "pit_erpnextsync.scripts.sync_delete.on_trash_synced_doc",
+	},
+	"Customer": {
+		"on_trash": "pit_erpnextsync.scripts.sync_delete.on_trash_synced_doc",
+	},
+	"Supplier": {
+		"on_trash": "pit_erpnextsync.scripts.sync_delete.on_trash_synced_doc",
 	},
 }
 
