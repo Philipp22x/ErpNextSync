@@ -958,6 +958,18 @@ def _handle_multiple_query_group(
 		if col and fn and fn not in sl_field_map and col.upper() in mq_columns_upper:
 			sl_field_map[fn] = col
 
+	# Fallback: if no stored mapping entries exist (e.g. they were deleted by
+	# stale-entry cleanup or the field was newly added to the mapping JSON),
+	# build sl_field_map from the group_fields being added. Existing child
+	# rows DO have values for these fields (from import or a previous run),
+	# so matching against them prevents duplicate row creation.
+	if not sl_field_map:
+		for gf in group_fields:
+			col = gf.get("sl_column")
+			fn = gf.get("child_row_fieldname")
+			if col and fn and fn not in sl_field_map:
+				sl_field_map[fn] = col
+
 	make_log(
 		f"Matching {doctype}.{fieldname}: sl_field_map={sl_field_map}, "
 		f"existing_rows={len(existing_rows)}",
@@ -1680,7 +1692,54 @@ def normalize_item_child_tables(mapping_name: str) -> Dict:
 					new_child_row_name=survivor["name"],
 					new_child_doctype="UOM Conversion Detail",
 				)
-				frappe.delete_doc("UOM Conversion Detail", candidate["name"], ignore_permissions=True)
+			frappe.delete_doc("UOM Conversion Detail", candidate["name"], ignore_permissions=True)
+			rows_merged += 1
+
+			# Supplier items cleanup: remove empty rows, merge duplicate supplier values
+			supplier_rows = frappe.get_all(
+				"Item Supplier",
+				filters={
+					"parent": item_docname,
+					"parenttype": "Item",
+					"parentfield": "supplier_items",
+				},
+				fields=["name", "supplier", "supplier_part_no", "idx"],
+				order_by="idx asc",
+			)
+			supplier_survivors: Dict[str, Dict] = {}
+			for row in supplier_rows:
+				supplier_val = (row.get("supplier") or "").strip()
+				if not supplier_val:
+					delete_mapping_entries_for_child(
+						mapping_name=mapping_name,
+						docname=item_docname,
+						fieldname="supplier_items",
+						child_row_name=row["name"],
+					)
+					frappe.delete_doc("Item Supplier", row["name"], ignore_permissions=True)
+					rows_removed += 1
+					continue
+
+				if supplier_val not in supplier_survivors:
+					supplier_survivors[supplier_val] = row
+					continue
+
+				survivor = supplier_survivors[supplier_val]
+				candidate = row
+				# Prefer the row that has a supplier_part_no set
+				if (not survivor.get("supplier_part_no")) and candidate.get("supplier_part_no"):
+					survivor, candidate = candidate, survivor
+					supplier_survivors[supplier_val] = survivor
+
+				relink_mapping_entries_for_child(
+					mapping_name=mapping_name,
+					docname=item_docname,
+					fieldname="supplier_items",
+					old_child_row_name=candidate["name"],
+					new_child_row_name=survivor["name"],
+					new_child_doctype="Item Supplier",
+				)
+				frappe.delete_doc("Item Supplier", candidate["name"], ignore_permissions=True)
 				rows_merged += 1
 
 		except Exception as e:
