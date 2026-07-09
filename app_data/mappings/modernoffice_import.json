@@ -1,0 +1,447 @@
+[
+	{
+		"idx": 1,
+		"type": "Customer",
+		"doc_type": "Customer",
+		"is_child_doctype": 0,
+		"table_name": "Adresse",
+		"primary_key": "Adressnummer",
+		"order_by": "Adressnummer",
+		"timestamp_column_name": "Modifiziert_am",
+		"timestamp_column_type": "datetime",
+		"query_filter": "Kennung = 'D'",
+		"mapping": [
+			{
+				"doctype": "Customer",
+				"reqd": 1,
+				"fields": [
+				{
+					"fieldname": "name",
+					"sl_column": "Adressnummer",
+					"force_str_type": 1,
+					"reqd": 1,
+					"set_redis": "erp_customer_id"
+				},
+					{
+						"fieldname": "customer_name",
+						"sl_column": "Zuname",
+						"alt_key": "Matchcode",
+						"reqd": 1
+					},
+					{
+						"fieldname": "customer_type",
+						"default": "Company"
+					},
+					{
+						"fieldname": "customer_group",
+						"default": "Commercial"
+					},
+					{
+						"fieldname": "territory",
+						"default": "Austria"
+					},
+					{
+						"fieldname": "language",
+						"sl_column": "Sprachkennzeichen",
+						"value_map": {
+							"D": "de",
+							"EN": "en",
+							"F": "fr",
+							"I": "it"
+						},
+						"value_map_default": "de"
+					},
+					{
+						"fieldname": "disabled",
+						"sl_column": "Status",
+						"value_map": {
+							"I": 1,
+							"A": 0
+						},
+						"value_map_default": 0
+					},
+					{
+						"fieldname": "custom_matchcode",
+						"sl_column": "Matchcode"
+					}
+				],
+				"post_field_vars": [
+					{
+						"var_name": "erp_customer_id",
+						"field_name": "name"
+					},
+					{
+						"var_name": "erp_customer_name",
+						"field_name": "customer_name"
+					}
+				]
+			},
+			{
+				"doctype": "Address",
+				"reqd": 0,
+				"fields": [
+					{
+						"fieldname": "address_title",
+						"sl_column": "Zuname",
+						"alt_key": "Matchcode",
+						"reqd": 1
+					},
+					{
+						"fieldname": "address_type",
+						"default": "Billing"
+					},
+					{
+						"fieldname": "address_line1",
+						"sl_column": "Strasse",
+						"reqd": 1
+					},
+					{
+						"fieldname": "city",
+						"sl_column": "Ort"
+					},
+					{
+						"fieldname": "pincode",
+						"sl_column": "Postleitzahl"
+					},
+					{
+						"fieldname": "country",
+						"sl_column": "Land",
+						"value_map": {
+							"AT": "Austria",
+							"DE": "Germany",
+							"CH": "Switzerland",
+							"IT": "Italy",
+							"FR": "France",
+							"NL": "Netherlands",
+							"BE": "Belgium",
+							"CZ": "Czech Republic",
+							"PL": "Poland",
+							"HU": "Hungary",
+							"SI": "Slovenia",
+							"SK": "Slovakia",
+							"GB": "United Kingdom",
+							"US": "United States"
+						},
+						"value_map_default": "Austria"
+					},
+					{
+						"fieldname": "links",
+						"table_fields": [
+							{
+								"table_fieldname": "link_doctype",
+								"default": "Customer"
+							},
+							{
+							"table_fieldname": "link_name",
+							"get_redis": "erp_customer_id"
+						}
+					]
+				}
+			]
+			},
+		{
+			"doctype": "Contact",
+			"reqd": 0,
+			"fields": [
+				{
+					"fieldname": "first_name",
+					"sl_column": "Vorname"
+				},
+				{
+					"fieldname": "last_name",
+					"sl_column": "Zuname"
+				},
+				{
+					"fieldname": "email_ids",
+					"multiple_query": true,
+					"multiple_query_table": "Ansprechpartner",
+					"multiple_query_condition": "Adressnummer = {Adressnummer}",
+					"table_fields": [
+						{
+							"table_fieldname": "email_id",
+							"sl_column": "eMail",
+							"reqd": 1
+						},
+						{
+							"table_fieldname": "is_primary",
+							"default": 1
+						}
+					]
+				},
+				{
+					"fieldname": "phone_nos",
+					"multiple_query": true,
+					"multiple_query_table": "Ansprechpartner",
+					"multiple_query_condition": "Adressnummer = {Adressnummer}",
+					"table_fields": [
+						{
+							"table_fieldname": "phone",
+							"sl_column": "Mobil",
+							"reqd": 1
+						},
+						{
+							"table_fieldname": "is_primary_phone",
+							"default": 1
+						}
+					]
+				},
+				{
+					"fieldname": "links",
+					"table_fields": [
+						{
+							"table_fieldname": "link_doctype",
+							"default": "Customer"
+						},
+						{
+							"table_fieldname": "link_name",
+							"get_redis": "erp_customer_id"
+						}
+					]
+				}
+			]
+		}
+		]
+	},
+	{
+		"idx": 2,
+		"type": "Item",
+		"doc_type": "Item",
+		"is_child_doctype": 0,
+		"table_name": "Artikel",
+		"primary_key": "Artikelnummer",
+		"order_by": "Artikelnummer",
+		"timestamp_column_name": "Modifiziert_Datum",
+		"timestamp_column_type": "datetime",
+		"mapping": [
+			{
+				"doctype": "Item Group",
+				"fields": [
+					{
+						"fieldname": "item_group_name",
+						"sl_column": "Artikelgruppe",
+						"reqd": 1
+					}
+				]
+			},
+			{
+				"doctype": "UOM",
+				"fields": [
+					{
+						"fieldname": "uom_name",
+						"sl_column": "Mengeneinheit",
+						"reqd": 1
+					},
+					{
+						"fieldname": "must_be_whole_number",
+						"default": 0
+					},
+					{
+						"fieldname": "enabled",
+						"default": 1
+					}
+				]
+			},
+			{
+				"doctype": "Item",
+				"reqd": 1,
+				"fields": [
+					{
+						"fieldname": "name",
+						"sl_column": "Artikelnummer",
+						"force_str_type": 1,
+						"reqd": 1
+					},
+					{
+						"fieldname": "item_code",
+						"sl_column": "Artikelnummer",
+						"force_str_type": 1,
+						"reqd": 1
+					},
+					{
+						"fieldname": "item_name",
+						"sl_column": "Bezeichnung",
+						"reqd": 1
+					},
+					{
+						"fieldname": "description",
+						"sl_column": "Bezeichnung"
+					},
+					{
+						"fieldname": "item_group",
+						"sl_column": "Artikelgruppe",
+						"force_str_type": 1
+					},
+					{
+						"fieldname": "stock_uom",
+						"sl_column": "Mengeneinheit",
+						"force_str_type": 1,
+						"reqd": 1
+					},
+					{
+						"fieldname": "is_stock_item",
+						"default": 1
+					},
+					{
+						"fieldname": "custom_matchcode",
+						"sl_column": "Matchcode"
+					},
+					{
+						"fieldname": "disabled",
+						"sl_column": "Sperrkennzeichen",
+						"value_map": {
+							"SP": 1,
+							"RL": 1,
+							"": 0
+						},
+						"value_map_default": 0
+					},
+					{
+						"fieldname": "barcodes",
+						"table_fields": [
+							{
+								"table_fieldname": "barcode",
+								"sl_column": "Barcode",
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "barcode_type",
+								"default": "EAN"
+							},
+							{
+								"table_fieldname": "uom",
+								"sl_column": "Mengeneinheit",
+								"force_str_type": 1
+							}
+						]
+					}
+				]
+			}
+		]
+	},
+	{
+		"idx": 3,
+		"type": "Sales Order",
+		"doc_type": "Sales Order",
+		"is_child_doctype": 0,
+		"table_name": "Beleg",
+		"primary_key": "rowid__",
+		"order_by": "rowid__",
+		"timestamp_column_name": "Modifiziert_Datum",
+		"timestamp_column_type": "datetime",
+		"query_filter": "Kennung = 'B'",
+		"query_join": null,
+		"mapping": [
+			{
+				"doctype": "Sales Order",
+				"reqd": 1,
+				"fields": [
+					{
+						"fieldname": "naming_series",
+						"default": "SAL-ORD-.YYYY.-"
+					},
+					{
+						"fieldname": "customer",
+						"sl_column": "Adressnummer",
+						"force_str_type": 1,
+						"reqd": 1
+					},
+					{
+						"fieldname": "transaction_date",
+						"sl_column": "Belegdatum",
+						"reqd": 1
+					},
+					{
+						"fieldname": "delivery_date",
+						"sl_column": "Auftrag vom"
+					},
+					{
+						"fieldname": "po_no",
+						"sl_column": "BestellnummerKunde",
+						"force_str_type": 1
+					},
+					{
+						"fieldname": "currency",
+						"sl_column": "Waehrung"
+					},
+					{
+						"fieldname": "order_type",
+						"default": "Sales"
+					},
+					{
+						"fieldname": "company",
+						"default": "Ackerl Handels GmbH"
+					},
+					{
+						"fieldname": "selling_price_list",
+						"default": "Standard Selling"
+					},
+					{
+						"fieldname": "price_list_currency",
+						"default": "EUR"
+					},
+					{
+						"fieldname": "custom_footer_text",
+						"sl_column": "Fusstext"
+					},
+					{
+						"fieldname": "_sl_jahr",
+						"sl_column": "Jahr"
+					},
+					{
+						"fieldname": "_sl_nummer",
+						"sl_column": "Nummer"
+					},
+					{
+						"fieldname": "items",
+						"multiple_query": true,
+						"multiple_query_table": "BelegZeile",
+						"multiple_query_condition": "Kennung = 'B' AND Jahr = {Jahr} AND Nummer = {Nummer}",
+						"table_fields": [
+							{
+								"table_fieldname": "item_code",
+								"sl_column": "Artikelnummer",
+								"force_str_type": 1,
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "item_name",
+								"sl_column": "Bezeichnung"
+							},
+							{
+								"table_fieldname": "description",
+								"sl_column": "Bezeichnung"
+							},
+							{
+								"table_fieldname": "qty",
+								"sl_column": "Menge",
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "uom",
+								"sl_column": "Einheit",
+								"force_str_type": 1,
+								"reqd": 1
+							},
+							{
+								"table_fieldname": "conversion_factor",
+								"default": 1
+							},
+							{
+								"table_fieldname": "rate",
+								"sl_column": "Preis/EH"
+							},
+							{
+								"table_fieldname": "discount_percentage",
+								"sl_column": "Rabatt"
+							},
+							{
+								"table_fieldname": "warehouse",
+								"default": "Stores - ACK"
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+]
