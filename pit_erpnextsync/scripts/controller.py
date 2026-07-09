@@ -427,7 +427,7 @@ def fetch_multiple_rows(
         WHERE {condition_clean}
         """
 			else:
-				col_string = ", ".join(columns)
+				col_string = ", ".join([f"[{c}]" for c in columns])
 				sql = f"""
         SELECT {col_string}
         FROM {schema_prefix}{table}
@@ -1043,13 +1043,14 @@ def make_sql_string(
 
 	# sql command - driver specific syntax
 	if driver == "pymssql":
-		col_string: str = ",\n".join(col_to_fetch)
+		col_string: str = ",\n".join([f"[{c}]" for c in col_to_fetch])
+		order_by_bracketed: str = f"[{order_by.split()[0]}]" + (f" {order_by.split()[1]}" if len(order_by.split()) > 1 else "")
 		fetch_sql: str = f"""
         SELECT {top_str} {col_string}
         FROM {schema}{shema_dot}{mapping_row_data.table_name}
         {query_join}
         {query_filter_command}
-        ORDER BY {order_by}
+        ORDER BY {order_by_bracketed}
         """
 	else:  # p4d - 4D SQL uses LIMIT after ORDER BY
 		# Use table alias 't' and bracket-quote all column names to avoid:
@@ -1116,11 +1117,11 @@ def make_sql_string_single_row(
 		quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
 	
 	if driver == "pymssql":
-		col_string = ", ".join(columns)
+		col_string = ", ".join([f"[{c}]" for c in columns])
 		sql = f"""
 			SELECT {col_string}
 			FROM {schema_dot}{table_name}
-			WHERE {primary_key_col} = {quoted_pk}
+			WHERE [{primary_key_col}] = {quoted_pk}
 		"""
 	else:  # p4d - 4D SQL uses bracket-quoted column names
 		col_string = ", ".join([_quote_4d_col(col) for col in columns])
