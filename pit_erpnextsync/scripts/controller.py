@@ -314,6 +314,14 @@ def _quote_4d_col(col: str) -> str:
 	return f"t.[{col}]"
 
 
+def _quote_mssql_col(col: str) -> str:
+	"""Wrap a column name in [...] for MSSQL, but pass through SQL expressions as-is."""
+	upper = col.upper()
+	if col.startswith("(") or "SELECT " in upper or " AS " in upper:
+		return col
+	return f"[{col}]"
+
+
 def fetch_multiple_rows(
 	instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None,
 	columns: list | None = None,
@@ -427,7 +435,7 @@ def fetch_multiple_rows(
         WHERE {condition_clean}
         """
 			else:
-				col_string = ", ".join([f"[{c}]" for c in columns])
+				col_string = ", ".join([_quote_mssql_col(c) for c in columns])
 				sql = f"""
         SELECT {col_string}
         FROM {schema_prefix}{table}
@@ -1043,7 +1051,7 @@ def make_sql_string(
 
 	# sql command - driver specific syntax
 	if driver == "pymssql":
-		col_string: str = ",\n".join([f"[{c}]" for c in col_to_fetch])
+		col_string: str = ",\n".join([_quote_mssql_col(c) for c in col_to_fetch])
 		order_by_bracketed: str = f"[{order_by.split()[0]}]" + (f" {order_by.split()[1]}" if len(order_by.split()) > 1 else "")
 		fetch_sql: str = f"""
         SELECT {top_str} {col_string}
@@ -1117,7 +1125,7 @@ def make_sql_string_single_row(
 		quoted_pk = f"'{primary_key_val}'" if not str(primary_key_val).isdigit() else primary_key_val
 	
 	if driver == "pymssql":
-		col_string = ", ".join([f"[{c}]" for c in columns])
+		col_string = ", ".join([_quote_mssql_col(c) for c in columns])
 		sql = f"""
 			SELECT {col_string}
 			FROM {schema_dot}{table_name}
