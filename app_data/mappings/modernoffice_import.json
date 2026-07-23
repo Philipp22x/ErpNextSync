@@ -3,7 +3,6 @@
 		"idx": 1,
 		"type": "Customer",
 		"doc_type": "Customer",
-		"is_child_doctype": 0,
 		"table_name": "Adresse",
 		"primary_key": "Adressnummer",
 		"order_by": "Adressnummer",
@@ -214,7 +213,6 @@
 		"idx": 2,
 		"type": "Item",
 		"doc_type": "Item",
-		"is_child_doctype": 0,
 		"table_name": "Artikel",
 		"primary_key": "Artikelnummer",
 		"order_by": "Artikelnummer",
@@ -326,19 +324,29 @@
 		"idx": 3,
 		"type": "Sales Order",
 		"doc_type": "Sales Order",
-		"is_child_doctype": 0,
 		"table_name": "Beleg2",
 		"primary_key": "rowid__",
 		"order_by": "Jahr",
 		"timestamp_column_name": "Modifiziert_Datum",
 		"timestamp_column_type": "datetime",
-		"query_filter": "Kennung = 'B' AND Jahr = 2026",
+		"query_filter": "Kennung = 'B' AND Jahr = 2026 AND Referenz LIKE '%FEST%'",
 		"query_join": null,
 		"mapping": [
 			{
 				"doctype": "Sales Order",
 				"reqd": 1,
+				"doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
 				"fields": [
+					{
+						"fieldname": "name",
+						"sl_column": "CAST([Jahr] AS VARCHAR(4)) + '-' + RIGHT('00000' + CAST([Nummer] AS VARCHAR(5)), 5) AS BelegNaming",
+						"alt_key": "BelegNaming",
+						"reqd": 1
+					},
 					{
 						"fieldname": "customer",
 						"sl_column": "Adressnummer",
@@ -357,7 +365,7 @@
 					},
 					{
 						"fieldname": "po_no",
-						"sl_column": "BestellnunmmerKunde",
+						"sl_column": "BestellnummerKunde",
 						"force_str_type": 1
 					},
 					{
@@ -389,7 +397,9 @@
                         "sl_column": "KZ_Kommission",
                         "value_map": {
                             "1": "Kommission",
-                            "0": ""
+                            "0": "",
+							"True": "Kommission",
+                            "False": ""
                         },
                         "value_map_default": ""
                     },
@@ -398,11 +408,81 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "type",
-                                "default": "Nummer"
+                                "default": "WINFO: Belegnummer"
                             },
                             {
                                 "table_fieldname": "info",
                                 "sl_column": "Nummer",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Referenz"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "Referenz",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Vertreter"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "VertreterKurz",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Liefertermin KW/W"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "LiefertermKW/W",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Liefertermin KW/J"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "LiefertermKW/J",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Status"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "Status",
                                 "reqd": 1
                             }
                         ]
@@ -460,21 +540,35 @@
 		"idx": 4,
 		"type": "Quotation",
 		"doc_type": "Quotation",
-		"is_child_doctype": 0,
 		"table_name": "Beleg",
 		"primary_key": "rowid__",
 		"order_by": "Jahr",
 		"timestamp_column_name": "Modifiziert_Datum",
 		"timestamp_column_type": "datetime",
-		"query_filter": "Kennung = 'A' AND Jahr = 2026",
+		"query_filter": "Kennung = 'A' AND Jahr = 2026 AND [Bezug/Kennz.] LIKE '%FEST%'",
 		"query_join": null,
 		"mapping": [
 			{
 				"doctype": "Quotation",
 				"reqd": 1,
+				"doctype_flags": [
+                    {
+                        "name_set": 1
+                    }
+                ],
 				"fields": [
 					{
-						"fieldname": "customer",
+						"fieldname": "name",
+						"sl_column": "CAST([Jahr] AS VARCHAR(4)) + '-' + RIGHT('00000' + CAST([Nummer] AS VARCHAR(5)), 5) AS BelegNaming",
+						"alt_key": "BelegNaming",
+						"reqd": 1
+					},
+					{
+						"fieldname": "quotation_to",
+						"default": "Customer"
+					},
+					{
+						"fieldname": "party_name",
 						"sl_column": "Adressnummer",
 						"force_str_type": 1,
 						"reqd": 1
@@ -513,12 +607,128 @@
                         "table_fields": [
                             {
                                 "table_fieldname": "type",
-                                "default": "Auftrag"
+                                "default": "WINFO: Umwandlungsnummer"
                             },
                             {
                                 "table_fieldname": "info",
-                                "sl_column": "CASE WHEN [Umwandlung Kennung] = 'B' THEN [Umwandlung Nummer] ELSE NULL END AS Umwandlungsnummer",
-								"alt_key": "Umwandlungsnummer"
+                                "sl_column": "CASE WHEN [Umwandlung Kennung] = 'B' THEN CAST([Umwandlung Nummer] AS VARCHAR(50)) ELSE 'Nein' END AS Umwandlungsnummer",
+								"alt_key": "Umwandlungsnummer",
+								"reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Auftragsnummer"
+                            },
+                            {
+								"table_fieldname": "info",
+								"sl_column": "CASE WHEN [Umwandlung Kennung] = 'B' THEN CAST([Jahr] AS VARCHAR(4)) + '-' + RIGHT('00000' + CAST([Umwandlung Nummer] AS VARCHAR(5)), 5) ELSE 'Nein' END AS Auftragsnummer",
+								"alt_key": "Auftragsnummer",
+								"reqd": 1
+							}
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Belegnummer"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "Nummer",
+								"reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Bezug/Kennz."
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "Bezug/Kennz.",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Vertreter"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "VertreterKurz",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Liefertermin KW/W"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "CAST(SUBSTRING([Bezug/Kennz.], CHARINDEX('FEST', [Bezug/Kennz.]) + 5, CHARINDEX('/', [Bezug/Kennz.], CHARINDEX('FEST', [Bezug/Kennz.])) - CHARINDEX('FEST', [Bezug/Kennz.]) - 5) AS INT) AS LieferKW",
+								"alt_key": "LieferKW",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Liefertermin KW/J"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "2000 + CAST(SUBSTRING([Bezug/Kennz.], CHARINDEX('/', [Bezug/Kennz.], CHARINDEX('FEST', [Bezug/Kennz.])) + 1, 2) AS INT) AS LieferJahr",
+								"alt_key": "LieferJahr",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Status"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "Status",
+                                "reqd": 1
+                            }
+                        ]
+                    },
+					{
+                        "fieldname": "custom_information_table",
+                        "table_fields": [
+                            {
+                                "table_fieldname": "type",
+                                "default": "WINFO: Bestellnummer Kunde"
+                            },
+                            {
+                                "table_fieldname": "info",
+                                "sl_column": "BestellnummerKunde",
+                                "reqd": 1
                             }
                         ]
                     },
@@ -548,10 +758,6 @@
 								"sl_column": "Einheit",
 								"force_str_type": 1,
 								"reqd": 1
-							},
-							{
-								"table_fieldname": "conversion_factor",
-								"default": 1
 							},
 							{
 								"table_fieldname": "rate",

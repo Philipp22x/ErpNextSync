@@ -84,6 +84,9 @@ def run(instances: list) -> None:
 		instance_name = instance_data.get("name")
 		repetition = instance_data.get("repetition")
 
+		frappe.db.set_value("Sync Instance", instance_name, "last_scheduled_sync", now_datetime())
+		frappe.db.commit()
+
 		make_log(
 			f"Scheduled import/update ({repetition}) for {instance_name} is starting...",
 			"INFO",

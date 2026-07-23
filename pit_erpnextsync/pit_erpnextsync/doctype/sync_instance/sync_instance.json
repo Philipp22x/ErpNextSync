@@ -58,6 +58,7 @@
   "repetition",
   "cron_expression",
   "column_break_pozb",
+  "last_scheduled_sync",
   "column_break_jrhk",
   "column_break_dras",
   "column_break_snqx"
@@ -348,6 +349,12 @@
    "fieldtype": "Table",
    "label": "Import Ignore Rules List",
    "options": "Sync Import Ignore Rule"
+  },
+  {
+   "fieldname": "last_scheduled_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Scheduled Sync",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
@@ -358,7 +365,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-07-02 12:26:37.022660",
+ "modified": "2026-07-23 11:28:28.164127",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",
