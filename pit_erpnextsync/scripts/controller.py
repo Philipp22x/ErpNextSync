@@ -483,7 +483,11 @@ def fetch_multiple_rows(
 			return result
 
 	except Exception as e:
-		make_log(f"Fetching multiple rows failed for {instance}.{table}: {e}", "ERROR", APP_NAME)
+		make_log(
+			f"Fetching multiple rows failed for {instance}.{table}: {e}\nSQL: {locals().get('sql', 'n/a')}",
+			"ERROR",
+			APP_NAME,
+		)
 		return []
 
 	finally:
