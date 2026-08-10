@@ -11,7 +11,8 @@
   "child_row_fieldname",
   "child_row_doctype",
   "child_row_name",
-  "selectline_column"
+  "selectline_column",
+  "source_row_key"
  ],
  "fields": [
   {
@@ -58,6 +59,13 @@
    "fieldname": "child_row_doctype",
    "fieldtype": "Data",
    "label": "Child Row Doctype"
+  },
+  {
+   "depends_on": "eval: doc.child_row_fieldname",
+   "description": "Stable key of the source row (match_key_column value) used to match multiple_query child rows across updates.",
+   "fieldname": "source_row_key",
+   "fieldtype": "Data",
+   "label": "Source Row Key"
   }
  ],
  "grid_page_length": 50,

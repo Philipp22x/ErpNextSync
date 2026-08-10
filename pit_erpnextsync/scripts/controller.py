@@ -628,11 +628,12 @@ def get_mapping_table_data(mapping_name: str) -> list:
 			"fieldname",
 			"selectline_column",
 			"child_row_fieldname",
-			"child_row_name",
-			"child_row_doctype",
-			"parent",
-			"parenttype",
-		],
+		"child_row_name",
+		"child_row_doctype",
+		"source_row_key",
+		"parent",
+		"parenttype",
+	],
 	)
 
 	return data
