@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from pprint import pprint
 import frappe
@@ -413,6 +414,21 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         columns = [c.strip() for c in col_string.split(",") if c.strip()]
         if time_stamp_col_name:
             columns.append(time_stamp_col_name)
+
+        # Ensure the parent row contains every column referenced by multiple_query
+        # child conditions ({Placeholder} syntax) plus the primary key. Otherwise
+        # fetch_multiple_rows cannot replace the placeholder and the raw "{...}"
+        # ends up in the child SQL, causing a syntax error.
+        mq_condition_columns: set = set()
+        for mapped_doctype in mapping_json:
+            for field in mapped_doctype.get("fields", []):
+                mq_condition = field.get("multiple_query_condition")
+                if field.get("multiple_query") and mq_condition:
+                    mq_condition_columns.update(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", mq_condition))
+        primary_key_col_name: str = mapping_doc.primary_key_column
+        for needed_col in mq_condition_columns | ({primary_key_col_name} if primary_key_col_name else set()):
+            if needed_col and needed_col not in columns:
+                columns.append(needed_col)
 
 
         # Build phone + value_map + mapped_value lookups from mapping JSON
