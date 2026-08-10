@@ -730,6 +730,8 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 sl_id = tf["mapped_value"]["sl_id"]
                                 if sl_id not in mq_columns:
                                     mq_columns.append(sl_id)
+                        if field.get("match_key_column") and field["match_key_column"] not in mq_columns:
+                            mq_columns.append(field["match_key_column"])
                         
                         # fetch multiple rows with parent data for placeholder replacement
                         multiple_rows = controller.fetch_multiple_rows(
@@ -846,6 +848,18 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         "child_row_name": new_child_row.name,
                                         "child_row_doctype": new_child_row.doctype
                                     }
+                                    # Store the stable source row key so updates can
+                                    # match this child row even when mapped values change
+                                    match_key_col = field.get("match_key_column")
+                                    if match_key_col:
+                                        mk_val = row_data.get(match_key_col)
+                                        if mk_val is None:
+                                            for k, v in row_data.items():
+                                                if k.upper() == match_key_col.upper():
+                                                    mk_val = v
+                                                    break
+                                        if mk_val is not None:
+                                            data["source_row_key"] = str(mk_val)
                                     doc_mapping_data.append(data)
 
                                 # get_redis standalone for child table fields

@@ -570,6 +570,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 if not mq_table or not mq_condition:
                     continue
 
+                # Determine the match key between source rows and ERPNext child rows.
+                # Preferred: match_key_column from the mapping JSON — a stable source
+                # column (e.g. rowid__) stored as source_row_key on the mapping entries.
+                # Fallback (legacy): first reqd sl_column matched against the current
+                # ERPNext value — breaks when that value itself changes in the source.
+                match_key_col: str = field.get("match_key_column")
+
                 # Extract explicit column names to avoid SELECT * (4D blob column failures)
                 mq_columns: list = []
                 for tf in field.get("table_fields", []):
@@ -581,6 +588,8 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         sl_id = tf["mapped_value"]["sl_id"]
                         if sl_id not in mq_columns:
                             mq_columns.append(sl_id)
+                if match_key_col and match_key_col not in mq_columns:
+                    mq_columns.append(match_key_col)
 
                 source_rows = controller.fetch_multiple_rows(
                     instance=instance,
@@ -594,20 +603,6 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 if not source_rows:
                     continue
 
-                # Build a key field map: find the first reqd sl_column to use as match key
-                # between source rows and ERPNext child rows.
-                match_sl_col = None
-                match_child_fieldname = None
-                for tf in field.get("table_fields", []):
-                    if tf.get("sl_column") and tf.get("reqd") == 1:
-                        match_sl_col = tf["sl_column"]
-                        match_child_fieldname = tf["table_fieldname"]
-                        break
-
-                if not match_sl_col or not match_child_fieldname:
-                    # No key field — can't match source rows to child rows
-                    continue
-
                 # Build case-insensitive column lookup (4D returns PascalCase)
                 def _get_col(row_data: dict, col: str):
                     if col in row_data:
@@ -618,44 +613,218 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                             return v
                     return None
 
-                # Build source lookup: match_value -> source_row
-                source_by_key: dict = {}
-                for srow in source_rows:
-                    key_val = _get_col(srow, match_sl_col)
-                    if key_val is not None:
-                        source_by_key[str(key_val)] = srow
+                # Legacy match field: first reqd sl_column
+                match_sl_col = None
+                match_child_fieldname = None
+                for tf in field.get("table_fields", []):
+                    if tf.get("sl_column") and tf.get("reqd") == 1:
+                        match_sl_col = tf["sl_column"]
+                        match_child_fieldname = tf["table_fieldname"]
+                        break
 
-                # Find mapping entries for this child table and match to source rows
+                if not match_key_col and (not match_sl_col or not match_child_fieldname):
+                    # No key field — can't match source rows to child rows
+                    continue
+
                 fieldname = field.get("fieldname")
-                child_row_names = set()
-                for mrow in mapping_doc.mapping_table:
-                    if (
-                        mrow.mapping_doctype == doctype_name
-                        and mrow.fieldname == fieldname
-                        and mrow.child_row_name
-                        and mrow.child_row_fieldname == match_child_fieldname
-                    ):
-                        child_row_names.add(mrow.child_row_name)
-
-                # For each child_row_name, look up the current value in ERPNext to find the source row
                 child_doctype = None
                 try:
                     child_doctype = frappe.get_meta(doctype_name).get_field(fieldname).options
                 except Exception:
                     pass
+                if not child_doctype:
+                    continue
 
-                for crn in child_row_names:
-                    if child_doctype and frappe.db.exists(child_doctype, crn):
+                # Group mapping entries of this child table by child_row_name
+                entries_by_child: dict = {}
+                for mrow in mapping_doc.mapping_table:
+                    if (
+                        mrow.mapping_doctype == doctype_name
+                        and mrow.fieldname == fieldname
+                        and mrow.child_row_name
+                    ):
+                        entries_by_child.setdefault(mrow.child_row_name, []).append(mrow)
+
+                # Build source lookups
+                source_by_key: dict = {}
+                source_by_legacy: dict = {}
+                for srow in source_rows:
+                    if match_key_col:
+                        key_val = _get_col(srow, match_key_col)
+                        if key_val is not None:
+                            source_by_key[str(key_val)] = srow
+                    if match_sl_col:
+                        legacy_val = _get_col(srow, match_sl_col)
+                        if legacy_val is not None:
+                            source_by_legacy[str(legacy_val)] = srow
+                if not match_key_col:
+                    source_by_key = source_by_legacy
+
+                # Match existing child rows to source rows
+                matched_keys: set = set()
+                for crn, entries in entries_by_child.items():
+                    if not frappe.db.exists(child_doctype, crn):
+                        continue
+                    matched_source = None
+                    matched_key = None
+                    stored_key = entries[0].get("source_row_key") if match_key_col else None
+                    if stored_key and stored_key in source_by_key:
+                        matched_source = source_by_key[stored_key]
+                        matched_key = stored_key
+                    if not matched_source and match_child_fieldname:
+                        # Legacy match via current ERPNext value — also used to backfill
+                        # source_row_key on entries created before match_key_column existed
                         current_val = frappe.db.get_value(child_doctype, crn, match_child_fieldname)
                         if current_val is not None:
-                            matched_source = source_by_key.get(str(current_val))
-                            if matched_source:
-                                mq_child_data[crn] = matched_source
+                            matched_source = source_by_legacy.get(str(current_val))
+                            if matched_source and match_key_col:
+                                key_val = _get_col(matched_source, match_key_col)
+                                matched_key = str(key_val) if key_val is not None else None
+                    if not matched_source:
+                        continue
+                    mq_child_data[crn] = matched_source
+                    if matched_key:
+                        matched_keys.add(matched_key)
+                    if match_key_col and matched_key and not stored_key:
+                        for e in entries:
+                            frappe.db.set_value("Sync Mapping Entry", e.name, "source_row_key", matched_key, update_modified=False)
 
                 if mq_child_data:
                     make_log(
                         f"Fetched {len(source_rows)} child rows from {mq_table}, "
                         f"matched {len(mq_child_data)} to existing child docs",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+
+                if not match_key_col:
+                    # Legacy mode: update values only, no structural sync
+                    continue
+
+                # Delete child rows whose source row no longer exists
+                for crn, entries in entries_by_child.items():
+                    if crn in mq_child_data:
+                        continue
+                    if frappe.db.exists(child_doctype, crn):
+                        frappe.db.delete(child_doctype, {"name": crn})
+                        make_log(
+                            f"Deleted {child_doctype} row {crn} (source row removed from {mq_table})",
+                            "INFO",
+                            controller.APP_NAME,
+                        )
+                    for e in entries:
+                        frappe.delete_doc("Sync Mapping Entry", e.name, ignore_permissions=True, force=True)
+
+                # Create child rows for source rows without a matching child row
+                new_keys = [k for k in source_by_key if k not in matched_keys]
+                if not new_keys:
+                    continue
+
+                parent_docname = next(
+                    (e.docname for el in entries_by_child.values() for e in el if e.docname),
+                    None,
+                ) or next(
+                    (m.docname for m in mapping_doc.mapping_table if m.mapping_doctype == doctype_name and m.docname),
+                    None,
+                )
+                if not parent_docname:
+                    continue
+
+                parent_docstatus = frappe.db.get_value(doctype_name, parent_docname, "docstatus") or 0
+                last_idx_row = frappe.get_all(
+                    child_doctype,
+                    filters={"parent": parent_docname, "parentfield": fieldname},
+                    fields=["idx"],
+                    order_by="idx desc",
+                    limit=1,
+                )
+                next_idx = (last_idx_row[0].idx if last_idx_row else 0) + 1
+
+                for key in new_keys:
+                    srow = source_by_key[key]
+                    resolved: dict = {}
+                    skip_row = False
+                    for tf in field.get("table_fields", []):
+                        tfn = tf.get("table_fieldname")
+                        if not tfn:
+                            continue
+                        if tf.get("sl_column"):
+                            if tf.get("alt_key") and _get_col(srow, tf["alt_key"]) not in (None, ""):
+                                value = _get_col(srow, tf["alt_key"])
+                            else:
+                                value = _get_col(srow, tf["sl_column"])
+                            if tf.get("force_str_type") == 1 and value is not None:
+                                value = str(value)
+                            lookup_key = f"{child_doctype}:{tfn}:{tf['sl_column']}"
+                            if lookup_key in value_map_lookup and value is not None:
+                                map_data = value_map_lookup[lookup_key]
+                                value_map = map_data.get("map") or {}
+                                map_default = map_data.get("default")
+                                value = value_map.get(str(value), map_default if map_default is not None else value)
+                            if tf.get("mapped_value") and value is not None:
+                                mv = tf["mapped_value"]
+                                sl_id_val = _get_col(srow, mv.get("sl_id"))
+                                if sl_id_val is not None:
+                                    resolved_mv = controller.get_mapped_value(
+                                        sl_id=f"{instance}:{mv.get('table_name')}:{sl_id_val}",
+                                        doc_type=mv.get("doc_type"),
+                                        fieldname=mv.get("fieldname"),
+                                    )
+                                    if resolved_mv:
+                                        value = resolved_mv
+                            phone_key = f"{child_doctype}:{tfn}"
+                            if phone_key in phone_field_lookup and value:
+                                value = format_phone_number(value, phone_field_lookup[phone_key]["country_code"])
+                        elif tf.get("default") is not None:
+                            value = tf["default"]
+                        else:
+                            continue
+                        if value in ["", None] and tf.get("reqd") == 1:
+                            make_log(
+                                f"Skipping new {child_doctype} row from {mq_table}: required field {tfn} is empty",
+                                "WARNING",
+                                controller.APP_NAME,
+                            )
+                            skip_row = True
+                            break
+                        resolved[tfn] = value
+                    if skip_row or not resolved:
+                        continue
+
+                    child_name = frappe.generate_hash(length=8)
+                    new_row = frappe.get_doc({
+                        "doctype": child_doctype,
+                        "parenttype": doctype_name,
+                        "parent": parent_docname,
+                        "name": child_name,
+                        "parentfield": fieldname,
+                        "idx": next_idx,
+                        "docstatus": parent_docstatus,
+                    })
+                    new_row.insert(ignore_permissions=True, ignore_mandatory=True)
+                    next_idx += 1
+
+                    for tfn, value in resolved.items():
+                        if value not in ["", None]:
+                            frappe.db.set_value(child_doctype, child_name, tfn, value)
+
+                    for tf in field.get("table_fields", []):
+                        if tf.get("sl_column"):
+                            controller.insert_mapping_row(
+                                mapping_doc_name=mapping_name,
+                                data={
+                                    "mapping_doctype": doctype_name,
+                                    "docname": parent_docname,
+                                    "fieldname": fieldname,
+                                    "child_row_fieldname": tf.get("table_fieldname"),
+                                    "child_row_name": child_name,
+                                    "child_row_doctype": child_doctype,
+                                    "selectline_column": tf["sl_column"],
+                                    "source_row_key": key,
+                                },
+                            )
+                    make_log(
+                        f"Created {child_doctype} row {child_name} for new source row ({match_key_col}={key})",
                         "INFO",
                         controller.APP_NAME,
                     )

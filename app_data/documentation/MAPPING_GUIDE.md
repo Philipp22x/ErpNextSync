@@ -253,6 +253,7 @@ When child data is in a separate table (e.g., multiple contacts per customer):
 | `multiple_query` | Set to `true` to enable separate child table query |
 | `multiple_query_table` | The SelectLine table containing child rows |
 | `multiple_query_condition` | SQL WHERE clause to filter child rows |
+| `match_key_column` | Optional. Stable source column (e.g. `rowid__`) used to match child rows across updates. Stored as `source_row_key` on mapping entries. Enables structural sync during update: new source rows are created as child rows, removed source rows are deleted. Without it, matching falls back to the first `reqd` `sl_column` value (legacy behavior — breaks when that value itself changes). |
 
 **Condition syntax:** Use `{sl_column:ColumnName}` to reference parent row values.
 

@@ -1,10 +1,12 @@
 import frappe
+import json
 from croniter import croniter
 from frappe.utils import now_datetime
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 from pit_erpnextsync.scripts.data_import import start_import
+from pit_erpnextsync.scripts.reconcile import start_reconciliation
 from pit_erpnextsync.scripts.update import run_bulk_update
 
 
@@ -19,6 +21,7 @@ def get_instances(repetition: str) -> list:
 		fields=[
 			"name",
 			"enable_scheduler",
+			"enable_reconcile",
 			"repetition",
 			"amount_of_data_rows",
 			"types_to_import",
@@ -72,6 +75,25 @@ def run_cron() -> None:
 	run(due_instances)
 
 
+def get_multiple_query_types(instance: str) -> list:
+	"""Return the instance's types whose mapping JSON uses multiple_query child tables."""
+	mq_types: list = []
+	instance_doc = frappe.get_doc("Sync Instance", instance)
+	for row in instance_doc.table_mapping:
+		try:
+			mapping_json = json.loads(row.mapping or "[]")
+		except (ValueError, TypeError):
+			continue
+		for mapped_doctype in mapping_json:
+			if any(
+				field.get("multiple_query") and field.get("table_fields")
+				for field in mapped_doctype.get("fields", [])
+			):
+				mq_types.append(row.type)
+				break
+	return mq_types
+
+
 # run import / update
 def run(instances: list) -> None:
 	if not instances:
@@ -103,7 +125,7 @@ def run(instances: list) -> None:
 			)
 			controller.wait_for_jobs([import_job_id])
 
-			run_bulk_update(
+			update_job_id: str = run_bulk_update(
 				instance=instance_name,
 				types_str=instance_data.get("types_to_import"),
 			)
@@ -113,6 +135,23 @@ def run(instances: list) -> None:
 				"INFO",
 				controller.APP_NAME,
 			)
+
+			# Reconcile types with multiple_query child tables so structural
+			# changes (added/removed source rows) are applied to child tables.
+			if instance_data.get("enable_reconcile"):
+				controller.wait_for_jobs([update_job_id])
+				mq_types: list = get_multiple_query_types(instance_name)
+				if mq_types:
+					make_log(
+						f"Starting reconcile for {instance_name} (types: {mq_types})",
+						"INFO",
+						controller.APP_NAME,
+					)
+					start_reconciliation(
+						instance=instance_name,
+						types_str=json.dumps(mq_types),
+						dry_run=False,
+					)
 
 		except Exception as e:
 			make_log(

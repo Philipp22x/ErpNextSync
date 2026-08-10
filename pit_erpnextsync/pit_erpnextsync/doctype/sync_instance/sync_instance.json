@@ -55,6 +55,7 @@
   "hooks",
   "scheduler_section",
   "enable_scheduler",
+  "enable_reconcile",
   "repetition",
   "cron_expression",
   "column_break_pozb",
@@ -266,6 +267,13 @@
    "fieldname": "enable_scheduler",
    "fieldtype": "Check",
    "label": "Enable Scheduler"
+  },
+  {
+   "default": "0",
+   "description": "Run reconciliation after scheduled import/update for types with multiple_query child tables. Adds new child rows and removes rows deleted in the source.",
+   "fieldname": "enable_reconcile",
+   "fieldtype": "Check",
+   "label": "Enable Reconcile"
   },
   {
    "default": "all",

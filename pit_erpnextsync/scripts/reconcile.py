@@ -45,7 +45,7 @@ def start_reconciliation(
 	frappe.enqueue(
 		"pit_erpnextsync.scripts.reconcile._run_reconciliation",
 		queue="long",
-		timeout=600,
+		timeout=3600,
 		job_id=f"pes_reconcile_main:{uuid.uuid4().hex[:8]}",
 		instance=instance,
 		types_str=types_str,
@@ -621,9 +621,10 @@ def get_flattened_fields(json_mapping: List[Dict]) -> List[Dict]:
 						"reqd": table_field.get("reqd"),
 						"child_row_group_key": child_row_group_key,
 						"child_group_sl_columns": child_group_sl_columns,
-						"multiple_query": is_mq,
-						"multiple_query_table": field.get("multiple_query_table") if is_mq else None,
-						"multiple_query_condition": field.get("multiple_query_condition") if is_mq else None,
+					"multiple_query": is_mq,
+					"multiple_query_table": field.get("multiple_query_table") if is_mq else None,
+					"multiple_query_condition": field.get("multiple_query_condition") if is_mq else None,
+					"match_key_column": field.get("match_key_column") if is_mq else None,
 						"table_fields": None,
 						"child_row_doctype": None  # Will be resolved during application
 					}
@@ -831,6 +832,11 @@ def _handle_multiple_query_group(
 			sl_id = gf["mapped_value"]["sl_id"]
 			if sl_id not in mq_columns:
 				mq_columns.append(sl_id)
+
+	# Include the stable match key column so it can be stored as source_row_key
+	match_key_col: str | None = next((gf.get("match_key_column") for gf in group_fields if gf.get("match_key_column")), None)
+	if match_key_col and match_key_col not in mq_columns:
+		mq_columns.append(match_key_col)
 
 	# Also include columns from already-stored mapping entries for this child
 	# table. These are needed for matching source rows to existing child rows
@@ -1116,17 +1122,22 @@ def _handle_multiple_query_group(
 					},
 				)
 				if not existing_entry:
+					entry_data = {
+						"mapping_doctype": doctype,
+						"docname": docname,
+						"fieldname": fieldname,
+						"child_row_fieldname": child_fn,
+						"child_row_name": target_child_name,
+						"child_row_doctype": target_child_doctype,
+						"selectline_column": field_def["sl_column"],
+					}
+					if match_key_col:
+						mk_val = _get_col(source_row, match_key_col)
+						if mk_val is not None:
+							entry_data["source_row_key"] = str(mk_val)
 					controller.insert_mapping_row(
 						mapping_doc_name=mapping_name,
-						data={
-							"mapping_doctype": doctype,
-							"docname": docname,
-							"fieldname": fieldname,
-							"child_row_fieldname": child_fn,
-							"child_row_name": target_child_name,
-							"child_row_doctype": target_child_doctype,
-							"selectline_column": field_def["sl_column"],
-						},
+						data=entry_data,
 					)
 					make_log(
 						f"Created child mapping entry for {doctype}.{fieldname}.{child_fn} "
