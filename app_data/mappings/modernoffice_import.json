@@ -288,6 +288,10 @@
 						"sl_column": "Matchcode"
 					},
 					{
+						"fieldname": "custom_additional_1",
+						"sl_column": "ArtikelKurz"
+					},
+					{
 						"fieldname": "disabled",
 						"sl_column": "Sperrkennzeichen",
 						"value_map": {
@@ -528,7 +532,7 @@
 							},
 							{
 								"table_fieldname": "warehouse",
-								"default": "Stores - ACK"
+								"default": "Leihware - ACK"
 							}
 						]
 					}
@@ -769,7 +773,7 @@
 							},
 							{
 								"table_fieldname": "warehouse",
-								"default": "Stores - ACK"
+								"default": "Leihware - ACK"
 							}
 						]
 					}
