@@ -802,6 +802,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "docstatus": parent_docstatus,
                     })
                     new_row.insert(ignore_permissions=True, ignore_mandatory=True)
+                    # insert() renames the doc (set_new_name resets doc.name) —
+                    # the generated name must be used from here on
+                    child_name = new_row.name
                     next_idx += 1
 
                     for tfn, value in resolved.items():
