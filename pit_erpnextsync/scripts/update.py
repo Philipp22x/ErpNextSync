@@ -22,7 +22,7 @@ def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
     frappe.enqueue(
         "pit_erpnextsync.scripts.update._run_bulk_update",
         queue="long",
-        timeout=600,
+        timeout=3600,
         job_id=job_id,
         instance=instance,
         types_str=types_str,
