@@ -51,7 +51,10 @@ doctype_js = {
 	"Customer": _synced_js,
 	"Supplier": _synced_js,
 }
-doctype_list_js = {"Item" : "public/js/item_list.js"}
+# "Item" listview hook removed: its global "Create Missing Website Items" button used a bare
+# `frappe.listview_settings["Item"] = {...}` assignment that clobbered the webshop app's
+# variant-first (checked-rows) button. The webshop app owns that action now.
+doctype_list_js = {}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
