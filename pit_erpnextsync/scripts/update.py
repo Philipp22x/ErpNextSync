@@ -431,10 +431,11 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 columns.append(needed_col)
 
 
-        # Build phone + value_map + mapped_value lookups from mapping JSON
+        # Build phone + value_map + mapped_value + trim lookups from mapping JSON
         phone_field_lookup: dict = {}
         value_map_lookup: dict = {}
         mapped_value_lookup: dict = {}
+        trim_lookup: dict = {}
         for mapped_doctype in mapping_json:
             doctype = mapped_doctype.get("doctype")
             for field in mapped_doctype.get("fields", []):
@@ -461,6 +462,11 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "doc_type": mv.get("doc_type"),
                         "fieldname": mv.get("fieldname"),
                     }
+
+                # trim on parent fields
+                trim_len = field.get("trim") or field.get("trim_to")
+                if trim_len is not None:
+                    trim_lookup[f"{doctype}:{fieldname}"] = int(trim_len)
 
                 # Also check table_fields for phone numbers, value_maps, mapped_values, defaults
                 if field.get("table_fields"):
@@ -499,6 +505,15 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                                     "doc_type": mv.get("doc_type"),
                                     "fieldname": mv.get("fieldname"),
                                 }
+                            except:
+                                pass
+
+                        # trim on child table fields
+                        child_trim_len = table_field.get("trim") or table_field.get("trim_to")
+                        if child_trim_len is not None and table_fieldname:
+                            try:
+                                child_doctype = frappe.get_meta(doctype).get_field(fieldname).options
+                                trim_lookup[f"{child_doctype}:{table_fieldname}"] = int(child_trim_len)
                             except:
                                 pass
 
@@ -775,6 +790,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                             phone_key = f"{child_doctype}:{tfn}"
                             if phone_key in phone_field_lookup and value:
                                 value = format_phone_number(value, phone_field_lookup[phone_key]["country_code"])
+                            # trim - cut value to max characters
+                            if phone_key in trim_lookup and value is not None:
+                                value = str(value)[:trim_lookup[phone_key]]
                         elif tf.get("default") is not None:
                             value = tf["default"]
                         else:
@@ -952,6 +970,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
                         field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
+                    # trim - cut value to max characters
+                    if lookup_key in trim_lookup and field_value is not None:
+                        field_value = str(field_value)[:trim_lookup[lookup_key]]
                     frappe.db.set_value(target_child_doctype, target_child_name, row.child_row_fieldname, field_value)
                     
                 else:
@@ -961,6 +982,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     lookup_key = f"{row.mapping_doctype}:{row.fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
                         field_value = format_phone_number(field_value, phone_field_lookup[lookup_key]["country_code"])
+                    # trim - cut value to max characters
+                    if lookup_key in trim_lookup and field_value is not None:
+                        field_value = str(field_value)[:trim_lookup[lookup_key]]
                     frappe.db.set_value(row.mapping_doctype, row.docname, row.fieldname, field_value)
 
             except Exception as er:

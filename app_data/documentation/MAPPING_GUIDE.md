@@ -2,7 +2,7 @@
 
 ## Overview
 
-The JSON mapping defines how data from **SelectLine** (SQL Server) transforms into **ERPNext** documents. It's stored in the **Selectline Table Mapping** DocType within each Sync Instance.
+The JSON mapping defines how data from **any source ERP** (MSSQL or 4D based — e.g. SelectLine, ModernOffice) transforms into **ERPNext** documents. It's stored in the **Selectline Table Mapping** DocType within each Sync Instance.
 
 This documentation explains all available keywords and how to use them to create your own mappings.
 
@@ -43,7 +43,7 @@ The mapping is a JSON array where each element represents one ERPNext DocType to
 ]
 ```
 
-**Key concept**: You can create multiple related documents from a single SelectLine row. For example, one row might create both a Customer and their primary Address.
+**Key concept**: You can create multiple related documents from a single source row. For example, one row might create both a Customer and their primary Address.
 
 ---
 
@@ -78,12 +78,13 @@ Each field object must specify an ERPNext `fieldname` and ONE value source. The 
 | `fieldname` | **Yes** | string | The ERPNext field name to populate |
 | `reqd` | No | 0, 1, or 2 | Required level: 0=optional, 1=skip doc if empty, 2=abort import if empty |
 | `force_str_type` | No | 0 or 1 | If `1`, convert the value to string |
+| `trim` | No | int | Max characters to keep. Truncates the value (as string) to this length. Useful for fields with max length constraints (e.g. Item Name max 140 chars). Alias: `trim_to`. |
 
 ### Value Source Keywords (use only one per field)
 
 | Keyword | Description |
 |---------|-------------|
-| `sl_column` | SelectLine column name to fetch value from |
+| `sl_column` | Source column name to fetch value from |
 | `alt_key` | Alternative column name if `sl_column` is empty/null |
 | `default` | Static default value |
 | `field_var` | Reference to a dynamic field variable |
@@ -96,7 +97,7 @@ Each field object must specify an ERPNext `fieldname` and ONE value source. The 
 
 ### 1. Direct Column Mapping (`sl_column`)
 
-Maps a SelectLine column directly to an ERPNext field.
+Maps a source column directly to an ERPNext field.
 
 ```json
 {
@@ -108,7 +109,7 @@ Maps a SelectLine column directly to an ERPNext field.
 ```
 
 **How it works:**
-- Fetches the value from the `CompanyName` column in SelectLine
+- Fetches the value from the `CompanyName` column in the source table
 - If `CompanyName` is empty/null, tries the `Name2` column (alt_key)
 - If both are empty and `reqd: 1`, skips this document
 - If both are empty and `reqd: 2`, aborts the entire import
@@ -127,7 +128,7 @@ Provides a fallback column when the primary column is empty.
 
 ### 3. Static Default Value (`default`)
 
-Use when you want a fixed value regardless of SelectLine data.
+Use when you want a fixed value regardless of source data.
 
 ```json
 {
@@ -176,7 +177,7 @@ Looks up a value from another already-imported document.
 
 **How it works:**
 1. Takes the value from the current row's `ContactId` column
-2. Looks up the Sync Mapping for SelectLine table `CONTACTS` with that ID
+2. Looks up the Sync Mapping for source table `CONTACTS` with that ID
 3. Finds the related ERPNext `Contact` document
 4. Gets the `name` field from that Contact
 5. Sets it as the value for `customer_primary_contact`
@@ -191,7 +192,7 @@ Child tables in ERPNext (like Contact's email list, Customer's addresses) requir
 
 ### Simple Child Table (same row)
 
-When child data is in the same SelectLine row:
+When child data is in the same source row:
 
 ```json
 {
@@ -238,20 +239,21 @@ When child data is in a separate table (e.g., multiple contacts per customer):
 | Keyword | Description |
 |---------|-------------|
 | `table_fieldname` | The field name within the child table |
-| `sl_column` | SelectLine column (same as parent level) |
+| `sl_column` | Source column (same as parent level) |
 | `alt_key` | Alternative column |
 | `default` | Static default |
 | `field_var` | Field variable reference |
 | `mapped_value` | Cross-reference |
 | `reqd` | Required level |
 | `force_str_type` | Force string conversion |
+| `trim` | Max characters to keep (truncates value to this length) |
 
 **Multiple Query Keywords:**
 
 | Keyword | Description |
 |---------|-------------|
 | `multiple_query` | Set to `true` to enable separate child table query |
-| `multiple_query_table` | The SelectLine table containing child rows |
+| `multiple_query_table` | The source table containing child rows |
 | `multiple_query_condition` | SQL WHERE clause to filter child rows |
 | `match_key_column` | Optional. Stable source column (e.g. `rowid__`) used to match child rows across updates. Stored as `source_row_key` on mapping entries. Enables structural sync during update: new source rows are created as child rows, removed source rows are deleted. Without it, matching falls back to the first `reqd` `sl_column` value (legacy behavior — breaks when that value itself changes). |
 
@@ -629,7 +631,7 @@ When you need to link to documents imported in other mappings:
 ### Import fails with "Required field missing"
 
 - Check that all fields with `"reqd": 1` have values
-- Verify `sl_column` names match SelectLine exactly
+- Verify `sl_column` names match the source table exactly
 - Consider adding `alt_key` for fallback values
 
 ### Documents not linking properly
@@ -647,7 +649,7 @@ When you need to link to documents imported in other mappings:
 ### Cross-reference returns null
 
 - Verify the target mapping exists and was imported
-- Check that `table_name` matches the source SelectLine table
+- Check that `table_name` matches the source table
 - Ensure `sl_id` column contains valid foreign keys
 
 ---
@@ -664,7 +666,8 @@ When you need to link to documents imported in other mappings:
       "sl_column": "SL_Column",
       "alt_key": "Alt_Column",
       "reqd": 1,
-      "force_str_type": 0
+      "force_str_type": 0,
+      "trim": 140
     },
     {
       "fieldname": "erp_field2",

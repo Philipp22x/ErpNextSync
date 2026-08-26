@@ -1,6 +1,6 @@
 # PIT ERPNextSync
 
-ERPNext app that syncs data from **SelectLine** (German ERP) into ERPNext. Connects to SelectLine's SQL Server (or 4D) database.
+ERPNext app that syncs data from **any source ERP** (MSSQL or 4D based — e.g. SelectLine, ModernOffice) into ERPNext. Connects directly to the source ERP's SQL Server (pymssql) or 4D (p4d) database.
 
 ## Documentation
 - **Mapping reference**: `app_data/documentation/MAPPING_GUIDE.md`
@@ -14,7 +14,7 @@ Supports two backends: **pymssql** (MSSQL) and **p4d** (4D). SQL generation, col
 | DocType | Purpose |
 |---------|---------|
 | `Sync Instance` | DB connection config, table mapping JSON, scheduler settings |
-| `Sync Mapping` | Tracks one SelectLine record → ERPNext document relationship |
+| `Sync Mapping` | Tracks one source ERP record → ERPNext document relationship |
 | `Sync Mapping Entry` | Child table of Sync Mapping; field-level mapping rows |
 | `Selectline Table Mapping` | Child table of Sync Instance; JSON-based table/field mapping definitions |
 | `PIT ERPNextSync Settings` | Single doctype (global settings, e.g. cascade-delete toggle) |
@@ -24,7 +24,7 @@ Supports two backends: **pymssql** (MSSQL) and **p4d** (4D). SQL generation, col
 | Script | Role |
 |--------|------|
 | `controller.py` | Core: DB connections, mapping CRUD, ID format, SQL builders, queue helpers |
-| `data_import.py` | Initial import from SelectLine → ERPNext |
+| `data_import.py` | Initial import from source ERP → ERPNext |
 | `update.py` | Timestamp-based incremental updates |
 | `reconcile.py` | Diffs current JSON mapping against stored Sync Mapping entries |
 | `scheduler.py` | Entry points for all/daily/hourly/weekly/monthly cron |
@@ -39,10 +39,10 @@ Each cycle: `start_import()` → `run_bulk_update()`. Only enabled instances mat
 ```
 <instance_name>:<table_name>:<primary_key>
 ```
-Underscores replace spaces. Used to cross-reference SelectLine records to ERPNext documents.
+Underscores replace spaces. Used to cross-reference source ERP records to ERPNext documents.
 
 ### Field mapping types
-- `sl_column` — direct column from SelectLine
+- `sl_column` — direct column from the source ERP table
 - `default` — static literal value
 - `field_var` — dynamic variable (resolved at runtime)
 - `mapped_value` — cross-reference to another mapping's field
