@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Any, Optional
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 from pit_erpnextsync.scripts.classes.field_vars import FieldVars
+from pit_erpnextsync.scripts.data_import import trim_value
 
 
 APP_NAME: str = "pit_erpnextsync"
@@ -1118,7 +1119,7 @@ def _handle_multiple_query_group(
 						"docname": docname,
 						"fieldname": fieldname,
 						"child_row_fieldname": child_fn,
-						"selectline_column": field_def["sl_column"],
+						"selectline_column": trim_value(field_def["sl_column"], field_def),
 					},
 				)
 				if not existing_entry:
@@ -1129,7 +1130,7 @@ def _handle_multiple_query_group(
 						"child_row_fieldname": child_fn,
 						"child_row_name": target_child_name,
 						"child_row_doctype": target_child_doctype,
-						"selectline_column": field_def["sl_column"],
+						"selectline_column": trim_value(field_def["sl_column"], field_def),
 					}
 					if match_key_col:
 						mk_val = _get_col(source_row, match_key_col)
@@ -1424,7 +1425,7 @@ def apply_field_additions(
 							"docname": docname,
 							"fieldname": fieldname,
 							"child_row_fieldname": child_row_fieldname,
-							"selectline_column": field_def.get("sl_column")
+							"selectline_column": trim_value(field_def.get("sl_column"), field_def)
 						}
 					)
 
@@ -1439,7 +1440,7 @@ def apply_field_additions(
 								"child_row_fieldname": child_row_fieldname,
 								"child_row_name": child_info["child_name"],
 								"child_row_doctype": child_info["child_doctype"],
-								"selectline_column": field_def.get("sl_column")
+								"selectline_column": trim_value(field_def.get("sl_column"), field_def)
 							}
 						)
 						make_log(
@@ -1507,7 +1508,7 @@ def apply_field_additions(
 							"mapping_doctype": doctype,
 							"docname": docname,
 							"fieldname": fieldname,
-							"selectline_column": field_def.get("sl_column")
+							"selectline_column": trim_value(field_def.get("sl_column"), field_def)
 						}
 						make_log(
 							f"Inserting mapping row for {doctype}.{fieldname} with data: {mapping_data}",
