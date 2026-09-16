@@ -9,7 +9,7 @@ from frappe.model.document import Document
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 from pit_erpnextsync.scripts.classes.field_vars import FieldVars
-from pit_erpnextsync.scripts.data_import import format_phone_number
+from pit_erpnextsync.scripts.data_import import format_phone_number, trim_value
 
 
 def split_sql_columns(col_string: str) -> list:
@@ -875,7 +875,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                                     "child_row_fieldname": tf.get("table_fieldname"),
                                     "child_row_name": child_name,
                                     "child_row_doctype": child_doctype,
-                                    "selectline_column": tf["sl_column"],
+                                    "selectline_column": trim_value(tf["sl_column"], tf),
                                     "source_row_key": key,
                                 },
                             )

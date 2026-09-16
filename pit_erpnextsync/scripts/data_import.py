@@ -700,7 +700,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
             data: dict = {
                 "mapping_doctype": new_doc.doctype,
                 "fieldname": field["fieldname"],
-                "selectline_column": field["sl_column"],
+                "selectline_column": trim_value(field["sl_column"], field),
             }
             doc_mapping_data.append(data)
 
@@ -872,7 +872,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                     data: dict = {
                                         "mapping_doctype": new_doc.doctype,
                                         "fieldname": field["fieldname"],
-                                        "selectline_column": table_field["sl_column"],
+                                        "selectline_column": trim_value(table_field["sl_column"], table_field),
                                         "child_row_fieldname": table_field["table_fieldname"],
                                         "child_row_name": new_child_row.name,
                                         "child_row_doctype": new_child_row.doctype
@@ -1012,7 +1012,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             pending_mapping_entries.append({
                                 "mapping_doctype": new_doc.doctype,
                                 "fieldname": field["fieldname"],
-                                "selectline_column": table_field["sl_column"],
+                                "selectline_column": trim_value(table_field["sl_column"], table_field),
                                 "child_row_fieldname": table_field["table_fieldname"],
                                 "child_row_name": new_child_row.name,
                                 "child_row_doctype": new_child_row.doctype
