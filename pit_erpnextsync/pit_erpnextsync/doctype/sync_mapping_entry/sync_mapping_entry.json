@@ -40,7 +40,9 @@
    "fieldname": "selectline_column",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Selectline Column"
+   "label": "Selectline Column",
+   "length": 500,
+   "description": "Source column name OR a full SQL expression (e.g. CASE/CAST/CHARINDEX). Expressions legitimately exceed the 140-char Data default, so this field is longer."
   },
   {
    "fieldname": "child_row_fieldname",
