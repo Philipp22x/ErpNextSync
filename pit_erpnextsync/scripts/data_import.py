@@ -1068,6 +1068,18 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
     for child_doc in child_doc_list:
         new_doc.append(child_doc.parentfield, child_doc)
 
+    # ERPNext's Item Price auto-insert (Stock Settings -> auto_insert_price_list_rate_if_missing)
+    # creates Item Prices with uom = item.stock_uom, and Item Price validation requires that
+    # UOM to exist in the item's UOM Conversion Detail list. Imported items whose stock UOM
+    # is missing from `uoms` fail to import with "UOM X not found in Item Y" as soon as a
+    # price list rate is inserted. Ensure it is present before the item is inserted.
+    if (
+        new_doc.doctype == "Item"
+        and new_doc.get("stock_uom")
+        and not any(u.uom == new_doc.stock_uom for u in (new_doc.get("uoms") or []))
+    ):
+        new_doc.append("uoms", {"uom": new_doc.stock_uom, "conversion_factor": 1})
+
     try:
         new_doc.insert(
             ignore_permissions=True,
