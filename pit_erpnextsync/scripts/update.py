@@ -12,6 +12,41 @@ from pit_erpnextsync.scripts.classes.field_vars import FieldVars
 from pit_erpnextsync.scripts.data_import import format_phone_number
 
 
+def split_sql_columns(col_string: str) -> list:
+	"""Split a comma-separated column list while keeping SQL expressions intact.
+
+	A naive `col_string.split(",")` shatters expressions that contain commas
+	inside function calls, e.g.
+	`RIGHT('00000' + CAST([Nummer] AS VARCHAR(5)), 5) AS BelegNaming`
+	becomes `... CAST([Nummer] AS VARCHAR(5))` and `5) AS BelegNaming` — the
+	latter ends up in the SELECT list and makes MSSQL fail with
+	`Incorrect syntax near ')'`. Commas inside parentheses or inside
+	single-quoted string literals therefore do NOT split; a comma at
+	paren-depth 0 outside a literal does.
+	"""
+	columns: list = []
+	buf: list = []
+	depth: int = 0
+	in_str: bool = False
+	for ch in col_string:
+		if ch == "'":
+			in_str = not in_str
+		elif not in_str:
+			if ch == "(":
+				depth += 1
+			elif ch == ")":
+				depth = max(0, depth - 1)
+		if ch == "," and depth == 0 and not in_str:
+			if s := "".join(buf).strip():
+				columns.append(s)
+			buf = []
+		else:
+			buf.append(ch)
+	if s := "".join(buf).strip():
+		columns.append(s)
+	return columns
+
+
 @frappe.whitelist()
 def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
     """Entry point - enqueues the actual update as a long-running background job.
@@ -410,8 +445,8 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             and d["selectline_column"] not in mq_sl_columns
         ]
         col_string = ",\n".join(dict.fromkeys(valid_columns))
-        # Build columns list
-        columns = [c.strip() for c in col_string.split(",") if c.strip()]
+        # Build columns list — split safely, keeping SQL expressions intact
+        columns = split_sql_columns(col_string)
         if time_stamp_col_name:
             columns.append(time_stamp_col_name)
 
