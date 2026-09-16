@@ -110,54 +110,75 @@ def run(instances: list) -> None:
 		frappe.db.commit()
 
 		make_log(
-			f"Scheduled import/update ({repetition}) for {instance_name} is starting...",
+			f"Scheduled import/update ({repetition}) for {instance_name} is starting (cycle queued)...",
 			"INFO",
 			controller.APP_NAME,
 		)
 
-		try:
-			# Enqueue import and wait for it to finish before starting update,
-			# so updates don't race against imports on the same records.
-			import_job_id: str = start_import(
-				instance=instance_name,
-				top=instance_data.get("amount_of_data_rows"),
-				types_str=instance_data.get("types_to_import"),
-			)
-			controller.wait_for_jobs([import_job_id])
+		# Enqueue the FULL import -> wait -> update -> wait -> reconcile cycle as ONE
+		# long-queue background job. The cron entry (default queue, 300s timeout) must
+		# never block on wait_for_jobs(), otherwise it dies with a JobTimeoutException
+		# ("Task exceeded maximum timeout value (300 seconds)"). deduplicate by job_id
+		# skips when a cycle for this instance is already QUEUED or STARTED, so cron
+		# ticks cannot start overlapping cycles on the same records.
+		frappe.enqueue(
+			"pit_erpnextsync.scripts.scheduler._run_cycle",
+			queue="long",
+			timeout=7200,
+			job_id=f"pes_cycle:{instance_name}",
+			deduplicate=True,
+			instance=instance_name,
+			repetition=repetition,
+			amount_of_data_rows=instance_data.get("amount_of_data_rows"),
+			types_to_import=instance_data.get("types_to_import"),
+			enable_reconcile=instance_data.get("enable_reconcile"),
+		)
 
-			update_job_id: str = run_bulk_update(
-				instance=instance_name,
-				types_str=instance_data.get("types_to_import"),
-			)
 
-			make_log(
-				f"Background jobs for import/update ({repetition}) for {instance_name} created successfully",
-				"INFO",
-				controller.APP_NAME,
-			)
+def _run_cycle(instance, repetition, amount_of_data_rows=None, types_to_import=None, enable_reconcile=False) -> None:
+	"""Long-queue orchestration: import -> wait -> update -> wait -> reconcile."""
+	try:
+		# Enqueue import and wait for it to finish before starting update,
+		# so updates don't race against imports on the same records.
+		import_job_id: str = start_import(
+			instance=instance,
+			top=amount_of_data_rows,
+			types_str=types_to_import,
+		)
+		controller.wait_for_jobs([import_job_id])
 
-			# Reconcile types with multiple_query child tables so structural
-			# changes (added/removed source rows) are applied to child tables.
-			if instance_data.get("enable_reconcile"):
-				controller.wait_for_jobs([update_job_id])
-				mq_types: list = get_multiple_query_types(instance_name)
-				if mq_types:
-					make_log(
-						f"Starting reconcile for {instance_name} (types: {mq_types})",
-						"INFO",
-						controller.APP_NAME,
-					)
-					start_reconciliation(
-						instance=instance_name,
-						types_str=json.dumps(mq_types),
-						dry_run=False,
-					)
+		update_job_id: str = run_bulk_update(
+			instance=instance,
+			types_str=types_to_import,
+		)
 
-		except Exception as e:
-			make_log(
-				f"Could not run scheduled import/update for {instance_name}: {e}",
-				"ERROR",
-				controller.APP_NAME,
-				with_traceback=True,
-			)
-			continue
+		make_log(
+			f"Background jobs for import/update ({repetition}) for {instance} created successfully",
+			"INFO",
+			controller.APP_NAME,
+		)
+
+		# Reconcile types with multiple_query child tables so structural
+		# changes (added/removed source rows) are applied to child tables.
+		if enable_reconcile:
+			controller.wait_for_jobs([update_job_id])
+			mq_types: list = get_multiple_query_types(instance)
+			if mq_types:
+				make_log(
+					f"Starting reconcile for {instance} (types: {mq_types})",
+					"INFO",
+					controller.APP_NAME,
+				)
+				start_reconciliation(
+					instance=instance,
+					types_str=json.dumps(mq_types),
+					dry_run=False,
+				)
+
+	except Exception as e:
+		make_log(
+			f"Could not run scheduled import/update for {instance}: {e}",
+			"ERROR",
+			controller.APP_NAME,
+			with_traceback=True,
+		)
