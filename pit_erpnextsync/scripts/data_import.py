@@ -11,6 +11,26 @@ from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 
 
+#* trim value to max length ##########################################################################
+def trim_value(value, field_def: dict):
+	"""Trim a value to the max characters specified by the 'trim' mapping keyword.
+
+	Args:
+		value: The value to trim (any type — converted to str before trimming).
+		field_def: The field definition dict from the mapping JSON.
+			May contain 'trim' (int) or 'trim_to' (int, alias).
+
+	Returns:
+		The trimmed value (str if trimming was applied, otherwise the original value).
+	"""
+	trim_len = field_def.get("trim") or field_def.get("trim_to")
+	if trim_len is None or value is None:
+		return value
+	if not isinstance(value, str):
+		value = str(value)
+	return value[:int(trim_len)]
+
+
 #* phone number formatting ##########################################################################
 def format_phone_number(phone_number: str, country_code: str = "AT") -> str:
     """Format a phone number to Frappe's standard format.
@@ -659,6 +679,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                 country_code = field.get("phone_country_code", "AT")
                 field_value = format_phone_number(field_value, country_code)
 
+            # trim - cut value to max characters
+            field_value = trim_value(field_value, field)
+
             # check if field value is empty and reqd
             if field_value in ["", None] and field.get("reqd") == 1:
                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
@@ -689,6 +712,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                 cached_value = redis_context.get(redis_key)
                 if cached_value is not None:
                     field_value = str(cached_value) if field.get("force_str_type") == 1 else cached_value
+
+            # trim - cut value to max characters
+            field_value = trim_value(field_value, field)
 
             if field_value in ["", None] and field.get("reqd") == 1:
                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
@@ -820,6 +846,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         country_code = table_field.get("phone_country_code", "AT")
                                         field_value = format_phone_number(field_value, country_code)
 
+                                    # trim - cut value to max characters
+                                    field_value = trim_value(field_value, table_field)
+
                                     # check if field value is empty and reqd — skip this ROW, not the whole doc
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
                                         make_log(
@@ -870,6 +899,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         cached_value = redis_context.get(redis_key)
                                         if cached_value is not None:
                                             field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
+
+                                    # trim - cut value to max characters
+                                    field_value = trim_value(field_value, table_field)
 
                                     # skip this ROW if reqd field is empty, not the whole doc
                                     if field_value in ["", None] and table_field.get("reqd") == 1:
@@ -951,6 +983,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 country_code = table_field.get("phone_country_code", "AT")
                                 field_value = format_phone_number(field_value, country_code)
 
+                            # trim - cut value to max characters
+                            field_value = trim_value(field_value, table_field)
+
                             # check if field value is empty and reqd — skip this
                             # child row only (not the entire doctype), matching
                             # the multiple_query path's behavior.
@@ -991,6 +1026,9 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 cached_value = redis_context.get(redis_key)
                                 if cached_value is not None:
                                     field_value = str(cached_value) if table_field.get("force_str_type") == 1 else cached_value
+
+                            # trim - cut value to max characters
+                            field_value = trim_value(field_value, table_field)
 
                             if field_value in ["", None] and table_field.get("reqd") == 1:
                                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
