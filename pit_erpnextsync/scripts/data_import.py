@@ -5,6 +5,7 @@ import time
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils import cint
 from frappe.utils.background_jobs import get_job_status
 
 from pit_erpnext.scripts.logger import make_log
@@ -615,6 +616,47 @@ def delete_docs(created_docs: list) -> None:
     frappe.db.commit()
 
 
+def truncate_overlong_values(doc: Document) -> list:
+	"""Truncate string values longer than the target column allows.
+
+	Source ERPs regularly carry free-text values that are longer than ERPNext's
+	varchar limits (Data defaults to 140 characters, e.g. a 200-char article
+	name). Frappe rejects the whole insert with CharacterLengthExceededError; for
+	a required doctype that means the object is rolled back, no mapping is
+	created and the very same object fails again on every following run.
+	Truncating keeps the object importable - every truncation is reported so the
+	source value can be fixed at the mapping/source side.
+
+	Child rows are handled as well, because long values usually live there
+	(e.g. Quotation Item.item_name).
+	"""
+	type_map = frappe.db.type_map
+	truncated: list = []
+
+	def _column_max_length(df) -> int:
+		if df.fieldtype not in type_map or type_map[df.fieldtype][0] != "varchar":
+			return 0
+		return cint(df.get("length")) or cint(type_map[df.fieldtype][1]) or 0
+
+	def _walk(current: Document, prefix: str = "") -> None:
+		for df in current.meta.fields:
+			max_length: int = _column_max_length(df)
+			if not max_length:
+				continue
+			value = current.get(df.fieldname)
+			if not isinstance(value, str) or len(value) <= max_length:
+				continue
+			current.set(df.fieldname, value[:max_length])
+			truncated.append(f"{prefix}{df.fieldname} ({len(value)} -> {max_length})")
+
+		for table_field in current.meta.get_table_fields():
+			for child in current.get(table_field.fieldname) or []:
+				_walk(child, f"{table_field.fieldname}[{child.idx}].{prefix}")
+
+	_walk(doc)
+	return truncated
+
+
 # create doc
 def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_mapping_row: dict, redis_context: dict | None = None) -> dict:
 
@@ -1067,6 +1109,17 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
     # Frappe's Document.insert() will auto-insert attached children.
     for child_doc in child_doc_list:
         new_doc.append(child_doc.parentfield, child_doc)
+
+    # Keep overlong source values from blocking the whole object: Frappe rejects
+    # values above the column's max length (Data defaults to 140 chars) and the
+    # object would then fail identically on every run.
+    truncated_values: list = truncate_overlong_values(new_doc)
+    if truncated_values:
+        make_log(
+            f"Truncated overlong values for {mapped_doctype['doctype']}: {', '.join(truncated_values)}",
+            "WARNING",
+            controller.APP_NAME,
+        )
 
     try:
         new_doc.insert(
