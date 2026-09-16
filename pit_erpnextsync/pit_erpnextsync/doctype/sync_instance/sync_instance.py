@@ -69,7 +69,14 @@ class SyncInstance(Document):
 			return result
 			
 		except Exception as e:
-			frappe.log_error(f"Preview reconciliation failed: {e}")
+			# Error Log.method is limited to 140 characters (title_field). Passing the
+			# full exception text as the title makes the Error Log insert itself fail
+			# with CharacterLengthExceededError, so the original error is lost.
+			# Keep the title short and put the full traceback into the message.
+			frappe.log_error(
+				title=f"Preview reconciliation failed: {str(e)[:80]}",
+				message=frappe.get_traceback(),
+			)
 			frappe.msgprint(
 				f"Failed to start reconciliation preview: {str(e)}",
 				title="Error",
@@ -114,7 +121,12 @@ class SyncInstance(Document):
 			return result
 			
 		except Exception as e:
-			frappe.log_error(f"Apply reconciliation failed: {e}")
+			# See note above: keep Error Log.method short (140 char limit), full text
+			# goes into the message/traceback.
+			frappe.log_error(
+				title=f"Apply reconciliation failed: {str(e)[:80]}",
+				message=frappe.get_traceback(),
+			)
 			frappe.msgprint(
 				f"Failed to start reconciliation: {str(e)}",
 				title="Error",
