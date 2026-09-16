@@ -409,9 +409,24 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             and not d["selectline_column"].startswith("_")
             and d["selectline_column"] not in mq_sl_columns
         ]
-        col_string = ",\n".join(dict.fromkeys(valid_columns))
-        # Build columns list
-        columns = [c.strip() for c in col_string.split(",") if c.strip()]
+        # Build columns list.
+        # IMPORTANT: a mapping entry may be a full SQL expression (e.g.
+        # "2000 + CAST(SUBSTRING([Bezug/Kennz.], CHARINDEX('/', [...]), 2) AS INT) AS LieferJahr")
+        # which legitimately contains commas. Splitting those at the comma
+        # produced broken fragments that _quote_mssql_col() then wrapped in
+        # [..] -> "Incorrect syntax near ')'" on MSSQL. Only plain
+        # column-name lists (no "(" and no " AS ") are split.
+        columns = []
+        for entry in dict.fromkeys(valid_columns):
+            entry = (entry or "").strip()
+            if not entry:
+                continue
+            if "(" in entry or " AS " in entry.upper():
+                columns.append(entry)
+            else:
+                columns.extend(x.strip() for x in entry.split(",") if x.strip())
+        # Order-preserving dedupe of the flattened result
+        columns = list(dict.fromkeys(columns))
         if time_stamp_col_name:
             columns.append(time_stamp_col_name)
 
