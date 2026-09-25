@@ -142,8 +142,11 @@ derselbe Lieferant (33349) hat in derselben Bestellung 22 Positionen mit korrekt
 
 * `app_data/mappings/purchase_orders.json` Zeilen 132–139 (`table_fieldname` `rate`
   und `price_list_rate`, beide `sl_column: PREIS_EK`) — korrekt, keine Änderung.
-* Live-Mapping der Sync Instance `officeno1_purchase_orders` wurde gegen diese Datei
-  geprüft: **identisch** (kein Drift).
+* Live-Mapping der Sync Instance `officeno1_purchase_orders` gegen diese Datei geprüft:
+  die Feld-Definitionen sind **identisch** (`jq -S`-Vergleich von
+  `table_mapping[0].mapping` gegen `.[0].mapping` der Datei: diff leer; ebenso
+  `type`/`table_name`/`primary_key`/`order_by`/`timestamp_column_name`/
+  `query_filter`) → kein Live-Drift.
 * Server Script `submit purchase orders` — unverändert.
 
 ## Empfehlung an den User
