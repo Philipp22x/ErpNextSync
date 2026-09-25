@@ -20,6 +20,11 @@
       "trigger": "after",
       "action": "update",
       "server_script": "submit purchase orders"
+    },
+    {
+      "trigger": "after",
+      "action": "both",
+      "server_script": "fill purchase order prices from usd price list"
     }
   ]
 }
