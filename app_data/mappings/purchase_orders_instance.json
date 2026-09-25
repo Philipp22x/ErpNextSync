@@ -1,0 +1,25 @@
+{
+  "name": "officeno1_purchase_orders",
+  "enabled": 1,
+  "driver": "p4d",
+  "database": "OfficeNo1",
+  "port": "19812",
+  "mapping_json_file": "/private/files/officeno1_purchase_order_mapping.json",
+  "import_batch_size": 10,
+  "enable_scheduler": 1,
+  "enable_reconcile": 1,
+  "repetition": "cron",
+  "cron_expression": "0 4 * * *",
+  "hooks": [
+    {
+      "trigger": "after",
+      "action": "import",
+      "server_script": "submit purchase orders"
+    },
+    {
+      "trigger": "after",
+      "action": "update",
+      "server_script": "submit purchase orders"
+    }
+  ]
+}
