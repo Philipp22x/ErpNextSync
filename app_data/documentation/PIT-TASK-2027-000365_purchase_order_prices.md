@@ -364,3 +364,235 @@ bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_fi
 bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_run_cycle.main
 bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_verify_fill.main_verify
 ```
+
+---
+
+# ADJUSTMENT 3 (2026-09-28): Preisliste der importierten Bestellungen auf "Standard-Kauf-USD"
+
+## Auftrag (User, wörtlich)
+
+> "die preisliste muss auf standard kauf usd umgestellt werden"
+
+## Ergebnis in einem Satz
+
+Alle 24 gespiegelten Bestellungen (`LNG-BE-2026-0045` … `0068`) sind jetzt **USD-Bestellungen
+mit der Käufer-Preisliste `Standard-Kauf-USD`, Kurs 0,86207 und EUR-Basiswerten** — genau in
+der Form, in der der Kunde seine eigenen USD-Bestellungen anlegt (ADJUSTMENT 2 hatte diese
+Umstellung als offene Geschäftsentscheidung notiert). Die EK-Preise aus 4D bleiben
+unangetastet; nur die 224 Zeilen, in denen 4D **keinen** Preis hat, tragen den echten
+USD-Preislisten-Preis (vorher: USD-Preis × Kurs, also ein abgeleiteter EUR-Wert).
+
+## Messung 1 — wie der Kunde seine eigenen USD-Bestellungen baut (das 1:1-Vorbild)
+
+Gemessen an den 30 manuellen Bestellungen `LNG-BE-2026-0007` … `0043` (u. a. für dieselben
+Lieferanten wie die importierten Bestellungen):
+
+| Feld | Wert in den manuellen USD-POs |
+|---|---|
+| `currency` | USD |
+| `conversion_rate` | 0,86207 (Ausreißer `0043`: 0,8785, Kurs vom 02.07.2026) |
+| `price_list_currency` | USD |
+| `plc_conversion_rate` | = Kurs |
+| `buying_price_list` | Standard-Kauf-USD |
+| Positionszeile `rate` | = `price_list_rate` = **Preis aus der USD-Preisliste** (2 NKS) |
+| Positionszeile `base_rate` / `base_amount` | = `rate` / `amount` × Kurs |
+
+Beispiel `LNG-BE-2026-0007` (USD, Kurs 0,86207): Zeile rate=0,30 / base_rate=0,26 /
+amount=345,60 / base_amount=297,93. Beispiel `LNG-BE-2026-0043` (USD, Kurs 0,8785):
+rate=0,68 / base_rate=0,5974 / amount=489,60 / base_amount=430,11.
+
+## Messung 2 — Zustand der 24 importierten Bestellungen vor der Umstellung
+
+* Kopf (24/24): `currency=EUR`, `conversion_rate=1.0`, `price_list_currency=EUR`
+  (9 Bestellungen ohne Wert), `plc_conversion_rate=0/1.0`, `buying_price_list=Standard-Kauf`.
+* 500 Positionszeilen: 276 Zeilen mit 4D-Preis (`BESTELLUNGpos.Preis_EK`, rate == Preis_EK,
+  0 Abweichungen), 224 Zeilen mit 4D-Preis 0 — davon 222 mit `rate = USD-Preis × 0,86207`
+  (gerundet) und 2 mit dem EUR-Preislisten-Preis; **keine** Zeile ohne Preis, keine Rabatte,
+  alle `uom == stock_uom`, 393 Zeilen mit `stock_uom_rate = 0` (Altlast aus dem Import).
+* Summe Positionsbeträge 194.445,10 (damals = Basiswert, da Kurs 1,0).
+
+## Änderung
+
+1. **Mapping** `app_data/mappings/purchase_orders.json` (identisch nach
+   `/private/files/officeno1_purchase_order_mapping.json` kopiert, die Datei ist die Quelle
+   der `Selectline Table Mapping`-Zeilen):
+   * `currency`: `default: "USD"` — vorher `sl_column: WAEHRUNG` + `value_map` auf die
+     4D-Währung;
+   * `buying_price_list`: `default: "Standard-Kauf-USD"` — vorher ebenfalls aus `WAEHRUNG`;
+   * `conversion_rate`: `default: 0.86207` — vorher `sl_column: UMRECHFRW` (= 1,0 bei den
+     EUR-Bestellungen; ERPNext hätte für USD sonst einen Kurs verlangt, den es auf dieser
+     Site nicht gibt).
+   Damit hängt der Kopf der Bestellung **nicht mehr von der 4D-Währung** ab.
+   Sync-Instance danach über `controller.load_table_mapping` neu geladen — das gespeicherte
+   `table_mapping` entspricht der Datei (14 Felder, keine Differenz).
+2. **72 gespeicherte `Sync Mapping Entry`-Zeilen** (3 Felder × 24 Bestellungen) auf
+   `selectline_column = ""` gesetzt. Grund: die Update-Phase arbeitet über die
+   *gespeicherten* Einträge und hätte sonst bei jeder Quelländerung EUR/1,0/Standard-Kauf
+   wieder zurückgeschrieben. Zeilen ohne Quellspalte werden von der Update-Phase
+   übersprungen; der neue Wert kommt aus dem Mapping-Default bzw. dem Server Script.
+3. **Server Script** `fill purchase order prices from usd price list`
+   (`app_data/server_scripts/fill_purchase_order_prices.py`) neu gefasst:
+   * erzwingt den Kopf: `currency=USD`, `conversion_rate=0.86207`, `price_list_currency=USD`,
+     `plc_conversion_rate=0.86207`, `buying_price_list=Standard-Kauf-USD`;
+   * füllt **fehlende** Preise: **USD-Preisliste primär**, EUR-Preisliste nur noch als
+     Fallback (vorher umgekehrt), Rundung auf 2 Nachkommastellen (Währungspräzision);
+   * **vorhandene Zeilenpreise bleiben unangetastet** (4D `Preis_EK` ist der Bestellpreis,
+     der in ADJUSTMENT 2 bereits korrekt in der Zeile steht und nicht umgedeutet wird);
+   * rechnet Beträge, Basisbeträge und Summen über ERPNexts
+     `calculate_taxes_and_totals()` in USD/EUR neu und ergänzt `set_total_in_words()`
+     (das ruft ERPNext nur in `validate()` auf, nicht in der Berechnung);
+   * schreibt ausschließlich tatsächlich abweichende Felder → zweiter Lauf ist ein No-op;
+   * Fallback für die drei Bestellungen mit Steuerzeilen (`0046`, `0051`, `0060`): ERPNexts
+     Item-Tax-Template-Prüfung schlägt den Item-Group-Stammdatensatz nach, diese Artikel
+     tragen aber die SelectLine-Artikelgruppen**nummer** als `item_group` (kein Stammdatensatz
+     auf dieser Site, Webshop-Toleranz, vgl. PIT-TASK-2027-000346). Die Berechnung wird in
+     diesen Fällen mit ausgeblendeten `item_tax_template` wiederholt (die Zeilen sind
+     +20 % / −20 % auf Nettosumme, Steuersumme 0 → keine Auswirkung auf die Werte).
+4. **Datenübernahme**: ein erzwungener Update-Lauf (`run_bulk_update(..., ignore_ts=1)`)
+   schreibt `PREIS_EK` in alle 500 Zeilen (die 224 Nullzeilen damit auf 0), im selben Zyklus
+   füllt der Hook sie aus der USD-Preisliste und rechnet alle Basiswerte neu.
+5. **Doku** (diese Datei).
+
+## Verifikation (live, nach der Umstellung)
+
+* **Kopf 24/24**: `currency=USD`, `conversion_rate=0.86207`, `price_list_currency=USD`,
+  `plc_conversion_rate=0.86207`, `buying_price_list=Standard-Kauf-USD`, `docstatus=1`.
+* **500 Zeilen**: 276 Zeilen mit 4D-Preis → `rate == Preis_EK` (0 Abweichungen, geprüft
+  gegen `BESTELLUNGpos` über die Mapping-Keys); 224 Nullzeilen → **alle** aus der
+  USD-Preisliste gefüllt (0 EUR-Fallback, 0 Zeilen ohne Preis); `rate = 0`: **0** Zeilen.
+* Basiswerte: `base_rate == rate × 0,86207` (max. Abweichung 0,00005),
+  `base_amount == amount × 0,86207` (max. 0,005), `amount == qty × rate`,
+  `net_rate == rate`, `net_amount == amount`, `stock_uom_rate == rate`.
+* Kopfsummen == Zeilensummen (`total`, `base_total`, `grand_total`), Steuersumme aller 24
+  Bestellungen 0, `grand_total == total`.
+* `received_qty == 4D MengeGeliefert` (0 Abweichungen), `qty == 4D Menge` (0 Abweichungen),
+  `per_received` und `status` unverändert → der Submit-Hook schreibt **0 von 24**
+  Bestellungen neu.
+* **Idempotenz**: zweiter Sync-Lauf (Import + Update, ohne `ignore_ts`) meldet alle 24
+  Mappings "up to date"; der Preis-Hook meldet `changed_orders=0 changed_lines=0
+  written_field_values=0`; Snapshot-Vergleich vor/nach dem Lauf ergibt **0 Feldänderungen**,
+  auch kein `modified`-Bump.
+* **Unverändert**: 64 Bestellungen / 1542 Positionen auf der Site, 40 manuelle Bestellungen
+  (neueste Änderung 16.07.2026, keine heute), die anderen Sync-Instances
+  (`officeno1_migration`, `officeno1_sales_orders`, `stock_reconciliation`) wurden nicht
+  angefasst, kein App-Code außerhalb `app_data/`.
+
+## Geänderte Werte (konkret)
+
+Kopf-Felder geändert: `currency`, `conversion_rate`, `price_list_currency`,
+`plc_conversion_rate`, `buying_price_list` in **24/24** Bestellungen; `total`/`grand_total`
+in 18 Bestellungen (bei 6 Bestellungen bestand keine Zeile ohne 4D-Preis);
+`base_grand_total` in 24/24; `in_words`/`base_in_words` in 24/24; `per_received`, `status` und
+die Steuersumme in 0/24.
+
+Zeilen mit neuem `rate` (`= USD-Preislisten-Preis`, Pos / Artikel / alt → neu):
+
+| Bestellung | Zeilen | Beispiele |
+|---|---|---|
+| LNG-BE-2026-0045 | 6 | 4 65148 1.85→2.15, 5 65149 1.08→1.25, 6 65150 1.85→2.15 |
+| LNG-BE-2026-0046 | 0 | – |
+| LNG-BE-2026-0047 | 29 | 21 24634 1.28→1.48, 22 24635 0.16→0.18, 23 24636 0.38→0.44 |
+| LNG-BE-2026-0048 | 6 | 2 56486 1.02→1.18, 5 56483 0.85→0.99, 6 56484 0.82→0.95 |
+| LNG-BE-2026-0049 | 0 | – |
+| LNG-BE-2026-0050 | 0 | – |
+| LNG-BE-2026-0051 | 0 | – |
+| LNG-BE-2026-0052 | 12 | 4 24715 1.13→1.31, 5 24716 0.78→0.91, 6 24717 1.74→2.02 |
+| LNG-BE-2026-0053 | 0 | – |
+| LNG-BE-2026-0054 | 9 | 1 86686 0.65→0.75, 2 56507 2.86→3.32, 3 56506 2.86→3.32 |
+| LNG-BE-2026-0055 | 1 | 1 LB28650 0.06→0.07 |
+| LNG-BE-2026-0056 | 2 | 3 82580 0.66→0.75, 4 82581 1.72→1.95 |
+| LNG-BE-2026-0057 | 15 | 3 56509 2.54→2.95, 4 56508 1.21→1.40, 5 56500 1.72→2.00 |
+| LNG-BE-2026-0058 | 6 | 6 65154 0.52→0.60, 7 65155 0.78→0.90, 8 65156 0.60→0.70 |
+| LNG-BE-2026-0059 | 3 | 1 98842 0.79→0.92, 2 98841 0.32→0.37, 3 24697 0.75→0.87 |
+| LNG-BE-2026-0060 | 0 | – |
+| LNG-BE-2026-0061 | 7 | 5 24698 1.38→1.60, 6 24699 1.16→1.35, 7 24700 2.37→2.75 |
+| LNG-BE-2026-0062 | 12 | 1 S24728 0.39→0.45, 2 98849 0.34→0.40, 3 98848 0.39→0.45 |
+| LNG-BE-2026-0063 | 6 | 1 24633 0.76→0.88, 2 24632 0.93→1.08, 3 24631 0.63→0.73 |
+| LNG-BE-2026-0064 | 20 | 1 65125 0.69→0.80, 2 65124 0.60→0.70, 8 65126 0.60→0.70 |
+| LNG-BE-2026-0065 | 10 | 1 65145 0.72→0.83, 2 65146 1.27→1.47, 3 65147 1.56→1.81 |
+| LNG-BE-2026-0066 | 6 | 1 24709 1.45→1.68, 2 24712 1.12→1.30, 3 24711 1.36→1.58 |
+| LNG-BE-2026-0067 | 70 | 1 24695 1.40→1.62, 2 24726 0.60→0.70, 34 24657 0.49→0.57 |
+| LNG-BE-2026-0068 | 4 | 1 98862 0.45→0.52, 2 98863 0.76→0.88, 3 98864 1.51→1.75 |
+
+Summen je Bestellung (Positionssumme in Bestellwährung und Basiswert in EUR):
+
+| Bestellung | Summe vorher | nachher (USD) | Basis vorher | nachher (EUR) |
+|---|---|---|---|---|
+| LNG-BE-2026-0045 | 3529.44 | 3911.04 | 3529.44 | 3371.61 |
+| LNG-BE-2026-0046 | 13038.24 | 13038.24 | 13038.24 | 11240.07 |
+| LNG-BE-2026-0047 | 20463.36 | 22367.76 | 20463.36 | 19282.57 |
+| LNG-BE-2026-0048 | 4785.00 | 5313.96 | 4785.00 | 4581.01 |
+| LNG-BE-2026-0049 | 679.68 | 679.68 | 679.68 | 585.93 |
+| LNG-BE-2026-0050 | 9409.92 | 9409.92 | 9409.92 | 8111.99 |
+| LNG-BE-2026-0051 | 178.95 | 178.95 | 178.95 | 154.24 |
+| LNG-BE-2026-0052 | 6258.94 | 7068.94 | 6258.94 | 6093.91 |
+| LNG-BE-2026-0053 | 5714.16 | 5714.16 | 5714.16 | 4926.01 |
+| LNG-BE-2026-0054 | 5374.80 | 6230.64 | 5374.80 | 5371.24 |
+| LNG-BE-2026-0055 | 5707.06 | 5718.58 | 5707.06 | 4929.80 |
+| LNG-BE-2026-0056 | 3098.88 | 3294.72 | 3098.88 | 2840.29 |
+| LNG-BE-2026-0057 | 12081.48 | 13135.44 | 12081.48 | 11323.68 |
+| LNG-BE-2026-0058 | 6459.60 | 6949.20 | 6459.60 | 5990.70 |
+| LNG-BE-2026-0059 | 3783.96 | 4052.52 | 3783.96 | 3493.56 |
+| LNG-BE-2026-0060 | 767.70 | 767.70 | 767.70 | 661.82 |
+| LNG-BE-2026-0061 | 5906.64 | 6457.84 | 5906.64 | 5567.11 |
+| LNG-BE-2026-0062 | 5844.48 | 6758.40 | 5844.48 | 5826.22 |
+| LNG-BE-2026-0063 | 4497.12 | 4907.52 | 4497.12 | 4230.61 |
+| LNG-BE-2026-0064 | 11645.33 | 13169.57 | 11645.33 | 11353.06 |
+| LNG-BE-2026-0065 | 6995.04 | 8123.04 | 6995.04 | 7002.63 |
+| LNG-BE-2026-0066 | 6137.28 | 7119.60 | 6137.28 | 6137.60 |
+| LNG-BE-2026-0067 | 50042.88 | 55557.12 | 50042.88 | 47894.13 |
+| LNG-BE-2026-0068 | 2045.16 | 2369.52 | 2045.16 | 2042.69 |
+| **Summe** | **194445.10** | **212294.06** | **194445.10** | **183012.48** |
+
+Zusätzlich wurden in 400 Zeilen `stock_uom_rate` von 0 auf `rate` gesetzt (Altlast aus dem
+Import; reines Nachführfeld, ohne Wirkung auf Beträge oder Summen). Die 55 Zeilen mit
+dreistelligem `rate` sind 4D-Quellpreise (z. B. 1,139) und wurden bewusst **nicht** gerundet.
+
+## Offene Frage an den User (bitte entscheiden)
+
+Die Semantik der **276 Zeilen mit 4D-Preis**: sie behalten ihren Quellpreis aus 4D. Da die
+Bestellung jetzt eine USD-Bestellung ist, steht dieser Wert nun als USD-Betrag in der Zeile,
+und der EUR-Buchwert der Zeile entspricht `Preis × 0,86207` (also 86,207 % des 4D-Wertes).
+Die **224 Zeilen ohne 4D-Preis** tragen jetzt den echten USD-Preislisten-Preis, ihr
+EUR-Buchwert bleibt dabei praktisch unverändert.
+
+Wenn der Kunde möchte, dass **jede** Zeile den Preis der USD-Preisliste trägt (in seinen
+manuellen Bestellungen entspricht `rate` immer exakt dem Preislisten-Preis — 25/25 Zeilen
+gemessen), müssen die 276 Quellzeilen ebenfalls auf den Preislisten-Preis umgestellt werden.
+Beispiel `LNG-BE-2026-0047`, Zeile 1: 1,85 → 1,97 USD. Das ist ohne Rückmeldung **nicht**
+gemacht worden, weil es die Bestellwerte gegenüber der 4D-Quelle verändert.
+
+## Betroffene Dateien / Zeilen
+
+* `app_data/mappings/purchase_orders.json` — `currency`, `buying_price_list`,
+  `conversion_rate` (Kopf-Felder des Purchase-Order-Blocks), inkl. Kommentaren.
+* `/private/files/officeno1_purchase_order_mapping.json` (Site) — identischer Inhalt.
+* `app_data/server_scripts/fill_purchase_order_prices.py` — komplett neu gefasst
+  (Server Script "fill purchase order prices from usd price list" auf der Site wurde aus
+  dieser Datei aktualisiert).
+* Sync Instance `officeno1_purchase_orders`: `table_mapping` neu geladen, 72
+  `Sync Mapping Entry`-Zeilen (Feld `selectline_column` geleert).
+* Sync Mapping-Einträge der 24 Bestellungen: Feldwerte `currency`, `conversion_rate`,
+  `price_list_currency`, `plc_conversion_rate`, `buying_price_list` + Werte der 500 Zeilen.
+* Kein App-Code, keine anderen Sync-Instances, keine manuellen Bestellungen.
+
+## Reproduktion (Server, temporäre Skripte wurden danach entfernt)
+
+```
+# Messung des Vorbilds (manuelle USD-POs) und des Vorzustands
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_po_ref.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_po_state.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_po_plan.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_po_4d.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.diag_po_snapshot.dump --kwargs '{"path":"/tmp/adj3_before.json"}'
+
+# Deploy + Datenübernahme
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_deploy.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_run_cycle.main --kwargs '{"do_import":true,"ignore_ts":true}'
+
+# Verifikation + Idempotenz (zweiter Lauf ohne ignore_ts)
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_verify.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_run_cycle.main --kwargs '{"do_import":true,"ignore_ts":false}'
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_dump_mapping.main
+```
+
