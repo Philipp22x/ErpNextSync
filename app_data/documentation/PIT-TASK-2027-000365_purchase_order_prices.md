@@ -596,3 +596,281 @@ bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_ru
 bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj3_dump_mapping.main
 ```
 
+---
+
+# ADJUSTMENT 4 (2026-09-28): Preisliste je Quellwährung — USD-Preis → Standard-Kauf-USD, EUR-Preis → Standard-Kauf
+
+## Auftrag (User, wörtlich)
+
+> "can you please check where prices are dollar in source db set price list to dollar and if euro set pricelist to euro"
+
+## Ergebnis in einem Satz
+
+Die Preisliste folgt jetzt der Währung, in der die Einkaufspreise der Bestellung in der Quelle
+gepflegt sind: **21 der 24 gespiegelten Bestellungen** der chinesischen/indischen Lieferanten sind
+**USD-Bestellungen auf `Standard-Kauf-USD`** (Dollar-Preise, 4D `Artikel.EK_USD`), **3 Bestellungen**
+der deutschen Lieferanten (Halbach 33078, Mabella 33345, Carl Dietrich 33547) sind **EUR-Bestellungen
+auf `Standard-Kauf`** (Euro-Preise, 4D `Artikel.LETZTER_EK_NTO`). **Jede** der 500 Positionszeilen
+trägt exakt den Preis der Preisliste ihrer Bestellwährung — es wird keine Preisliste gemischt und
+kein Kurs erfunden. Die 4D-Bestellpreise (`BESTELLUNGpos.Preis_EK`) sind gemessen **Euro-Werte**
+(sie entsprechen in 271 von 276 bepreisten Zeilen centgenau dem EUR-Preislisten-Preis) und werden
+deshalb **nicht mehr als Zeilenpreis verwendet**; in den 3 EUR-Bestellungen sind sie ohnehin der
+EUR-Preis, in den 21 USD-Bestellungen sind sie der EUR-Buchwert der Zeile (jetzt `base_rate`).
+
+Die ADJUSTMENT-3-Festverdrahtung (`currency`/`buying_price_list`/`conversion_rate` fest auf den
+USD-Kopf) ist damit ersetzt: die Bestellwährung ergibt sich aus der Quelle (Lieferantenwährung),
+der Kopf wird im Mapping aus 4D `BESTELLUNG.Waehrung` vorbelegt und vom Server Script auf die
+Lieferantenwährung ausgerichtet.
+
+## Messung 1 — Währung der Quellpreise, pro Bestellung (live gegen 4D und ERPNext)
+
+Matching der ERPNext-Zeilen zu den 4D-Zeilen über `tabSync Mapping Entry.source_row_key`
+(Mapping-Key `match_key_column: PRIMARYKEY`) — alle 500 Zeilen eindeutig zuordenbar.
+
+Spalten der Messung (je Bestellung):
+
+* `BestellNr`-Lieferant, ERPNext `Supplier.default_currency` / `default_price_list`
+* 4D `BESTELLUNG.Waehrung`, 4D `Lieferant.Waehrung` (beide EUR/Eur über alle 2.051 Bestellungen
+  bzw. alle 31 Lieferanten — **in 4D steht nirgends USD**, deshalb ist die Lieferantenwährung aus
+  dem ERPNext-Stamm maßgeblich)
+* Zahl der Zeilen mit einem 4D-Bestellpreis (`PREIS_EK > 0`) und Zahl der Zeilen ohne
+* Zahl der Zeilen mit einem Preis in der USD-Preisliste (`Artikel.EK_USD` → `Standard-Kauf-USD`)
+  und in der EUR-Preisliste (`Artikel.LETZTER_EK_NTO` → `Standard-Kauf`)
+
+| Bestellung | Lieferant | Supplier-Stamm (ERPNext) | 4D `Waehrung` | 4D `Lieferant.Waehrung` | Zeilen mit 4D-Preis | Zeilen ohne 4D-Preis | Zeilen mit USD-Preis | Zeilen mit EUR-Preis | Währung / Preisliste |
+|---|---|---|---|---|---|---|---|---|---|
+| LNG-BE-2026-0045 | 33539 | USD / Standard-Kauf-USD | EUR | EUR | 3 | 6 | 9 | 3 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0046 | 33547 | **EUR / Standard-Kauf** | EUR | EUR | 49 | 0 | **0** | 49 | **EUR / Standard-Kauf** |
+| LNG-BE-2026-0047 | 33349 | USD / Standard-Kauf-USD | EUR | EUR | 22 | 29 | 51 | 22 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0048 | 33542 | USD / Standard-Kauf-USD | EUR | EUR | 3 | 6 | 9 | 3 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0049 | 33438 | USD / Standard-Kauf-USD | EUR | EUR | 1 | 0 | 1 | 1 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0050 | 33285 | USD / Standard-Kauf-USD | EUR | EUR | 8 | 0 | 8 | 8 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0051 | 33078 | **EUR / Standard-Kauf** | Eur | Eur | 41 | 0 | **0** | 41 | **EUR / Standard-Kauf** |
+| LNG-BE-2026-0052 | 33297 | USD / Standard-Kauf-USD | EUR | EUR | 3 | 12 | 15 | 3 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0053 | 33499 | USD / Standard-Kauf-USD | EUR | EUR | 9 | 0 | 9 | 9 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0054 | 33543 | USD / Standard-Kauf-USD | EUR | EUR | 0 | 9 | 9 | 0 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0055 | 33380 | USD / Standard-Kauf-USD | EUR | EUR | 25 | 1 | 26 | 26 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0056 | 33334 | USD / Standard-Kauf-USD | EUR | EUR | 3 | 2 | 5 | 5 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0057 | 33521 | USD / Standard-Kauf-USD | EUR | EUR | 12 | 15 | 27 | 13 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0058 | 33334 | USD / Standard-Kauf-USD | EUR | EUR | 6 | 6 | 12 | 6 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0059 | 33540 | USD / Standard-Kauf-USD | EUR | EUR | 3 | 3 | 6 | 3 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0060 | 33345 | **EUR / Standard-Kauf** | EUR | EUR | 43 | 0 | **0** | 43 | **EUR / Standard-Kauf** |
+| LNG-BE-2026-0061 | 33443 | USD / Standard-Kauf-USD | EUR | EUR | 5 | 7 | 12 | 5 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0062 | 33551 | **(nicht gepflegt)** | EUR | EUR | 0 | 12 | 12 | 0 | **USD / Standard-Kauf-USD** (aus Preisdaten) |
+| LNG-BE-2026-0063 | 33417 | USD / Standard-Kauf-USD | EUR | EUR | 4 | 6 | 10 | 4 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0064 | 33321 | USD / Standard-Kauf-USD | EUR | EUR | 5 | 20 | 25 | 5 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0065 | 33358 | USD / Standard-Kauf-USD | EUR | EUR | 0 | 10 | 10 | 0 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0066 | 33552 | **(nicht gepflegt)** | EUR | EUR | 0 | 6 | 6 | 0 | **USD / Standard-Kauf-USD** (aus Preisdaten) |
+| LNG-BE-2026-0067 | 33427 | USD / Standard-Kauf-USD | EUR | EUR | 31 | 70 | 101 | 31 | **USD / Standard-Kauf-USD** |
+| LNG-BE-2026-0068 | 33438 | USD / Standard-Kauf-USD | EUR | EUR | 0 | 4 | 4 | 0 | **USD / Standard-Kauf-USD** |
+
+**Das ist die entscheidende Messung:** die Aufteilung ist **nicht** willkürlich, sondern deckt sich
+in allen 24 Bestellungen mit der Preisliste, in der die Artikel der Bestellung tatsächlich
+gepflegt sind:
+
+* Die **133 Zeilen ohne USD-Preisliste-Preis** sind **genau** die Zeilen der 3 EUR-Bestellungen
+  (49 + 41 + 43) — und alle 133 haben einen `Standard-Kauf`-Preis.
+* Die **367 Zeilen der 21 USD-Bestellungen** haben **alle** einen `Standard-Kauf-USD`-Preis
+  (und nur 143 davon zusätzlich einen EUR-Preis).
+* `no_price_found = 0`: keine Zeile bleibt ohne Preis, es muss keine Preisliste "geborgt" werden.
+
+## Messung 2 — wie der Kunde selbst bucht (das 1:1-Vorbild, live gemessen)
+
+Die 40 manuell angelegten Bestellungen derselben Lieferanten (`LNG-BE-2026-0004` … `0044`,
+unverändert, jüngste Änderung 2026-07-16):
+
+| Merkmal | Wert |
+|---|---|
+| Bestellungen | 30 × `USD` / `Standard-Kauf-USD`, 10 × `EUR` / `Standard-Kauf` |
+| Zuordnung zum Lieferanten | **40/40** = `Supplier.default_currency` / `default_price_list` |
+| Zeilen | 1042 (alle `docstatus=1`) |
+| Zeilenpreis `rate` | 980/1042 exakt = Preislisten-Preis; 62 weichen nur durch **Rundung auf 2 Nachkommastellen** ab (z. B. `LNG-BE-2026-0010` Carl Dietrich: Liste 1,139 / 0,928 → `rate` 1,14 / 0,93) |
+| Kopf | `currency`, `price_list_currency`, `buying_price_list`, `conversion_rate` 0,86207 (USD) bzw. 1,0 (EUR) |
+
+Der Kunde rundet also selbst auf die Währungspreis-Präzision (2 NKS) — deshalb setzt das Server
+Script `rate = round(Preislistenpreis, 2)`. (Das ersetzt die ADJUSTMENT-3-Notiz, die 4D-Preise mit
+drei Nachkommastellen, z. B. 1,139, bewusst ungerundet ließ.)
+
+Zusätzliche Belege:
+
+* `Supplier.default_currency` / `default_price_list` sind **nicht** aus der Migration ableitbar
+  (kein Mapping-Feld auf `default_currency`/`default_price_list` in `officeno1_migration`) —
+  sie sind die **eigene Konfiguration des Kunden** am Lieferantenstamm (`owner Administrator`,
+  `modified` 2026-09-07): chinesische/indische Lieferanten USD, deutsche EUR.
+* 4D `Lieferant.Waehrung` ist für **alle 31** Lieferanten `EUR`/`Eur` (und `Waehrung2` = `ATS`) —
+  die 4D-Quelle kann die USD-Lieferanten also gar nicht ausdrücken.
+* `Standard-Kauf` = buying, enabled, currency **EUR**; `Standard-Kauf-USD` = buying, enabled,
+  currency **USD**; `tabCurrency Exchange` = **0 Zeilen** (Company-Währung EUR),
+  USD ist enabled → für den USD-Kopf muss der Kurs als Konstante geführt werden (0,86207, der
+  belegte Kundensatz aus seinen eigenen USD-Bestellungen).
+
+## Messung 3 — die 276 Zeilen mit 4D-Bestellpreis (die offene Frage aus ADJUSTMENT 3)
+
+Die Frage aus ADJ3 war: *sind die 4D-Bestellpreise Dollar- oder Euro-Werte?* Messung über alle 500
+Zeilen gegen die Artikelstammpreise:
+
+```
+Zeilen mit 4D BESTELLUNGpos.Preis_EK > 0            : 276
+davon PREIS_EK == EUR-Preislistenpreis (centgenau)  : 271
+davon PREIS_EK == USD-Preislistenpreis (centgenau)  :   0
+davon weder noch (max. 1 Cent bzw. Artikel ohne
+EUR-Preislistenpreis)                               :   5
+Zeilen mit 4D PREIS_EK = 0                          : 224
+```
+
+Beispiele `LNG-BE-2026-0067` (USD-Lieferant Hong Guang 33427):
+`98750` Preis_EK 0,48 / USD-Liste 0,53 / EUR-Liste 0,48 — `98799` 0,16 / 0,19 / 0,16 —
+`98735` 2,18 / 2,51 / 2,18. Beispiele `LNG-BE-2026-0064` (Hong Mei 33321):
+`65077` 0,819 / 0,95 / 0,819 — `65082` 2,284 / 2,65 / 2,284.
+
+**Antwort: der 4D-Bestellpreis ist ein Euro-Wert** — er entspricht dem EUR-Preislisten-Preis
+(`Artikel.LETZTER_EK_NTO`, migriert als Liste `Standard-Kauf`), nie dem USD-Preis. In den
+21 USD-Bestellungen ist er daher der **EUR-Buchwert** der Zeile (er steht nach der Umstellung als
+`base_rate`/`base_amount` in der Zeile), in den 3 EUR-Bestellungen ist er der **Zeilenpreis**.
+Die 224 Zeilen ohne 4D-Preis haben in **224/224** Fällen einen Dollar-Preis (`Artikel.EK_USD`) —
+das ist der im Task genannte "Dollar-Preis in der Quelldatenbank".
+
+## Angewandte Regel (und die verbleibende Entscheidung für Philipp)
+
+**Regel je Bestellung** (implementiert im Server Script `fill purchase order prices from usd price list`):
+
+1. `Supplier.default_currency` / `default_price_list` entscheidet die Währung/Preisliste der
+   Bestellung (21 USD-Bestellungen, 3 EUR-Bestellungen, siehe Tabelle).
+2. Ist am Lieferanten nichts gepflegt (`33551`, `33552` → `LNG-BE-2026-0062`/`0066`), entscheidet
+   die Messung: die Preisliste, die für **jede** Zeile einen Preis hat. Bei beiden ist das
+   `Standard-Kauf-USD` (alle 18 Zeilen haben einen USD-Preis, keine einen EUR-Preis) → USD.
+3. Kopf: `currency` = Währung der Preisliste, `price_list_currency` = dieselbe Währung,
+   `conversion_rate` = `plc_conversion_rate` = 0,86207 (USD) bzw. 1,0 (EUR),
+   `buying_price_list` = die Preisliste.
+4. **Jede** Zeile: `rate = price_list_rate = round(Preislistenpreis, 2)` der Preisliste dieser
+   Bestellwährung. Keine Zeile bekommt einen Preis aus der anderen Währung, kein Kurs wird
+   erfunden, keine Zeile bleibt ohne Preis (`no_price_found = 0`).
+
+**Die eine Bewertungsentscheidung** (bitte bestätigen oder anders wünschen): in den 21
+USD-Bestellungen tragen **143 Zeilen** einen 4D-Bestellpreis, der ein **Euro-Wert** ist. Diese
+Zeilen werden — wie **jede** Zeile in den 30 USD-Bestellungen des Kunden — auf den
+**USD-Preislistenpreis** gesetzt (`rate`), ihr Euro-Buchwert (`base_rate` = `rate × 0,86207`)
+liegt dadurch median ~2 % neben dem 4D-Wert (Beispiele: `LNG-BE-2026-0047` Pos 1 1,85 → 1,97 USD /
+Basis 1,70 EUR; `LNG-BE-2026-0067` Pos 26 0,70 → 0,81 USD / Basis 0,70 EUR). Alternative, falls
+der 4D-Bestellwert **centgenau** erhalten bleiben soll: die Zeile als EUR-Wert kennzeichnen — das
+ginge nur mit zwei Preislisten in einer Bestellung und ist ohne ERPNext-App-Änderung nicht
+möglich; deshalb wurde die 1:1-Kundenkonvention (USD-Bestellung = USD-Preislistenpreis) gewählt.
+
+## Änderung
+
+1. **Mapping** `app_data/mappings/purchase_orders.json` (identisch nach
+   `/private/files/officeno1_purchase_order_mapping.json` kopiert, danach
+   `controller.load_table_mapping("officeno1_purchase_orders")`):
+   * `currency` (Zeilen 51–63): wieder `sl_column: WAEHRUNG` + `value_map` (`Eur`/`EUR` → `EUR`,
+     `USD` → `USD`), `value_map_default: "EUR"` — kein fester `default` mehr;
+   * `buying_price_list` (Zeilen 65–73): wieder `sl_column: WAEHRUNG` +
+     `value_map {"USD": "Standard-Kauf-USD"}`, `value_map_default: "Standard-Kauf"`;
+   * `conversion_rate` (Zeilen 75–79): wieder `sl_column: UMRECHFRW` (Quelle), der Kurs wird vom
+     Server Script gesetzt;
+   * `rate`/`price_list_rate` in `table_fields` bleiben auf `PREIS_EK` (Startwert eines neuen
+     Imports, wird im selben Zyklus vom Hook auf den Preislistenpreis gesetzt) — Kommentare dazu
+     angepasst (Zeilen 92–97, 129–140).
+2. **Server Script** `fill purchase order prices from usd price list`
+   (`app_data/server_scripts/fill_purchase_order_prices.py`, komplett neu gefasst): Regel oben,
+   `rate`/`price_list_rate`/`stock_uom_rate` je Zeile, `calculate_taxes_and_totals()` +
+   `set_total_in_words()`, Schreiben nur abweichender Werte (idempotent), Zähler im Log-Output
+   (`usd_orders`, `eur_orders`, `price_list_from_supplier`, `price_list_from_line_coverage`,
+   `changed_orders`, `changed_lines`, `no_price_found`).
+   Der Item-Tax-Template-Fallback für die 3 EUR-Bestellungen (Item-Group-Stammdaten fehlen,
+   Webshop-Toleranz) bleibt.
+3. **Datenübernahme**: erzwungener Zyklus (`start_import` + `run_bulk_update(..., ignore_ts=1)`)
+   → Kopf und alle 500 Zeilen neu bewertet, danach Doku (diese Datei).
+
+## Verifikation (live, vorher/nachher)
+
+| Bestellung | Lieferant | vorher | nachher | Kurs | Summe vorher | Summe nachher | Basis vorher | Basis nachher | geänderte Zeilen |
+|---|---|---|---|---|---|---|---|---|---|
+| LNG-BE-2026-0045 | 33539 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 3911.04 | 4092.48 | 3371.61 | 3528.03 | 3 von 9 |
+| LNG-BE-2026-0046 | 33547 | USD/Standard-Kauf-USD | **EUR/Standard-Kauf** | 0.86207 → 1.0 | 13038.24 | 13053.60 | 11240.07 | 13053.60 | 49 von 49 |
+| LNG-BE-2026-0047 | 33349 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 22367.76 | 23085.36 | 19282.57 | 19901.18 | 22 von 51 |
+| LNG-BE-2026-0048 | 33542 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 5313.96 | 5582.28 | 4581.01 | 4812.32 | 3 von 9 |
+| LNG-BE-2026-0049 | 33438 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 679.68 | 794.88 | 585.93 | 685.24 | 1 von 1 |
+| LNG-BE-2026-0050 | 33285 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 9409.92 | 10620.96 | 8111.99 | 9156.02 | 8 von 8 |
+| LNG-BE-2026-0051 | 33078 | USD/Standard-Kauf-USD | **EUR/Standard-Kauf** | 0.86207 → 1.0 | 178.95 | 178.95 | 154.24 | 178.95 | 0 von 41 |
+| LNG-BE-2026-0052 | 33297 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 7068.94 | 7141.80 | 6093.91 | 6156.73 | 3 von 15 |
+| LNG-BE-2026-0053 | 33499 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 5714.16 | 6403.68 | 4926.01 | 5520.42 | 9 von 9 |
+| LNG-BE-2026-0054 | 33543 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 6230.64 | 6230.64 | 5371.24 | 5371.24 | 0 von 9 |
+| LNG-BE-2026-0055 | 33380 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 5718.58 | 6511.20 | 4929.80 | 5613.12 | 25 von 26 |
+| LNG-BE-2026-0056 | 33334 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 3294.72 | 3528.00 | 2840.29 | 3041.39 | 3 von 5 |
+| LNG-BE-2026-0057 | 33521 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 13135.44 | 14008.44 | 11323.68 | 12076.26 | 12 von 27 |
+| LNG-BE-2026-0058 | 33334 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 6949.20 | 7526.40 | 5990.70 | 6488.28 | 6 von 12 |
+| LNG-BE-2026-0059 | 33540 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 4052.52 | 4393.80 | 3493.56 | 3787.76 | 3 von 6 |
+| LNG-BE-2026-0060 | 33345 | USD/Standard-Kauf-USD | **EUR/Standard-Kauf** | 0.86207 → 1.0 | 767.70 | 767.70 | 661.82 | 767.70 | 0 von 43 |
+| LNG-BE-2026-0061 | 33443 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 6457.84 | 6888.64 | 5567.11 | 5938.49 | 5 von 12 |
+| LNG-BE-2026-0062 | 33551 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 6758.40 | 6758.40 | 5826.22 | 5826.22 | 0 von 12 |
+| LNG-BE-2026-0063 | 33417 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 4907.52 | 5312.64 | 4230.61 | 4579.87 | 4 von 10 |
+| LNG-BE-2026-0064 | 33321 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 13169.57 | 13442.88 | 11353.06 | 11588.69 | 5 von 25 |
+| LNG-BE-2026-0065 | 33358 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 8123.04 | 8123.04 | 7002.63 | 7002.63 | 0 von 10 |
+| LNG-BE-2026-0066 | 33552 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 7119.60 | 7119.60 | 6137.60 | 6137.60 | 0 von 6 |
+| LNG-BE-2026-0067 | 33427 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 55557.12 | 57544.44 | 47894.13 | 49607.31 | 31 von 101 |
+| LNG-BE-2026-0068 | 33438 | USD/Standard-Kauf-USD | USD/Standard-Kauf-USD | 0.86207 → 0.86207 | 2369.52 | 2369.52 | 2042.69 | 2042.69 | 0 von 4 |
+| **Summe** | | | | | **212294.06** | **221479.33** | **183012.48** | **192861.74** | **192 von 500** |
+
+Weitere Verifikation (live, unabhängig nachgerechnet):
+
+* **Unabhängige Nachrechnung** (eigene Implementierung, nicht der Server-Script-Code):
+  24/24 Bestellungen und 500/500 Zeilen stimmen in `currency`, `buying_price_list`,
+  `conversion_rate`, `plc_conversion_rate`, `price_list_currency`, `rate`, `price_list_rate`,
+  `amount`, `base_rate`, `base_amount` und den Kopfsummen (`total` = Summe `amount`,
+  `base_total` = Summe `base_amount`) — **0 Abweichungen**; keine Zeile trägt den Preis der
+  jeweils anderen Preisliste (`rate == Fremdlistenpreis` → 0 Fälle).
+* **Kein Preis fehlt**: `rate = 0` → **0** von 500 Zeilen, `no_price_found = 0`
+  (Dry-Run-Output: `usd_orders=21 eur_orders=3 price_list_from_supplier=22
+  price_list_from_line_coverage=2 changed_lines=192`).
+* **Rundung**: `base_amount = round(amount × conversion_rate, 2)` in **500/500** Zeilen; die
+  Kopfsumme `base_total` ist die Summe dieser gerundeten Zeilenwerte und weicht deshalb bei den
+  großen Bestellungen um höchstens **2,6 Cent** von `total × conversion_rate` ab
+  (LNG-BE-2026-0045 +0,0258, LNG-BE-2026-0067 −0,0254) — genau die ERPNext-eigene Rechenweise.
+* **Non-Regression**: `qty` und `received_qty` gegen 4D (`BESTELLUNGpos.MENGE` /
+  `MENGEGELIEFERT`) über alle 500 Zeilen **0 Abweichungen**; 24/24 `docstatus = 1`;
+  64 Bestellungen auf der Site = 40 manuell (jüngste Änderung 2026-07-16) + 24 gespiegelt.
+* **Submit-Hook**: max `abs(per_received − received/qty × 100)` = **4,55e-10** < 1e-6 →
+  der Hook schreibt **0 von 24** Bestellungen neu.
+* **Idempotenz**: zweiter kompletter Zyklus (Import + Update ohne `ignore_ts`, beide Hooks) →
+  Vergleich aller 24 Köpfe (inkl. `modified`, `status`, `per_received`, `in_words`) und aller
+  500 Zeilen vor/nach: **0 Unterschiede**; Summe `amount` 221.479,33 vorher = nachher,
+  Summe `base_amount` 192.861,74 vorher = nachher.
+* **Keine Fehler**: `tabError Log` seit 09:00 (**Serverzeit**) keine Einträge des Preis-Hooks
+  (Titel "Fill purchase order prices" = 0); der Submit-Hook-Fallback für die Steuerzeilen
+  läuft wie bisher.
+* **Unberührt**: die 40 manuellen Bestellungen, die anderen Sync-Instances
+  (`officeno1_migration` 197.278 / `officeno1_sales_orders` 910 / `stock_reconciliation` 0
+  Zuordnungen unverändert), keine Änderung außerhalb `app_data/`.
+
+## Betroffene Dateien / Zeilen
+
+* `app_data/mappings/purchase_orders.json` Zeilen 51–63 (`currency`), 65–73
+  (`buying_price_list`), 75–79 (`conversion_rate`), 92–97 und 129–140 (Kommentare/`rate`).
+* `/private/files/officeno1_purchase_order_mapping.json` (Site) — inhaltsgleich; Sync Instance
+  `officeno1_purchase_orders` über `controller.load_table_mapping` neu geladen
+  (`table_mapping` == Datei, 14 Felder).
+* `app_data/server_scripts/fill_purchase_order_prices.py` — komplett neu gefasst
+  (Server Script "fill purchase order prices from usd price list" auf der Site aktualisiert,
+  `doc.save` inkl. safe_exec-Compile-Prüfung, `disabled = 0`).
+* Sync Instance `officeno1_purchase_orders`: Kopf- und Zeilenwerte der 24 Bestellungen; die
+  72 `Sync Mapping Entry`-Zeilen der Felder `currency`/`buying_price_list`/`conversion_rate`
+  bleiben mit leerem `selectline_column` (ADJUSTMENT 3), damit die Update-Phase die Kopfwerte
+  nicht aus der 4D-Währung überschreibt.
+* Kein App-Code, keine anderen Sync-Instances, keine manuellen Bestellungen.
+
+## Reproduktion (Server, temporäre Hilfsskripte wurden danach entfernt)
+
+```
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_measure.main      # 4D-Schema + die 24 Bestellungen
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_lines.main        # 4D-Zeilen/Artikelpreise je Bestellzeile
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_manual2.main      # Konvention der 40 manuellen Bestellungen
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_exact.main        # Rundungskonvention (1,139 -> 1,14)
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_state.before_state
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_dry.main          # Dry-Run der neuen Regel
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_deploy.deploy_script
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_deploy.deploy_mapping
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_cycle.cycle_forced
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_verify.main
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_state.after_state
+bench --site portal.lang-kunstgewerbe.at execute pit_erpnextsync.scripts.adj4_cycle.cycle_normal
+```

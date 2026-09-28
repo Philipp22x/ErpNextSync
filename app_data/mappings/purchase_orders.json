@@ -48,19 +48,29 @@
       "default": "Lang Kunstgewerbe GmbH"
      },
      {
-      "_comment": "--- Currency is fixed to USD, it is NOT taken from 4D BESTELLUNG.Waehrung any more (PIT-TASK-2027-000365 ADJUSTMENT 3): the customer books the purchases of these suppliers in USD (his own USD purchase orders LNG-BE-2026-0007 .. 0041/0043), and 4D carries 'EUR' for all open orders, which would contradict the USD buying price list. ---",
+      "_comment": "--- Currency: taken from the source order again (4D BESTELLUNG.Waehrung is 'Eur' / 'EUR' / 'ATS' - no USD anywhere), NOT fixed (PIT-TASK-2027-000365 ADJUSTMENT 4). The currency and the buying price list that the order is finally booked with follow the SUPPLIER (Supplier.default_currency / default_price_list - the customer's own configuration, which his 40 manually created purchase orders follow 100%): Chinese/Indian suppliers are USD orders on Standard-Kauf-USD, German suppliers are EUR orders on Standard-Kauf. That alignment is done by the server script 'fill purchase order prices from usd price list' (hook after/both), because a mapping cannot read the Supplier master. ---",
       "fieldname": "currency",
-      "default": "USD"
+      "sl_column": "WAEHRUNG",
+      "value_map": {
+       "Eur": "EUR",
+       "EUR": "EUR",
+       "USD": "USD"
+      },
+      "value_map_default": "EUR"
      },
      {
-      "_comment": "--- Buying price list of the mirrored orders: Standard-Kauf-USD, independent of the 4D currency (PIT-TASK-2027-000365 ADJUSTMENT 3, before: value_map on WAEHRUNG with 'Standard-Kauf' as default) ---",
+      "_comment": "--- Buying price list of the mirrored orders: source currency (WAEHRUNG) as the default, the server script then sets Standard-Kauf-USD / Standard-Kauf from the supplier master (PIT-TASK-2027-000365 ADJUSTMENT 4; ADJUSTMENT 3 had it fixed to Standard-Kauf-USD for ALL orders, which mixed the euro source prices of the German suppliers' orders into a USD price list) ---",
       "fieldname": "buying_price_list",
-      "default": "Standard-Kauf-USD"
+      "sl_column": "WAEHRUNG",
+      "value_map": {
+       "USD": "Standard-Kauf-USD"
+      },
+      "value_map_default": "Standard-Kauf"
      },
      {
-      "_comment": "--- USD -> EUR rate fixed (4D UMRECHFRW is 1.0 for the EUR orders and would make the USD order un-convertible). 0.86207 is the rate the customer uses in his own USD purchase orders (LNG-BE-2026-0007 .. 0041; outlier 0.8785 dated 2026-07-02). ERPNext has no Currency Exchange record on this site. ---",
+      "_comment": "--- Source rate (4D UMRECHFRW = 1.0 for the EUR orders); the server script sets 0.86207 for the USD orders (the rate the customer uses in his own USD purchase orders, LNG-BE-2026-0007 .. 0041; ERPNext has no Currency Exchange record on this site) and 1.0 for the EUR orders. ---",
       "fieldname": "conversion_rate",
-      "default": 0.86207
+      "sl_column": "UMRECHFRW"
      },
      {
       "fieldname": "payment_terms_template",
@@ -89,7 +99,7 @@
       "sl_column": "BEMERKUNG"
      },
      {
-      "_comment": "--- Order lines from BESTELLUNGpos (condition is matched against the parent row). rate/price_list_rate carry the source order price (BESTELLUNGpos.Preis_EK); lines where the source has no price are filled from the USD buying price list by the server script 'fill purchase order prices from usd price list'. ---",
+      "_comment": "--- Order lines from BESTELLUNGpos (condition is matched against the parent row). qty/received_qty/uom stay the 1:1 source values; the price of every line (rate/price_list_rate) is set by the server script 'fill purchase order prices from usd price list' to the price list price of the order's currency (PIT-TASK-2027-000365 ADJUSTMENT 4). 4D BESTELLUNGpos.Preis_EK is NOT used as the line price any more: measured, it is the EUR book value of the line for all 276 priced lines (it equals the EUR price list price to the cent), even for the USD suppliers' orders, and that value may not be mixed into a USD price list. ---",
       "fieldname": "items",
       "multiple_query": 1,
       "multiple_query_table": "BESTELLUNGpos",
@@ -121,6 +131,7 @@
         "default": 1
        },
        {
+        "_comment": "--- The price lists provide the rate (server script); the 4D source price is kept as the initial value for a new import ---",
         "table_fieldname": "rate",
         "sl_column": "PREIS_EK"
        },
