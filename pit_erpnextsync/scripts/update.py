@@ -1004,8 +1004,15 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                             "INFO",
                             controller.APP_NAME,
                         )
-                    for e in entries:
-                        frappe.delete_doc("Sync Mapping Entry", e.name, ignore_permissions=True, force=True)
+                    entry_names = [e.name for e in entries]
+                    if entry_names:
+                        # Bulk delete: frappe.delete_doc() enqueues a
+                        # delete_dynamic_links background job per document, so
+                        # deleting a removed line's entries one by one (≈one per
+                        # mapped field) flooded the queue with tens of thousands
+                        # of trivial jobs during a large structural sync.
+                        frappe.db.delete("Sync Mapping Entry", {"name": ["in", entry_names]})
+                        frappe.db.commit()
 
                 # Create child rows for source rows without a matching child row
                 new_keys = [k for k in source_by_key if k not in matched_keys]
