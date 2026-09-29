@@ -245,8 +245,10 @@ def reconcile_single_mapping(
 				stale_entry_names.append(entry.get("name"))
 
 		if stale_entry_names:
-			for entry_name in stale_entry_names:
-				frappe.delete_doc("Sync Mapping Entry", entry_name, ignore_permissions=True, force=True)
+			# Bulk delete: frappe.delete_doc() enqueues a delete_dynamic_links
+			# background job per document — looping it over thousands of stale
+			# entries floods the job queue (see the flood note in update.py).
+			frappe.db.delete("Sync Mapping Entry", {"name": ["in", stale_entry_names]})
 			# Re-fetch stored entries after deletion
 			stored_entries = controller.get_mapping_table_data(mapping_name)
 			make_log(
@@ -1811,8 +1813,8 @@ def delete_mapping_entries_for_child(
 		},
 		pluck="name",
 	)
-	for entry_name in entries:
-		frappe.delete_doc("Sync Mapping Entry", entry_name)
+	if entries:
+		frappe.db.delete("Sync Mapping Entry", {"name": ["in", entries]})
 
 
 def _score_conversion_factor(value: Any) -> int:
@@ -1884,8 +1886,8 @@ def apply_field_removals(
 				pluck="name"
 			)
 			
-			for entry_name in entries:
-				frappe.delete_doc("Sync Mapping Entry", entry_name)
+			if entries:
+				frappe.db.delete("Sync Mapping Entry", {"name": ["in", entries]})
 			
 			removed_count += len(entries)
 			
