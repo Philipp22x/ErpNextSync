@@ -47,6 +47,188 @@ def split_sql_columns(col_string: str) -> list:
 	return columns
 
 
+MQ_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def get_row_col(row_data: dict, col: str):
+	"""Case-insensitive lookup of a column in a fetched source row.
+
+	MSSQL returns the DB casing, 4D returns PascalCase while mappings use
+	UPPERCASE — every place that reads a fetched row needs this fallback.
+	"""
+	if not row_data or not col:
+		return None
+	if col in row_data:
+		return row_data[col]
+	upper = col.upper()
+	for key, value in row_data.items():
+		if key.upper() == upper:
+			return value
+	return None
+
+
+def get_multiple_query_groups(instance_doc: Document, mapping_type: str) -> list:
+	"""Return the trackable multiple_query child-table blocks of a type.
+
+	A block is only returned when it declares `match_key_column`: that stable
+	source row key is what makes both a set comparison here and the structural
+	add/delete sync in `update_mapping()` possible. Blocks without it keep the
+	legacy value-only behaviour (see the `if not match_key_col: continue` guard).
+	"""
+	groups: list = []
+	for row in instance_doc.table_mapping or []:
+		if row.type != mapping_type:
+			continue
+		try:
+			mapping_json: list = json.loads(row.mapping or "[]")
+		except (ValueError, TypeError):
+			continue
+		for mapped_doctype in mapping_json:
+			doctype_name: str = mapped_doctype.get("doctype")
+			for field in mapped_doctype.get("fields", []):
+				if not field.get("multiple_query") or not field.get("table_fields"):
+					continue
+				match_key_col: str = field.get("match_key_column")
+				if not match_key_col:
+					continue
+				groups.append(
+					{
+						"doctype": doctype_name,
+						"fieldname": field.get("fieldname"),
+						"multiple_query_table": field.get("multiple_query_table"),
+						"multiple_query_condition": field.get("multiple_query_condition"),
+						"match_key_column": match_key_col,
+					}
+				)
+	return groups
+
+
+def get_condition_columns(condition: str) -> list:
+	"""Parent-row columns referenced as {Placeholder} in a multiple_query condition."""
+	if not condition:
+		return []
+	columns: list = []
+	for name in MQ_PLACEHOLDER_RE.findall(condition):
+		name = name.strip()
+		if name and name not in columns:
+			columns.append(name)
+	return columns
+
+
+def get_stored_child_row_keys(mapping_name: str, doctype_name: str, fieldname: str) -> dict:
+	"""Source row keys stored on this mapping's entries of one child group.
+
+	Returns {"keys": set, "missing": bool}. `missing` is True when at least one
+	entry has no `source_row_key` (entries written before the mapping got a
+	`match_key_column`) or when the group has no entries at all — both can only
+	be settled by running the update, which backfills the key or drops the row.
+	"""
+	rows = frappe.db.sql(
+		"""
+		SELECT DISTINCT source_row_key
+		FROM `tabSync Mapping Entry`
+		WHERE parent = %s AND mapping_doctype = %s AND fieldname = %s
+			AND child_row_fieldname IS NOT NULL AND child_row_fieldname != ''
+			AND child_row_name IS NOT NULL AND child_row_name != ''
+		""",
+		(mapping_name, doctype_name, fieldname),
+		as_dict=True,
+	)
+	keys: set = set()
+	missing: bool = not rows
+	for row in rows or []:
+		key = row.get("source_row_key")
+		if key in (None, ""):
+			missing = True
+		else:
+			keys.add(str(key))
+	return {"keys": keys, "missing": missing}
+
+
+def detect_child_row_changes(
+	instance: str,
+	mapping_name: str,
+	mapping_type: str,
+	parent_data: dict,
+	instance_doc: Document = None,
+) -> dict:
+	"""Compare the source child rows of each match_key_column group with the
+	keys stored on the mapping's entries.
+
+	This is the child-level change signal the timestamp check is missing: the
+	parent row's timestamp column (e.g. the date-only `Modifiziert_Datum` on
+	SelectLine transaction headers) does not move when a line is added or
+	removed, so a timestamp-only check never repairs a transaction whose
+	positions changed while its header stayed untouched.
+
+	A group whose source query returns no rows at all is reported as unchanged:
+	`update_mapping()` skips an empty source set by design, so flagging it would
+	re-queue the same mapping on every cycle without ever converging.
+	"""
+	result: dict = {"changed": False, "groups": []}
+	if not parent_data:
+		return result
+	if instance_doc is None:
+		instance_doc = frappe.get_doc("Sync Instance", instance)
+
+	groups: list = get_multiple_query_groups(instance_doc, mapping_type)
+	if not groups:
+		return result
+
+	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+
+	for group in groups:
+		doctype_name: str = group.get("doctype")
+		fieldname: str = group.get("fieldname")
+		mq_table: str = group.get("multiple_query_table")
+		mq_condition: str = group.get("multiple_query_condition")
+		match_key_col: str = group.get("match_key_column")
+		if not doctype_name or not fieldname or not mq_table or not mq_condition:
+			continue
+
+		source_rows: list = controller.fetch_multiple_rows(
+			instance=instance,
+			table=mq_table,
+			condition=mq_condition,
+			schema=schema,
+			parent_data=parent_data,
+			columns=[match_key_col],
+		)
+		if not source_rows:
+			make_log(
+				f"No source rows returned for {doctype_name}.{fieldname} of {mapping_name} "
+				f"({mq_table}) - child change detection skipped for this group",
+				"DEBUG",
+				controller.APP_NAME,
+			)
+			continue
+
+		source_keys: set = set()
+		for source_row in source_rows:
+			key_val = get_row_col(source_row, match_key_col)
+			if key_val is not None:
+				source_keys.add(str(key_val))
+
+		stored: dict = get_stored_child_row_keys(mapping_name, doctype_name, fieldname)
+		stored_keys: set = stored.get("keys") or set()
+
+		group_changed: bool = bool(stored.get("missing")) or source_keys != stored_keys
+		result["groups"].append(
+			{
+				"doctype": doctype_name,
+				"fieldname": fieldname,
+				"source_rows": len(source_keys),
+				"stored_rows": len(stored_keys),
+				"missing_keys": bool(stored.get("missing")),
+				"changed": group_changed,
+			}
+		)
+		if group_changed:
+			result["changed"] = True
+
+	return result
+
+
 @frappe.whitelist()
 def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
     """Entry point - enqueues the actual update as a long-running background job.
@@ -293,11 +475,22 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # get the timestamp column type from mapping
         time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
 
+        # Collect the parent columns the query must return: the timestamp column
+        # plus every column referenced as {Placeholder} by a multiple_query
+        # condition — the child-level change detection below needs those values
+        # to build the source child query.
+        mq_groups: list = get_multiple_query_groups(instance_doc, mapping_type)
+        parent_columns: list = [ts_col]
+        for mq_group in mq_groups:
+            for placeholder_col in get_condition_columns(mq_group.get("multiple_query_condition")):
+                if placeholder_col not in parent_columns:
+                    parent_columns.append(placeholder_col)
+
         # Build SQL using helper function
         sql: str = controller.make_sql_string_single_row(
             instance=instance,
             table_name=table_name,
-            columns=[ts_col],
+            columns=parent_columns,
             primary_key_col=primary_key_column,
             primary_key_val=primary_key,
             schema=schema
@@ -339,7 +532,43 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
             raise Exception(f"No timestamp in mapping {mapping_name}")
 
         # check timestamp strings
-        if timestamp_str == mapped_timestamp:
+        ts_changed: bool = timestamp_str != mapped_timestamp
+        child_changed: bool = False
+
+        # The header timestamp cannot see child-table changes: SelectLine
+        # transaction headers carry a date-only `Modifiziert_Datum`, and a
+        # position added or removed in the source does not necessarily move it.
+        # For every multiple_query group with a match_key_column, compare the
+        # source row keys against the keys stored on the mapping's entries and
+        # treat a difference as a change, so the structural add/delete sync in
+        # update_mapping() runs for exactly those mappings.
+        if not ts_changed and mq_groups and fetched_ts:
+            try:
+                child_result: dict = detect_child_row_changes(
+                    instance=instance,
+                    mapping_name=mapping_name,
+                    mapping_type=mapping_type,
+                    parent_data=fetched_ts[0],
+                    instance_doc=instance_doc,
+                )
+                child_changed = bool(child_result.get("changed"))
+                if child_changed:
+                    make_log(
+                        f"Child rows changed for {mapping_name} while the header timestamp "
+                        f"stayed at {timestamp_str}: {child_result.get('groups')}",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+            except Exception as child_err:
+                # Never let detection failures block the regular timestamp path.
+                make_log(
+                    f"Child row change detection failed for {mapping_name}: {child_err}",
+                    "WARNING",
+                    controller.APP_NAME,
+                    with_traceback=True,
+                )
+
+        if not ts_changed and not child_changed:
             make_log(f"Mapping {mapping_name} up to date", "INFO", controller.APP_NAME)
             if not skip_job_update:
                 controller.update_jobs(instance=instance, skip_hooks=True)
@@ -735,9 +964,22 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     mq_child_data[crn] = matched_source
                     if matched_key:
                         matched_keys.add(matched_key)
-                    if match_key_col and matched_key and not stored_key:
+                    if match_key_col and matched_key:
+                        # Refresh stored keys that differ from the matched source
+                        # key — not just missing ones: after a match_key_column
+                        # change every entry of a row still carries the old key,
+                        # which would otherwise make the child-row change
+                        # detection report the same difference on every cycle
+                        # (it compares key sets) without ever settling.
                         for e in entries:
-                            frappe.db.set_value("Sync Mapping Entry", e.name, "source_row_key", matched_key, update_modified=False)
+                            if e.get("source_row_key") != matched_key:
+                                frappe.db.set_value(
+                                    "Sync Mapping Entry",
+                                    e.name,
+                                    "source_row_key",
+                                    matched_key,
+                                    update_modified=False,
+                                )
 
                 if mq_child_data:
                     make_log(
