@@ -766,6 +766,13 @@ def wait_for_jobs(job_ids: list, poll_interval: int = 2, timeout: int = 3600) ->
 	This prevents race conditions where e.g. ItemVarChild jobs run before
 	Item Attribute jobs finish, causing empty attribute values.
 
+	Completion is judged by membership in the queue list plus the running
+	(wip) set: a job that is in neither has finished (or failed). The previous
+	implementation polled the FinishedJobRegistry, which has a ~500 s TTL — a run
+	whose jobs finish spread over more than that (any real update run) could never
+	observe "all done", so the dispatcher burned the full timeout and was then
+	killed with a JobTimeoutException while occupying a worker slot.
+
 	Args:
 	    job_ids: List of job IDs to wait for
 	    poll_interval: Seconds between status checks (default: 2)
@@ -779,30 +786,31 @@ def wait_for_jobs(job_ids: list, poll_interval: int = 2, timeout: int = 3600) ->
 
 	import time
 	queue = get_queue("long")
-	finished_registry = FinishedJobRegistry(queue=queue)
 	failed_registry = FailedJobRegistry(queue=queue)
 
 	start_time = time.time()
 	site_prefix = f"{frappe.local.site}::"
+	# The wip key mirrors the queue key name (`rq:wip:<queuename>`).
+	wip_key = queue.key.replace("rq:queue:", "rq:wip:", 1)
+	wip_conn = queue.connection
+
+	# Normalise to the full (site-prefixed) id, exactly as stored in RQ.
+	full_job_ids = [
+		f"{site_prefix}{job_id}" if not job_id.startswith(site_prefix) else job_id
+		for job_id in job_ids
+	]
 
 	while time.time() - start_time < timeout:
-		finished_ids = set(finished_registry.get_job_ids())
-		failed_ids = set(failed_registry.get_job_ids())
-		done_ids = finished_ids | failed_ids
+		queued_ids = set(queue.get_job_ids())
+		in_flight = {
+			item.decode() if isinstance(item, bytes) else item
+			for item in wip_conn.zrange(wip_key, 0, -1)
+		}
+		remaining = [jid for jid in full_job_ids if jid in queued_ids or jid in in_flight]
 
-		# Check if all jobs are done (with or without site prefix)
-		all_done = True
-		for job_id in job_ids:
-			full_id = f"{site_prefix}{job_id}" if not job_id.startswith(site_prefix) else job_id
-			if full_id not in done_ids and job_id not in done_ids:
-				all_done = False
-				break
-
-		if all_done:
-			failed_count = sum(
-				1 for jid in job_ids
-				if f"{site_prefix}{jid}" in failed_ids or jid in failed_ids
-			)
+		if not remaining:
+			failed_ids = set(failed_registry.get_job_ids())
+			failed_count = sum(1 for jid in full_job_ids if jid in failed_ids)
 			if failed_count > 0:
 				make_log(
 					f"Jobs completed with {failed_count} failures out of {len(job_ids)}",
