@@ -342,14 +342,26 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 	]
 
 	# Mappings of a type normally share table + pk column, but resolve per mapping
-	# to stay correct when they do not.
+	# to stay correct when they do not. resolve_table_name_for_mapping() costs two
+	# DB reads per call, and within one type the result only depends on the table
+	# name from the object id — cache it (tens of thousands of mappings of a type
+	# almost always share a handful of distinct table names).
+	resolve_cache: dict = {}
+
+	def _resolve_table(table_from_id: str, mapping_name: str) -> str:
+		if not table_from_id:
+			return table_from_id
+		if table_from_id not in resolve_cache:
+			resolve_cache[table_from_id] = resolve_table_name_for_mapping(
+				instance=instance, mapping_name=mapping_name, table_from_id=table_from_id
+			)
+		return resolve_cache[table_from_id]
+
 	by_table: dict = {}
 	for m in mapping_rows:
 		pk_col = m.get("primary_key_column")
 		id_data = get_id_data(m.get("selectline_id"))
-		table = resolve_table_name_for_mapping(
-			instance=instance, mapping_name=m["name"], table_from_id=id_data.get("table") or ""
-		)
+		table = _resolve_table(id_data.get("table") or "", m["name"])
 		if not table or not pk_col or not id_data:
 			result["skipped"] += 1
 			continue
