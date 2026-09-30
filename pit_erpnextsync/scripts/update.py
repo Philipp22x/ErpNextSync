@@ -229,6 +229,303 @@ def detect_child_row_changes(
 	return result
 
 
+# Bulk (per-type) change detection ------------------------------------------------------------------
+#
+# check_timestamp() needs 1–3 *separate* connections to the source ERP per
+# mapping: on a 2-core box with ~30k mappings that is ~30–90k logins per cycle
+# and takes hours. The functions below answer the same question with ONE source
+# query per table plus one child query per multiple_query group, then diff in
+# memory against the stored states. Anything it cannot check with certainty
+# makes it fall back to the per-mapping path, so it is purely an optimisation.
+
+# `<col> = {Placeholder}` / `{Placeholder} = <col>` predicates of an mq condition
+PLACEHOLDER_PREDICATE_RE = re.compile(
+	r"(?:\bAND\b\s*)?(?:[\[\]\w]+\.)?[\[\]\w]+\s*=\s*\{[A-Za-z_][A-Za-z0-9_]*\}"
+	r"|(?:\bAND\b\s*)?\{[A-Za-z_][A-Za-z0-9_]*\}\s*=\s*(?:[\[\]\w]+\.)?[\[\]\w]+",
+	re.IGNORECASE,
+)
+
+
+def strip_placeholder_predicates(condition: str) -> str:
+	"""Drop the parent-dependent predicates of a multiple_query condition.
+
+	The bulk child query fetches the child rows of *all* parents at once, so the
+	`AND <col> = {Placeholder}` parts have to go; the static predicates
+	(e.g. `Kennung = 'B' AND Menge > 0`) stay.
+	"""
+	if not condition:
+		return ""
+	clean = re.sub(r"^\s*WHERE\s+", "", condition.strip(), flags=re.IGNORECASE)
+	clean = PLACEHOLDER_PREDICATE_RE.sub("", clean)
+	clean = re.sub(r"^\s*(AND|WHERE)\s+", "", clean.strip(), flags=re.IGNORECASE)
+	clean = re.sub(r"\s+AND\s+$", "", clean.strip(), flags=re.IGNORECASE)
+	return re.sub(r"\s{2,}", " ", clean).strip()
+
+
+def make_bulk_select(instance: str, table_name: str, columns: list, schema: str = "", where: str = "") -> str:
+	"""SELECT many rows at once, with the driver's column quoting."""
+	db_cred: dict = controller.get_instance_data(instance=instance) or {}
+	driver: str = db_cred.get("driver", "pymssql")
+	schema_prefix: str = f"{schema}." if schema else ""
+	if driver == "p4d":
+		col_string = ", ".join([controller._quote_4d_col(c) for c in columns])
+	else:
+		col_string = ", ".join([controller._quote_mssql_col(c) for c in columns])
+	sql: str = f"SELECT {col_string} FROM {schema_prefix}{table_name}"
+	if where:
+		sql += f" WHERE {where}"
+	return sql
+
+
+def get_stored_child_row_keys_bulk(mapping_names: list, fieldnames: list) -> dict:
+	"""Stored source_row_keys of many mappings in one query → {(mapping, fieldname): set}."""
+	keys: dict = {}
+	chunk_size: int = 500
+	for start in range(0, len(mapping_names), chunk_size):
+		chunk = mapping_names[start:start + chunk_size]
+		placeholders = ",".join(["%s"] * len(chunk))
+		rows = frappe.db.sql(
+			f"""SELECT parent, fieldname, source_row_key FROM `tabSync Mapping Entry`
+				WHERE parent IN ({placeholders})
+				AND fieldname IN ({",".join(["%s"] * len(fieldnames))})
+				AND child_row_fieldname IS NOT NULL AND child_row_fieldname != ''""",
+			tuple(chunk) + tuple(fieldnames),
+			as_dict=True,
+		)
+		for row in rows:
+			group_key = (row.get("parent"), row.get("fieldname"))
+			bucket = keys.setdefault(group_key, {"keys": set(), "count": 0})
+			bucket["count"] += 1
+			if row.get("source_row_key") not in (None, ""):
+				bucket["keys"].add(str(row["source_row_key"]))
+	return keys
+
+
+def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping_row, schema: str = "") -> dict:
+	"""Bulk equivalent of check_timestamp() for every mapping of one type.
+
+	Returns {"changed": [{"mapping_name", "id_data"}], "unchanged", "ts_changed",
+	"child_changed", "no_source_row", "skipped", "fallback"} — `fallback` is set
+	when the bulk answer cannot be trusted and the caller must use the
+	per-mapping path for this type.
+	"""
+	mapping_type: str = table_mapping_row.type
+	ts_col: str = table_mapping_row.timestamp_column_name or ""
+	result: dict = {
+		"changed": [], "unchanged": 0, "ts_changed": 0, "child_changed": 0,
+		"no_source_row": 0, "skipped": 0, "fallback": False, "queries": 0,
+	}
+
+	mapping_rows: list = frappe.get_all(
+		"Sync Mapping",
+		filters={"selectline_db_instance": instance, "type": mapping_type, "enable": 1},
+		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type"],
+		limit_page_length=0,
+	)
+	if not mapping_rows:
+		return result
+
+	# Type has no timestamp column at all: the per-mapping path updates every
+	# mapping in that case, so mirror it.
+	if not ts_col:
+		for m in mapping_rows:
+			id_data: dict = get_id_data(m.get("selectline_id"))
+			if not id_data:
+				result["skipped"] += 1
+				continue
+			result["changed"].append({"mapping_name": m["name"], "id_data": id_data})
+		return result
+
+	mq_groups: list = [
+		g for g in get_multiple_query_groups(instance_doc, mapping_type)
+		if g.get("multiple_query_condition") and g.get("multiple_query_table") and g.get("match_key_column")
+	]
+
+	# Mappings of a type normally share table + pk column, but resolve per mapping
+	# to stay correct when they do not.
+	by_table: dict = {}
+	for m in mapping_rows:
+		pk_col = m.get("primary_key_column")
+		id_data = get_id_data(m.get("selectline_id"))
+		table = resolve_table_name_for_mapping(
+			instance=instance, mapping_name=m["name"], table_from_id=id_data.get("table") or ""
+		)
+		if not table or not pk_col or not id_data:
+			result["skipped"] += 1
+			continue
+		by_table.setdefault((table, pk_col), []).append((m, id_data))
+
+	all_names: list = [m["name"] for m in mapping_rows]
+	fieldnames: list = [g["fieldname"] for g in mq_groups]
+	stored_all: dict = get_stored_child_row_keys_bulk(all_names, fieldnames) if fieldnames else {}
+
+	query_cache: dict = {}
+
+	def _cached_fetch(cache_key: tuple, sql: str):
+		"""Execute each distinct bulk query once per type (two mq groups may read
+		the same table)."""
+		if cache_key in query_cache:
+			return query_cache[cache_key]
+		data = controller.fetch_data(instance=instance, sql=sql)
+		query_cache[cache_key] = data
+		result["queries"] += 1
+		return data
+
+	for (table_name, pk_col), members in by_table.items():
+		parent_columns: list = [pk_col, ts_col]
+		for g in mq_groups:
+			for col in get_condition_columns(g.get("multiple_query_condition")):
+				if col not in parent_columns:
+					parent_columns.append(col)
+
+		rows = _cached_fetch(
+			("parent", table_name, tuple(parent_columns)),
+			make_bulk_select(instance, table_name, parent_columns, schema),
+		)
+		if rows is None:
+			make_log(
+				f"Bulk check: parent query failed for {instance}/{mapping_type} ({table_name}) — "
+				f"falling back to per-mapping checks",
+				"WARNING",
+				controller.APP_NAME,
+			)
+			result["fallback"] = True
+			return result
+
+		by_pk: dict = {}
+		for row in rows:
+			value = get_row_col(row, pk_col)
+			if value is not None:
+				by_pk[str(value)] = row
+
+		# one child query per multiple_query group, grouped by the parent columns
+		child_sets: dict = {}
+		for g in mq_groups:
+			placeholder_cols: list = get_condition_columns(g.get("multiple_query_condition"))
+			child_columns: list = [g["match_key_column"]]
+			for col in placeholder_cols:
+				if col not in child_columns:
+					child_columns.append(col)
+			where: str = strip_placeholder_predicates(g.get("multiple_query_condition"))
+			child_rows = _cached_fetch(
+				("child", g["multiple_query_table"], tuple(child_columns), where),
+				make_bulk_select(instance, g["multiple_query_table"], child_columns, schema, where),
+			)
+			if child_rows is None:
+				make_log(
+					f"Bulk check: child query failed for {instance}/{mapping_type} "
+					f"({g['multiple_query_table']}) — falling back to per-mapping checks",
+					"WARNING",
+					controller.APP_NAME,
+				)
+				result["fallback"] = True
+				return result
+			grouped: dict = {}
+			for child_row in child_rows:
+				group_key = tuple(str(get_row_col(child_row, c)) for c in placeholder_cols)
+				key_val = get_row_col(child_row, g["match_key_column"])
+				if key_val is not None:
+					grouped.setdefault(group_key, set()).add(str(key_val))
+			child_sets[g["fieldname"]] = grouped
+
+		for m, id_data in members:
+			source_row = by_pk.get(str(id_data.get("primary_key")))
+			if source_row is None:
+				result["no_source_row"] += 1
+				continue
+
+			ts_value: str = controller.convert_timestamp_to_string(
+				get_row_col(source_row, ts_col), m.get("time_stamp_type") or "datetime"
+			)
+			ts_changed: bool = ts_value != (m.get("db_time_stamp") or "")
+
+			child_changed: bool = False
+			if not ts_changed and mq_groups:
+				for g in mq_groups:
+					placeholder_cols = get_condition_columns(g.get("multiple_query_condition"))
+					group_key = tuple(str(get_row_col(source_row, c)) for c in placeholder_cols)
+					source_keys: set = child_sets.get(g["fieldname"], {}).get(group_key) or set()
+					stored = stored_all.get((m["name"], g["fieldname"])) or {}
+					stored_keys: set = stored.get("keys") or set()
+					# entries exist but carry no source key → per-mapping detection
+					# treats this as changed, so mirror that here
+					if stored.get("count") and not stored_keys:
+						child_changed = True
+						break
+					if not source_keys:
+						# empty source set: update_mapping() skips it by design
+						continue
+					if source_keys != stored_keys:
+						child_changed = True
+						break
+
+			if ts_changed or child_changed:
+				if ts_changed:
+					result["ts_changed"] += 1
+				else:
+					result["child_changed"] += 1
+				result["changed"].append({"mapping_name": m["name"], "id_data": id_data})
+			else:
+				result["unchanged"] += 1
+
+	return result
+
+
+def bulk_check_instance(instance: str, types_str: str = None, log_summary: bool = True) -> dict:
+	"""Run the bulk change detection for an instance (one aggregate query per table).
+
+	Returns {"items": [{"mapping_name","id_data","type"}], "fallback_types": [...],
+	"counts": {...}} without enqueuing anything.
+	"""
+	instance_doc: Document = frappe.get_doc("Sync Instance", instance)
+	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+	arg_types_list: list = []
+	if types_str:
+		try:
+			arg_types_list = json.loads(types_str) if isinstance(types_str, str) else list(types_str)
+		except Exception:
+			arg_types_list = [t.strip() for t in str(types_str).split(",") if t.strip()]
+
+	summary: dict = {"items": [], "fallback_types": [], "counts": {}}
+	for table_mapping_row in instance_doc.table_mapping:
+		if arg_types_list and table_mapping_row.type not in arg_types_list:
+			continue
+
+		res = bulk_check_type_changes(instance, instance_doc, table_mapping_row, schema)
+		summary["counts"][table_mapping_row.type] = {
+			k: res.get(k) for k in ("unchanged", "ts_changed", "child_changed", "no_source_row", "skipped", "queries")
+		}
+		summary["counts"][table_mapping_row.type]["changed_total"] = len(res["changed"])
+		summary["counts"][table_mapping_row.type]["fallback"] = res["fallback"]
+		if res["fallback"]:
+			summary["fallback_types"].append(table_mapping_row.type)
+			continue
+		for item in res["changed"]:
+			summary["items"].append({**item, "type": table_mapping_row.type})
+
+	if log_summary:
+		make_log(
+			f"Bulk check for {instance}: {len(summary['items'])} changed mapping(s), "
+			f"fallback types: {summary['fallback_types'] or 'none'}, detail: {summary['counts']}",
+			"INFO",
+			controller.APP_NAME,
+		)
+	return summary
+
+
+@frappe.whitelist()
+def bulk_check_preview(instance: str, types_str: str = None) -> dict:
+	"""Dry run of the bulk change detection — returns counts, enqueues nothing."""
+	summary = bulk_check_instance(instance=instance, types_str=types_str)
+	return {
+		"instance": instance,
+		"counts": summary["counts"],
+		"fallback_types": summary["fallback_types"],
+		"changed_total": len(summary["items"]),
+		"sample": [i["mapping_name"] for i in summary["items"][:5]],
+	}
+
+
 @frappe.whitelist()
 def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
     """Entry point - enqueues the actual update as a long-running background job.
@@ -318,6 +615,39 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
                 continue
             mapping_items.append({"mapping_name": mapping_name, "id_data": id_data})
 
+        # Bulk change detection: one aggregate source query per table instead of
+        # one connection per mapping. If the bulk answer cannot be trusted, keep
+        # all mappings and let check_timestamp() decide per mapping (as before).
+        prefiltered: bool = False
+        if not ignore_ts and mapping_items:
+            table_mapping_row = next((r for r in instance_doc.table_mapping if r.type == current_type), None)
+            if table_mapping_row:
+                schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+                bulk_result: dict = bulk_check_type_changes(instance, instance_doc, table_mapping_row, schema)
+                if bulk_result.get("fallback"):
+                    make_log(
+                        f"Bulk check not usable for {instance}/{current_type} - falling back to per-mapping checks",
+                        "WARNING",
+                        controller.APP_NAME,
+                    )
+                else:
+                    keep_names: set = {item["mapping_name"] for item in bulk_result["changed"]}
+                    mapping_items = [item for item in mapping_items if item["mapping_name"] in keep_names]
+                    prefiltered = True
+                    make_log(
+                        f"Bulk check {instance}/{current_type}: {len(mapping_items)} changed of "
+                        f"{len(bulk_result['changed']) + bulk_result['unchanged'] + bulk_result['no_source_row']} checked "
+                        f"(timestamps: {bulk_result['ts_changed']}, child rows: {bulk_result['child_changed']}, "
+                        f"no source row: {bulk_result['no_source_row']}, unchanged: {bulk_result['unchanged']}) "
+                        f"with {bulk_result['queries']} source quer(ies)",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+
+        if not mapping_items:
+            make_log(f"Nothing to update for type {current_type} on {instance}", "INFO", controller.APP_NAME)
+            continue
+
         # Split into batches and enqueue one job per batch
         type_job_ids: list = []
         for i in range(0, len(mapping_items), batch_size):
@@ -331,7 +661,8 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
                 instance=instance,
                 batch_items=batch,
                 run_number=run_number,
-                ignore_ts=ignore_ts
+                ignore_ts=ignore_ts,
+                prefiltered=prefiltered
             )
             type_job_ids.append(job_id)
 
@@ -376,19 +707,37 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
     return None
 
 
-def update_batch(instance: str, batch_items: list, run_number: int, ignore_ts: bool = False) -> None:
+def update_batch(instance: str, batch_items: list, run_number: int, ignore_ts: bool = False, prefiltered: bool = False) -> None:
     """Background job: processes a batch of mappings serially.
     Each item in batch_items is a dict with keys: mapping_name, id_data.
+
+    prefiltered=True means the bulk check already decided that these mappings
+    changed, so update_mapping() runs directly (no second timestamp fetch).
     """
     for item in batch_items:
-        check_timestamp(
-            instance=instance,
-            id_data=item["id_data"],
-            mapping_name=item["mapping_name"],
-            run_number=run_number,
-            skip_job_update=True,
-            ignore_ts=ignore_ts
-        )
+        if prefiltered:
+            try:
+                update_mapping(
+                    instance=instance,
+                    id_data=item["id_data"],
+                    mapping_name=item["mapping_name"],
+                    run_number=run_number,
+                )
+            except Exception as exc:
+                make_log(
+                    f"update_mapping failed for {item['mapping_name']}: {exc}",
+                    "ERROR",
+                    controller.APP_NAME,
+                )
+        else:
+            check_timestamp(
+                instance=instance,
+                id_data=item["id_data"],
+                mapping_name=item["mapping_name"],
+                run_number=run_number,
+                skip_job_update=True,
+                ignore_ts=ignore_ts
+            )
     controller.update_jobs(instance=instance, skip_hooks=True)
 
 
