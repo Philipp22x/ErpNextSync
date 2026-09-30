@@ -1039,6 +1039,50 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 )
                 next_idx = (last_idx_row[0].idx if last_idx_row else 0) + 1
 
+                # Duplicate guard: a child row with the same value may already exist
+                # on the document without being tracked by *this* mapping — e.g. the
+                # same document is mapped by another Sync Instance, or the row was
+                # created outside the sync. Creating a second row for it duplicates
+                # positions on the document, so adopt such untracked rows one-for-one
+                # instead of creating a new one. The pool is consumed per source row,
+                # so legitimate repeated values (same article, different qty) still
+                # get their own row.
+                if match_child_fieldname and match_sl_col and parent_docname:
+                    tracked_names = {
+                        e.child_row_name for el in entries_by_child.values() for e in el
+                    }
+                    pool: dict = {}
+                    for row in frappe.get_all(
+                        child_doctype,
+                        filters={"parent": parent_docname, "parentfield": fieldname},
+                        fields=["name", match_child_fieldname],
+                    ):
+                        value = row.get(match_child_fieldname)
+                        if value in (None, "") or row.get("name") in tracked_names:
+                            continue
+                        pool[str(value)] = pool.get(str(value), 0) + 1
+                    if pool:
+                        guarded = []
+                        adopted = 0
+                        for key in new_keys:
+                            value = _get_col(source_by_key[key], match_sl_col)
+                            if value is not None and pool.get(str(value), 0) > 0:
+                                pool[str(value)] -= 1
+                                adopted += 1
+                                continue
+                            guarded.append(key)
+                        if adopted:
+                            make_log(
+                                f"Duplicate guard: adopted {adopted} untracked {child_doctype} row(s) on "
+                                f"{doctype_name} {parent_docname} instead of creating duplicates "
+                                f"(match field {match_child_fieldname})",
+                                "WARNING",
+                                controller.APP_NAME,
+                            )
+                        new_keys = guarded
+                        if not new_keys:
+                            continue
+
                 for key in new_keys:
                     srow = source_by_key[key]
                     resolved: dict = {}
