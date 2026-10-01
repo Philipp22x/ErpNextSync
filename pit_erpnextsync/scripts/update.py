@@ -1,7 +1,9 @@
+import hashlib
 import json
 import re
 import uuid
 from pprint import pprint
+
 import frappe
 import datetime
 from frappe.model.document import Document
@@ -301,6 +303,97 @@ def get_stored_child_row_keys_bulk(mapping_names: list, fieldnames: list) -> dic
 	return keys
 
 
+def _row_value(row: dict, *keys) -> object:
+	"""Fetch the first matching key from a source row (exact, then case-insensitive)."""
+	for key in keys:
+		if key and key in row:
+			return row[key]
+	lowered = {str(k).lower(): v for k, v in row.items()}
+	for key in keys:
+		if key and str(key).lower() in lowered:
+			return lowered[str(key).lower()]
+	return None
+
+
+def _add_hash_col(cols: dict, col: str) -> None:
+	"""Register one column for the source hash. Expressions keep their AS alias;
+	plain columns are aliased with a stable synthetic name so both the bulk
+	check and update_mapping() see identical row keys."""
+	if not col:
+		return
+	parts = re.split(r"\sAS\s", col, flags=re.IGNORECASE)
+	if len(parts) > 1 and parts[-1].strip():
+		alias = parts[-1].strip().strip("[]")
+	else:
+		alias = "h_" + hashlib.md5(col.encode("utf-8")).hexdigest()[:8]
+	cols.setdefault(col, (col, alias))
+
+
+def get_hash_columns(mapping_json: list) -> list:
+	"""All parent-table columns that feed mapped values, as (sql_column, alias)
+	tuples. Used to build a comparable source hash for change detection."""
+	cols: dict = {}
+	for mapped_doctype in mapping_json or []:
+		for field in mapped_doctype.get("fields", []):
+			if field.get("multiple_query"):
+				continue
+			if field.get("sl_column"):
+				_add_hash_col(cols, field["sl_column"])
+			if field.get("mapped_value") and field["mapped_value"].get("sl_id"):
+				_add_hash_col(cols, field["mapped_value"]["sl_id"])
+			for tf in field.get("table_fields", []):
+				if tf.get("sl_column"):
+					_add_hash_col(cols, tf["sl_column"])
+				if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
+					_add_hash_col(cols, tf["mapped_value"]["sl_id"])
+	return list(cols.values())
+
+
+def compute_source_hash(row: dict, hash_columns: list) -> str:
+	"""Stable hash over the mapped source values of one parent row."""
+	parts: list = []
+	for sql_col, alias in hash_columns or []:
+		value = _row_value(row, alias, sql_col)
+		parts.append("%s=%s" % (alias, "" if value is None else str(value).strip()))
+	return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def rematch_stale_child_row(mapping_json: list, mapping_doctype: str, fieldname: str,
+							selectline_column: str, parent_name: str) -> str | None:
+	"""Find the current child row for a stale non-mq child entry.
+
+	Child rows can be re-created outside the mapping entries, which orphans the
+	entry's child_row_name. The mapping JSON group containing the entry's
+	sl_column also defines a label field (a table_field with only `default`,
+	e.g. type = "WINFO: Umwandlungsnummer") that identifies the child row.
+	"""
+	for mapped_doctype in mapping_json or []:
+		if mapped_doctype.get("doctype") != mapping_doctype:
+			continue
+		for field in mapped_doctype.get("fields", []):
+			if field.get("fieldname") != fieldname or field.get("multiple_query") or not field.get("table_fields"):
+				continue
+			if not any(tf.get("sl_column") == selectline_column for tf in field["table_fields"]):
+				continue
+			label_tf = next((tf for tf in field["table_fields"] if not tf.get("sl_column") and tf.get("default")), None)
+			label_field = label_tf.get("table_fieldname") if label_tf else None
+			label_value = label_tf.get("default") if label_tf else None
+			if not label_field or label_value is None:
+				return None
+			try:
+				child_doctype = frappe.get_meta(mapping_doctype).get_field(fieldname).options
+			except Exception:
+				return None
+			rows = frappe.get_all(
+				child_doctype,
+				filters={"parent": parent_name, "parenttype": mapping_doctype, label_field: label_value},
+				fields=["name"], limit=1, order_by="idx",
+			)
+			if rows:
+				return rows[0].name
+	return None
+
+
 def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping_row, schema: str = "") -> dict:
 	"""Bulk equivalent of check_timestamp() for every mapping of one type.
 
@@ -313,13 +406,13 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 	ts_col: str = table_mapping_row.timestamp_column_name or ""
 	result: dict = {
 		"changed": [], "unchanged": 0, "ts_changed": 0, "child_changed": 0,
-		"no_source_row": 0, "skipped": 0, "fallback": False, "queries": 0,
+		"hash_changed": 0, "no_source_row": 0, "skipped": 0, "fallback": False, "queries": 0,
 	}
 
 	mapping_rows: list = frappe.get_all(
 		"Sync Mapping",
 		filters={"selectline_db_instance": instance, "type": mapping_type, "enable": 1},
-		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type"],
+		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type", "source_hash"],
 		limit_page_length=0,
 	)
 	if not mapping_rows:
@@ -340,6 +433,12 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 		g for g in get_multiple_query_groups(instance_doc, mapping_type)
 		if g.get("multiple_query_condition") and g.get("multiple_query_table") and g.get("match_key_column")
 	]
+
+	# Hash columns: every parent-table column feeding a mapped value. The source
+	# timestamp is a DATE without a time component, so a change made on the same
+	# day as the stored timestamp is invisible to the ts comparison — the hash
+	# over all mapped values catches it.
+	hash_columns: list = get_hash_columns(json.loads(table_mapping_row.mapping or "[]"))
 
 	# Mappings of a type normally share table + pk column, but resolve per mapping
 	# to stay correct when they do not. resolve_table_name_for_mapping() costs two
@@ -389,6 +488,9 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 			for col in get_condition_columns(g.get("multiple_query_condition")):
 				if col not in parent_columns:
 					parent_columns.append(col)
+		for sql_col, _alias in hash_columns:
+			if sql_col not in parent_columns:
+				parent_columns.append(sql_col)
 
 		rows = _cached_fetch(
 			("parent", table_name, tuple(parent_columns)),
@@ -471,11 +573,24 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 						child_changed = True
 						break
 
-			if ts_changed or child_changed:
+			hash_changed: bool = False
+			if not ts_changed and not child_changed:
+				# Hash net: the source timestamp is a DATE (no time), so changes
+				# made on the same day as the stored timestamp never bump it.
+				# An empty stored hash means one-time backfill → treat as changed.
+				stored_hash: str = m.get("source_hash") or ""
+				if not stored_hash:
+					hash_changed = True
+				else:
+					hash_changed = compute_source_hash(source_row, hash_columns) != stored_hash
+
+			if ts_changed or child_changed or hash_changed:
 				if ts_changed:
 					result["ts_changed"] += 1
-				else:
+				elif child_changed:
 					result["child_changed"] += 1
+				else:
+					result["hash_changed"] += 1
 				result["changed"].append({"mapping_name": m["name"], "id_data": id_data})
 			else:
 				result["unchanged"] += 1
@@ -650,6 +765,7 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
                         f"Bulk check {instance}/{current_type}: {len(mapping_items)} changed of "
                         f"{len(bulk_result['changed']) + bulk_result['unchanged'] + bulk_result['no_source_row']} checked "
                         f"(timestamps: {bulk_result['ts_changed']}, child rows: {bulk_result['child_changed']}, "
+                        f"hash: {bulk_result['hash_changed']}, "
                         f"no source row: {bulk_result['no_source_row']}, unchanged: {bulk_result['unchanged']}) "
                         f"with {bulk_result['queries']} source quer(ies)",
                         "INFO",
@@ -1054,6 +1170,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         for needed_col in mq_condition_columns | ({primary_key_col_name} if primary_key_col_name else set()):
             if needed_col and needed_col not in columns:
                 columns.append(needed_col)
+
+        # Hash columns: the parent query must contain every JSON-mapped parent
+        # column so the stored source_hash stays comparable with the bulk check
+        # (which selects exactly these columns).
+        for sql_col, _alias in get_hash_columns(mapping_json):
+            if sql_col not in columns:
+                columns.append(sql_col)
 
 
         # Build phone + value_map + mapped_value + trim lookups from mapping JSON
@@ -1650,11 +1773,37 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     target_child_name = row.child_row_name
 
                     # Update ONLY updates existing child rows. Never creates.
-                    # If the child row is missing, skip — reconcile will fix it.
+                    # If the entry's child_row_name no longer points at an
+                    # existing row of this document (child rows can be
+                    # re-created outside the mapping entries), try to re-match
+                    # it via the mapping JSON's label field before skipping.
                     if not target_child_doctype or not target_child_name:
                         continue
-                    if not frappe.db.exists(target_child_doctype, target_child_name):
-                        continue
+                    if not frappe.db.get_value(
+                        target_child_doctype, {"name": target_child_name, "parent": row.docname}
+                    ):
+                        repaired_name = rematch_stale_child_row(
+                            mapping_json=mapping_json,
+                            mapping_doctype=row.mapping_doctype,
+                            fieldname=row.fieldname,
+                            selectline_column=row.selectline_column,
+                            parent_name=row.docname,
+                        )
+                        if not repaired_name or not frappe.db.get_value(
+                            target_child_doctype, {"name": repaired_name, "parent": row.docname}
+                        ):
+                            continue
+                        frappe.db.set_value(
+                            "Sync Mapping Entry", row.name, "child_row_name", repaired_name, update_modified=False
+                        )
+                        row.child_row_name = repaired_name
+                        target_child_name = repaired_name
+                        make_log(
+                            f"Re-matched stale child entry {row.name} to {target_child_doctype} "
+                            f"{repaired_name} on {row.docname}",
+                            "INFO",
+                            controller.APP_NAME,
+                        )
 
                     lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
@@ -1691,6 +1840,18 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 frappe.db.set_value("Sync Mapping", mapping_name, "db_time_stamp", ts_str, update_modified=False)
             except Exception as ts_err:
                 make_log(f"Could not update timestamp for {mapping_name}: {ts_err}", "ERROR", controller.APP_NAME)
+
+        # Store the source hash so the bulk check can detect changes the DATE
+        # timestamp cannot see (changes made on the same day).
+        try:
+            frappe.db.set_value(
+                "Sync Mapping", mapping_name,
+                "source_hash",
+                compute_source_hash(fetched_data[0], get_hash_columns(mapping_json)),
+                update_modified=False,
+            )
+        except Exception as hash_err:
+            make_log(f"Could not store source hash for {mapping_name}: {hash_err}", "ERROR", controller.APP_NAME)
         frappe.db.set_value("Sync Mapping", mapping_name, "last_update", datetime.datetime.now(), update_modified=False)
 
         frappe.db.commit()
