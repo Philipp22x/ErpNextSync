@@ -15,7 +15,9 @@ from pit_erpnextsync.scripts import controller
 def _sv(fieldname, value):
     """Sanitize a value when written to a field that must not contain line breaks (item_name)."""
     if fieldname == "item_name" and isinstance(value, str):
-        return " ".join(value.split())
+        value = " ".join(value.split())
+        if len(value) > 140:
+            value = value[:140]
     return value
 
 
