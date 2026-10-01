@@ -12,6 +12,13 @@ from pit_erpnextsync.scripts import controller
 
 
 #* trim value to max length ##########################################################################
+def _sv(fieldname, value):
+    """Sanitize a value when written to a field that must not contain line breaks (item_name)."""
+    if fieldname == "item_name" and isinstance(value, str):
+        return " ".join(value.split())
+    return value
+
+
 def trim_value(value, field_def: dict):
 	"""Trim a value to the max characters specified by the 'trim' mapping keyword.
 
@@ -379,6 +386,13 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
 
     # after import hooks - trigger once after ALL types have been processed sequentially
     controller.trigger_hooks(instance=instance, before_after="after", import_update="import")
+
+    # Item specifications from dbo.ShopSachmerkmale (incremental; the source has no
+    # timestamp column, so this is a full compare with minimal writes). Runs at the
+    # end of every import - manual and scheduled - because the import creates the items.
+    from pit_erpnextsync.scripts.item_specification_sync import _run_in_cycle
+    _run_in_cycle(instance)
+
     make_log(f"Import completed for instance {instance}", "INFO", controller.APP_NAME)
 
 
@@ -860,7 +874,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         row_has_data = False
                                         break
                                     else:
-                                        new_child_row.set(table_field["table_fieldname"], field_value)
+                                        new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
                                         if field_value not in ["", None]:
                                             row_has_data = True
 
@@ -914,7 +928,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         row_has_data = False
                                         break
                                     elif field_value not in ["", None]:
-                                        new_child_row.set(table_field["table_fieldname"], field_value)
+                                        new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
                                         row_has_data = True
 
                                 elif table_field.get("default"):
@@ -999,7 +1013,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 row_has_data = False
                                 break
                             else:
-                                new_child_row.set(table_field["table_fieldname"], field_value)
+                                new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
 
                             if field_value not in ["", None]:
                                 row_has_data = True
@@ -1033,7 +1047,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             if field_value in ["", None] and table_field.get("reqd") == 1:
                                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
                             elif field_value not in ["", None]:
-                                new_child_row.set(table_field["table_fieldname"], field_value)
+                                new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
                                 row_has_data = True
 
                         elif table_field.get("default"):
