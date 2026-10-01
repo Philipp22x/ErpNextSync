@@ -2255,15 +2255,23 @@ def get_or_create_child_row(
 					"selectline_column": source_column,
 				},
 				fields=["child_row_name", "child_row_doctype"],
-				limit=1,
+				limit=0,
 			)
-			if existing_children and existing_children[0].get("child_row_name") and (
-				child_names_in_use is None or existing_children[0]["child_row_name"] not in child_names_in_use
-			):
-				return {
-					"child_doctype": existing_children[0]["child_row_doctype"],
-					"child_name": existing_children[0]["child_row_name"],
-				}
+			# Only reuse when the referenced child row still exists on the
+			# document. Stale child_row_names (child rows get re-created
+			# outside the mapping entries) would make the write below a
+			# silent no-op and cause duplicate child rows on every run.
+			for candidate in existing_children:
+				cand_name = candidate.get("child_row_name")
+				if not cand_name:
+					continue
+				if child_names_in_use is not None and cand_name in child_names_in_use:
+					continue
+				if frappe.db.get_value(candidate["child_row_doctype"], {"name": cand_name, "parent": docname}):
+					return {
+						"child_doctype": candidate["child_row_doctype"],
+						"child_name": cand_name,
+					}
 
 			# Fallback: no Sync Mapping Entry found for this sl_column child field,
 			# but the child row may already exist on the document (e.g. mapping entry
@@ -2301,15 +2309,20 @@ def get_or_create_child_row(
 						"child_row_name": ["not in", ["", None]],
 					},
 					fields=["child_row_name", "child_row_doctype"],
-					limit=1,
+					limit=0,
 				)
-				if sibling_entries and (
-					child_names_in_use is None or sibling_entries[0]["child_row_name"] not in child_names_in_use
-				):
-					return {
-						"child_doctype": sibling_entries[0]["child_row_doctype"],
-						"child_name": sibling_entries[0]["child_row_name"],
-					}
+				if sibling_entries:
+					for candidate in sibling_entries:
+						cand_name = candidate.get("child_row_name")
+						if not cand_name:
+							continue
+						if child_names_in_use is not None and cand_name in child_names_in_use:
+							continue
+						if frappe.db.get_value(candidate["child_row_doctype"], {"name": cand_name, "parent": docname}):
+							return {
+								"child_doctype": candidate["child_row_doctype"],
+								"child_name": cand_name,
+							}
 
 			parent_doc = frappe.get_doc(doctype, docname)
 			existing_child_rows = parent_doc.get(fieldname) or []
