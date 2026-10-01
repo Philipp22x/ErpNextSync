@@ -303,6 +303,11 @@ def get_stored_child_row_keys_bulk(mapping_names: list, fieldnames: list) -> dic
 	return keys
 
 
+FRAGILE_SQL_TOKENS: tuple = (
+	"SUBSTRING(", "CHARINDEX(", "PATINDEX(", "LEFT(", "RIGHT(", "REPLACE(", "STUFF(", "CONVERT(",
+)
+
+
 def _row_value(row: dict, *keys) -> object:
 	"""Fetch the first matching key from a source row (exact, then case-insensitive)."""
 	for key in keys:
@@ -318,8 +323,17 @@ def _row_value(row: dict, *keys) -> object:
 def _add_hash_col(cols: dict, col: str) -> None:
 	"""Register one column for the source hash. Expressions keep their AS alias;
 	plain columns are aliased with a stable synthetic name so both the bulk
-	check and update_mapping() see identical row keys."""
+	check and update_mapping() see identical row keys.
+
+	Fragile expressions are skipped: the bulk check evaluates them for every row
+	of the source table, and e.g. SUBSTRING over CHARINDEX raises MSSQL error 537
+	on rows where the searched pattern is absent. Skipping them everywhere keeps
+	the hashes on both sides comparable.
+	"""
 	if not col:
+		return
+	upper = str(col).upper()
+	if any(token in upper for token in FRAGILE_SQL_TOKENS):
 		return
 	parts = re.split(r"\sAS\s", col, flags=re.IGNORECASE)
 	if len(parts) > 1 and parts[-1].strip():
