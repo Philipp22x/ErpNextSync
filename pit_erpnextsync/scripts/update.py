@@ -496,6 +496,26 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 			("parent", table_name, tuple(parent_columns)),
 			make_bulk_select(instance, table_name, parent_columns, schema),
 		)
+		if rows is None and hash_columns:
+			# Some mappings contain fragile SQL expressions (e.g. SUBSTRING over
+			# CHARINDEX) that blow up when evaluated across the whole table
+			# (rows where the searched pattern is absent raise MSSQL error 537).
+			# Retry without the hash columns instead of losing the bulk fast
+			# path; the hash net then stays disabled for this type (the
+			# per-mapping check_timestamp() still compares hashes).
+			make_log(
+				f"Bulk check: hash columns unusable for {instance}/{mapping_type} ({table_name}) — "
+				f"retrying without them (hash detection disabled for this type)",
+				"WARNING",
+				controller.APP_NAME,
+			)
+			hash_columns = []
+			parent_columns = [c for c in parent_columns if all(c != sql_col for sql_col, _a in get_hash_columns(
+				json.loads(table_mapping_row.mapping or "[]")))]
+			rows = _cached_fetch(
+				("parent", table_name, tuple(parent_columns)),
+				make_bulk_select(instance, table_name, parent_columns, schema),
+			)
 		if rows is None:
 			make_log(
 				f"Bulk check: parent query failed for {instance}/{mapping_type} ({table_name}) — "
@@ -928,9 +948,11 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         mapping_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "type")
         instance_doc = frappe.get_doc("Sync Instance", instance)
         ts_col: str = None
+        mapping_json_for_hash: list = []
         for table_mapping_row in instance_doc.table_mapping:
             if table_mapping_row.type == mapping_type:
                 ts_col = table_mapping_row.timestamp_column_name
+                mapping_json_for_hash = json.loads(table_mapping_row.mapping or "[]")
                 break
         if not ts_col:
             make_log(f"No timestamp column configured for {mapping_name}, proceeding with update", "INFO", controller.APP_NAME)
@@ -957,11 +979,15 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # condition — the child-level change detection below needs those values
         # to build the source child query.
         mq_groups: list = get_multiple_query_groups(instance_doc, mapping_type)
+        hash_columns: list = get_hash_columns(mapping_json_for_hash)
         parent_columns: list = [ts_col]
         for mq_group in mq_groups:
             for placeholder_col in get_condition_columns(mq_group.get("multiple_query_condition")):
                 if placeholder_col not in parent_columns:
                     parent_columns.append(placeholder_col)
+        for sql_col, _alias in hash_columns:
+            if sql_col not in parent_columns:
+                parent_columns.append(sql_col)
 
         # Build SQL using helper function
         sql: str = controller.make_sql_string_single_row(
@@ -1043,6 +1069,32 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
                     "WARNING",
                     controller.APP_NAME,
                     with_traceback=True,
+                )
+
+        if not ts_changed and not child_changed:
+            # Hash net: the source timestamp is a DATE, so a change made on the
+            # same day as the stored timestamp never bumps it. Compare a hash
+            # over all mapped parent columns instead.
+            try:
+                hash_changed: bool = False
+                if mapping_json_for_hash:
+                    stored_hash: str = frappe.db.get_value("Sync Mapping", mapping_name, "source_hash") or ""
+                    if not stored_hash:
+                        hash_changed = True  # one-time backfill
+                    else:
+                        hash_changed = compute_source_hash(fetched_ts[0], hash_columns) != stored_hash
+                if hash_changed:
+                    make_log(
+                        f"Source hash changed for {mapping_name} (timestamp stayed at {timestamp_str})",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+                    ts_changed = True  # reuse the regular update trigger path
+            except Exception as hash_err:
+                make_log(
+                    f"Source hash comparison failed for {mapping_name}: {hash_err}",
+                    "WARNING",
+                    controller.APP_NAME,
                 )
 
         if not ts_changed and not child_changed:
