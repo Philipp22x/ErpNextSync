@@ -31,6 +31,8 @@
   "driver",
   "column_break_szea",
   "column_break_ahli",
+  "mapping_variables_section",
+  "company",
   "table_mapping_section",
   "table_mapping",
   "section_break_pdio",
@@ -145,6 +147,18 @@
   {
    "fieldname": "column_break_ahli",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "Werte, die im Mapping JSON als {var}-Platzhalter verwendet werden k\u00f6nnen, z. B. {\"fieldname\": \"company\", \"default\": \"{company}\"}",
+   "fieldname": "mapping_variables_section",
+   "fieldtype": "Section Break",
+   "label": "Mapping Variables"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
   },
   {
    "fieldname": "table_mapping_section",
@@ -373,7 +387,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-07-23 11:28:28.164127",
+ "modified": "2026-10-03 11:15:54.000000",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",

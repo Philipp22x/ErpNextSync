@@ -585,21 +585,36 @@ Before running large imports, test with a small subset:
 }
 ```
 
-### 6. Leverage Field Variables for Global Settings
+### 6. Sync Instance Variables (`{company}`)
 
-Set common values in the Sync Instance's field variables:
-- `default_territory`
-- `default_customer_group`
-- `default_company`
-
-Then reference them in mappings:
+The Sync Instance carries a **Company** field (section *Mapping Variables*). Its
+value is available in every string value of the mapping as the placeholder
+`{company}` — this is how a static mapping can target the right company without
+hardcoding it.
 
 ```json
 {
-  "fieldname": "territory",
-  "field_var": "default_territory"
+  "fieldname": "company",
+  "default": "{company}"
 }
 ```
+
+Also works inside any other string value, e.g. a `multiple_query_condition`
+(the value is quoted as a SQL string literal):
+
+```json
+{
+  "fieldname": "contacts",
+  "multiple_query": true,
+  "multiple_query_table": "CONTACTS",
+  "multiple_query_condition": "Company = {company} AND CustomerId = {sl_column:CustomerId}"
+}
+```
+
+Placeholders are resolved at import, update and reconcile time; the
+`multiple_query_condition` placeholder is quoted by the SQL layer, all other
+values are substituted verbatim. `{sl_column:ColumnName}` still resolves a parent
+row column as before.
 
 ### 7. Use Cross-References for Relationships
 
