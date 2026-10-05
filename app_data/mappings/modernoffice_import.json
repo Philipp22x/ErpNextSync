@@ -415,7 +415,7 @@
                                 "default": "WINFO: Belegnummer"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "Nummer",
                                 "reqd": 1
                             }
@@ -429,7 +429,7 @@
                                 "default": "WINFO: Referenz"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "Referenz",
                                 "reqd": 1
                             }
@@ -443,7 +443,7 @@
                                 "default": "WINFO: Vertreter"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "VertreterKurz",
                                 "reqd": 1
                             }
@@ -457,7 +457,7 @@
                                 "default": "WINFO: Liefertermin KW/W"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "LiefertermKW/W",
                                 "reqd": 1
                             }
@@ -471,7 +471,7 @@
                                 "default": "WINFO: Liefertermin KW/J"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "LiefertermKW/J",
                                 "reqd": 1
                             }
@@ -485,7 +485,7 @@
                                 "default": "WINFO: Status"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "Status",
                                 "reqd": 1
                             }
@@ -614,7 +614,7 @@
                                 "default": "WINFO: Umwandlungsnummer"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "CASE WHEN [Umwandlung Kennung] = 'B' THEN CAST([Umwandlung Nummer] AS VARCHAR(50)) ELSE 'Nein' END AS Umwandlungsnummer",
 								"alt_key": "Umwandlungsnummer",
 								"reqd": 1
@@ -629,7 +629,7 @@
                                 "default": "WINFO: Auftragsnummer"
                             },
                             {
-								"table_fieldname": "info",
+								"table_fieldname": "value",
 								"sl_column": "CASE WHEN [Umwandlung Kennung] = 'B' THEN CAST([Jahr] AS VARCHAR(4)) + '-' + RIGHT('00000' + CAST([Umwandlung Nummer] AS VARCHAR(5)), 5) ELSE 'Nein' END AS Auftragsnummer",
 								"alt_key": "Auftragsnummer",
 								"reqd": 1
@@ -644,7 +644,7 @@
                                 "default": "WINFO: Belegnummer"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "Nummer",
 								"reqd": 1
                             }
@@ -658,7 +658,7 @@
                                 "default": "WINFO: Bezug/Kennz."
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "Bezug/Kennz.",
                                 "reqd": 1
                             }
@@ -672,7 +672,7 @@
                                 "default": "WINFO: Vertreter"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "VertreterKurz",
                                 "reqd": 1
                             }
@@ -686,7 +686,7 @@
                                 "default": "WINFO: Liefertermin KW/W"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "CAST(SUBSTRING([Bezug/Kennz.], CHARINDEX('FEST', [Bezug/Kennz.]) + 5, CHARINDEX('/', [Bezug/Kennz.], CHARINDEX('FEST', [Bezug/Kennz.])) - CHARINDEX('FEST', [Bezug/Kennz.]) - 5) AS INT) AS LieferKW",
 								"alt_key": "LieferKW",
                                 "reqd": 1
@@ -701,7 +701,7 @@
                                 "default": "WINFO: Liefertermin KW/J"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "2000 + CAST(SUBSTRING([Bezug/Kennz.], CHARINDEX('/', [Bezug/Kennz.], CHARINDEX('FEST', [Bezug/Kennz.])) + 1, 2) AS INT) AS LieferJahr",
 								"alt_key": "LieferJahr",
                                 "reqd": 1
@@ -716,7 +716,7 @@
                                 "default": "WINFO: Status"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "Status",
                                 "reqd": 1
                             }
@@ -730,7 +730,7 @@
                                 "default": "WINFO: Bestellnummer Kunde"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "BestellnummerKunde",
                                 "reqd": 1
                             }
