@@ -5,3 +5,4 @@
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 pit_erpnextsync.patches.add_source_hash_field
+pit_erpnextsync.patches.migrate_company_to_mapping_variables

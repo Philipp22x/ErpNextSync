@@ -585,12 +585,23 @@ Before running large imports, test with a small subset:
 }
 ```
 
-### 6. Sync Instance Variables (`{company}`)
+### 6. Sync Instance Variables (`{var}`)
 
-The Sync Instance carries a **Company** field (section *Mapping Variables*). Its
-value is available in every string value of the mapping as the placeholder
-`{company}` — this is how a static mapping can target the right company without
-hardcoding it.
+The Sync Instance carries a **Mapping Variables** child table (section *Mapping
+Variables*). Each row defines one placeholder:
+
+| Field | Meaning |
+|-------|---------|
+| **Var Name** | The placeholder name, used in mappings as `{var_name}` (e.g. `company`) |
+| **Document Type** | Any DocType (Link) — the type of the value document |
+| **Document Name** | The selected document (Dynamic Link on *Document Type*) |
+
+The **Document Name** can be a document of any DocType — Company, Territory,
+Customer Group, Warehouse, Cost Center, … So a static mapping can target the
+right record without hardcoding it.
+
+Example row: `Var Name = company`, `Document Type = Company`,
+`Document Name = My Company` → placeholder `{company}` resolves to `My Company`.
 
 ```json
 {

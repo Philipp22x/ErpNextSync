@@ -446,7 +446,7 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         ):
             raise Exception("Args invalid")
 
-        # load mapping table json and resolve Sync Instance variables ({company}, ...)
+        # load mapping table json and resolve Sync Instance variables ({var}, e.g. {company})
         mapping: list = json.loads(table_mapping_row.mapping)
         mapping = controller.apply_instance_vars_to_mapping(mapping, controller.get_instance_vars(instance))
 

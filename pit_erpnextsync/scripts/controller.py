@@ -329,17 +329,25 @@ def _quote_mssql_col(col: str) -> str:
 def get_instance_vars(instance: str) -> dict:
 	"""Return mapping variables defined on the Sync Instance doc.
 
-	These are usable as ``{var}`` placeholders inside the mapping JSON — e.g.
-	``{"fieldname": "company", "default": "{company}"}`` or inside a
-	``multiple_query_condition``. Currently only ``company`` exists.
+	Each row of the ``mapping_variables`` child table maps a ``var_name`` to a
+	document name (``document_name``, chosen via a Dynamic Link on
+	``document_type``). The name is usable as a ``{var}`` placeholder inside the
+	mapping JSON — e.g. ``{"fieldname": "company", "default": "{company}"}`` or
+	inside a ``multiple_query_condition``. Any doctype can be used as the value.
 	"""
 
 	instance_var_map: dict = {}
 	if not instance:
 		return instance_var_map
-	company: str = frappe.db.get_value("Sync Instance", instance, "company")
-	if company:
-		instance_var_map["company"] = company
+
+	rows = frappe.db.get_all(
+		"Sync Instance Variable",
+		filters={"parent": instance, "parenttype": "Sync Instance"},
+		fields=["var_name", "document_name"],
+	)
+	for row in rows:
+		if row.var_name and row.document_name:
+			instance_var_map[row.var_name] = row.document_name
 	return instance_var_map
 
 
