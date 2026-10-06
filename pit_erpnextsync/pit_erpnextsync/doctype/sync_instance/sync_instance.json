@@ -32,7 +32,7 @@
   "column_break_szea",
   "column_break_ahli",
   "mapping_variables_section",
-  "company",
+  "mapping_variables",
   "table_mapping_section",
   "table_mapping",
   "section_break_pdio",
@@ -149,16 +149,16 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Werte, die im Mapping JSON als {var}-Platzhalter verwendet werden k\u00f6nnen, z. B. {\"fieldname\": \"company\", \"default\": \"{company}\"}",
+   "description": "Werte, die im Mapping JSON als {var}-Platzhalter verwendet werden k\u00f6nnen. Pro Zeile: ein Variablenname (z. B. company) und ein beliebiges Dokument als Wert, z. B. Var Name \"company\" + Document Type \"Company\" + Document Name \"My Company\" \u2192 {company}.",
    "fieldname": "mapping_variables_section",
    "fieldtype": "Section Break",
    "label": "Mapping Variables"
   },
   {
-   "fieldname": "company",
-   "fieldtype": "Link",
-   "label": "Company",
-   "options": "Company"
+   "fieldname": "mapping_variables",
+   "fieldtype": "Table",
+   "label": "Mapping Variables",
+   "options": "Sync Instance Variable"
   },
   {
    "fieldname": "table_mapping_section",
@@ -387,7 +387,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-10-03 11:15:54.000000",
+ "modified": "2026-10-06 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",
