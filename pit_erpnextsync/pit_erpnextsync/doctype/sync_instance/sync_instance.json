@@ -149,7 +149,8 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Werte, die im Mapping JSON als {var}-Platzhalter verwendet werden k\u00f6nnen. Pro Zeile: ein Variablenname (z. B. company) und ein beliebiges Dokument als Wert, z. B. Var Name \"company\" + Document Type \"Company\" + Document Name \"My Company\" \u2192 {company}.",
+   "collapsible": 1,
+   "description": "Values usable as {var} placeholders in the mapping JSON. One row per variable: a Var Name (e.g. company) and any document as its value - e.g. Var Name \"company\" + Document Type \"Company\" + Document Name \"My Company\" resolves {company}.",
    "fieldname": "mapping_variables_section",
    "fieldtype": "Section Break",
    "label": "Mapping Variables"
@@ -387,7 +388,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-10-06 12:00:00.000000",
+ "modified": "2026-10-06 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",
