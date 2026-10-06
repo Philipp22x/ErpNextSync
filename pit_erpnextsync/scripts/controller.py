@@ -1,5 +1,6 @@
 import json
 from pprint import pprint
+from typing import Any
 
 import frappe
 import pymssql
@@ -322,6 +323,58 @@ def _quote_mssql_col(col: str) -> str:
 	return f"[{col}]"
 
 
+# *## INSTANCE VARIABLES ##########################################################################
+
+
+def get_instance_vars(instance: str) -> dict:
+	"""Return mapping variables defined on the Sync Instance doc.
+
+	These are usable as ``{var}`` placeholders inside the mapping JSON — e.g.
+	``{"fieldname": "company", "default": "{company}"}`` or inside a
+	``multiple_query_condition``. Currently only ``company`` exists.
+	"""
+
+	instance_var_map: dict = {}
+	if not instance:
+		return instance_var_map
+	company: str = frappe.db.get_value("Sync Instance", instance, "company")
+	if company:
+		instance_var_map["company"] = company
+	return instance_var_map
+
+
+def apply_instance_vars(value: Any, instance_vars: dict) -> Any:
+	"""Replace ``{var}`` placeholders in a string with Sync Instance values."""
+
+	if not instance_vars or not isinstance(value, str):
+		return value
+	for var_name, var_value in instance_vars.items():
+		placeholder: str = "{" + var_name + "}"
+		if placeholder in value:
+			value = value.replace(placeholder, str(var_value))
+	return value
+
+
+def apply_instance_vars_to_mapping(mapping: Any, instance_vars: dict) -> Any:
+	"""Recursively substitute ``{var}`` placeholders in a parsed mapping structure.
+
+	``multiple_query_condition`` values are intentionally left untouched: their
+	placeholders are resolved (and SQL-quoted) in ``fetch_multiple_rows`` via the
+	parent row data, which also carries the instance variables (see there).
+	"""
+
+	if not instance_vars:
+		return mapping
+	if isinstance(mapping, dict):
+		return {
+			key: (val if key == "multiple_query_condition" else apply_instance_vars_to_mapping(val, instance_vars))
+			for key, val in mapping.items()
+		}
+	if isinstance(mapping, list):
+		return [apply_instance_vars_to_mapping(item, instance_vars) for item in mapping]
+	return apply_instance_vars(mapping, instance_vars)
+
+
 def fetch_multiple_rows(
 	instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None,
 	columns: list | None = None,
@@ -359,6 +412,15 @@ def fetch_multiple_rows(
 		condition_clean = condition.strip()
 		if condition_clean.upper().startswith("WHERE "):
 			condition_clean = condition_clean[6:].strip()
+
+		# Merge in Sync Instance mapping variables (e.g. {company}) so conditions
+		# can filter on instance-level values; parent row data wins on key clashes.
+		instance_vars: dict = get_instance_vars(instance)
+		if instance_vars:
+			merged_data: dict = dict(instance_vars)
+			if parent_data:
+				merged_data.update(parent_data)
+			parent_data = merged_data
 
 		# Replace placeholders with parent data values
 		# Format 1: TableAlias.ColumnName -> replaced with actual value from parent_data

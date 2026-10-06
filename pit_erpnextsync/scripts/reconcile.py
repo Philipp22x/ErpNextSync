@@ -2628,7 +2628,12 @@ def get_current_json_mapping(instance_doc: Document, mapping_type: str) -> Optio
 		for row in instance_doc.table_mapping:
 			if row.type == mapping_type:
 				if row.mapping:
-					return json.loads(row.mapping)
+					mapping: List[Dict] = json.loads(row.mapping)
+					# resolve Sync Instance variables ({company}, ...) so defaults and
+					# other string values are written with the actual instance values
+					return controller.apply_instance_vars_to_mapping(
+						mapping, controller.get_instance_vars(instance_doc.name)
+					)
 		return None
 	except Exception as e:
 		make_log(

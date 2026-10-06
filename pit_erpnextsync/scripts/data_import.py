@@ -446,8 +446,9 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         ):
             raise Exception("Args invalid")
 
-        # load mapping table json
+        # load mapping table json and resolve Sync Instance variables ({company}, ...)
         mapping: list = json.loads(table_mapping_row.mapping)
+        mapping = controller.apply_instance_vars_to_mapping(mapping, controller.get_instance_vars(instance))
 
         # check reqd fields for obj
         missing_columns: list = check_obj_requirements(fetched_obj=fetched_obj, mapping=mapping)
@@ -1297,13 +1298,17 @@ def check_obj_requirements(fetched_obj: dict, mapping: list) -> list:
 
 #* HOOKS #########################################################################################
 def before_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
+    # Only skip auto-naming when the mapping already provided a name.
+    # Setting flags.name_set unconditionally makes Frappe's set_new_name()
+    # return early during insert, so new_doc.name is still None when
+    # set_parent_in_children() runs directly after it (frappe/model/document.py
+    # insert()) - every appended child row (Item barcodes, the information
+    # table, ...) would then be inserted with parent = NULL and never show up
+    # on the document.
     match new_doc.doctype:
-        case "Customer":
-            new_doc.flags.name_set = True
-        case "Supplier":
-            new_doc.flags.name_set = True
-        case "Item":
-            new_doc.flags.name_set = True
+        case "Customer" | "Supplier" | "Item":
+            if new_doc.name:
+                new_doc.flags.name_set = True
 
 
 def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:

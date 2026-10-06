@@ -1162,6 +1162,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             if tm_row.type == mapping_doc.type:
                 time_stamp_col_name = tm_row.timestamp_column_name
                 mapping_json = json.loads(tm_row.mapping)
+                mapping_json = controller.apply_instance_vars_to_mapping(mapping_json, controller.get_instance_vars(instance))
                 table_mapping_row = tm_row
                 break
 
