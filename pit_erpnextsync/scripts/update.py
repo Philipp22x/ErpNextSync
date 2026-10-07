@@ -408,6 +408,191 @@ def rematch_stale_child_row(mapping_json: list, mapping_doctype: str, fieldname:
 	return None
 
 
+def create_missing_info_rows(
+	mapping_doc: Document,
+	mapping_json: list,
+	fetched_data: list,
+	mapping_name: str,
+	instance: str,
+	value_map_lookup: dict,
+	mapped_value_lookup: dict,
+	phone_field_lookup: dict,
+	trim_lookup: dict,
+) -> None:
+	"""Create non-mq child rows (info table rows) the document never received.
+
+	An info-row group added to a mapping after a document was imported can
+	never reach that document through the regular update: the entry loop
+	updates only rows a Sync Mapping Entry already points at, so a group
+	without entries has nothing to iterate — and since the stored source
+	hash reflects the source state, no later run re-triggers the update
+	(the document is stuck in a dead-end state). This repairs that state at
+	update time: create the missing child row from the fetched parent data,
+	adopt an existing untracked row, and write the Sync Mapping Entry rows
+	so every future update finds the row.
+	"""
+
+	def _row_col(row_data: dict, col: str):
+		if not row_data or not col:
+			return None
+		if col in row_data:
+			return row_data[col]
+		upper = col.upper()
+		for k, v in row_data.items():
+			if k.upper() == upper:
+				return v
+		return None
+
+	# One parent document per mapping — take it from any entry with a docname.
+	parent_docname = next((e.docname for e in mapping_doc.mapping_table if e.docname), None)
+	if not parent_docname:
+		return
+
+	for mapped_doctype in mapping_json or []:
+		doctype_name = mapped_doctype.get("doctype")
+		if not doctype_name:
+			continue
+		for field in mapped_doctype.get("fields", []):
+			fieldname = field.get("fieldname")
+			if not fieldname or field.get("multiple_query") or not field.get("table_fields"):
+				continue
+			try:
+				child_doctype = frappe.get_meta(doctype_name).get_field(fieldname).options
+			except Exception:
+				continue
+			if not child_doctype:
+				continue
+
+			# The label field identifies the row (same semantics as
+			# rematch_stale_child_row): a table_field with only `default`.
+			label_tf = next(
+				(tf for tf in field["table_fields"] if not tf.get("sl_column") and tf.get("default")),
+				None,
+			)
+			label_field = label_tf.get("table_fieldname") if label_tf else None
+			label_value = label_tf.get("default") if label_tf else None
+			if not label_field or label_value is None:
+				continue
+
+			if not frappe.db.exists(doctype_name, parent_docname):
+				continue
+
+			existing = frappe.get_all(
+				child_doctype,
+				filters={"parent": parent_docname, "parenttype": doctype_name, label_field: label_value},
+				fields=["name"], limit=2, order_by="idx",
+			)
+			if len(existing) > 1:
+				# Ambiguous manual data situation — leave it to a one-off repair.
+				continue
+			if existing and any(mrow.child_row_name == existing[0].name for mrow in mapping_doc.mapping_table):
+				# Group already tracked — the entry loop keeps the row updated.
+				continue
+
+			# Resolve the group's values from the fetched parent row
+			resolved: dict = {}
+			skip_row = False
+			for tf in field["table_fields"]:
+				tfn = tf.get("table_fieldname")
+				if not tfn:
+					continue
+				if tf.get("sl_column"):
+					col_key = tf["sl_column"]
+					if " AS " in col_key or " as " in col_key:
+						col_key = col_key.rsplit(" AS ", 1)[-1].rsplit(" as ", 1)[-1].strip()
+					value = _row_col(fetched_data[0], col_key)
+					if tf.get("alt_key") and _row_col(fetched_data[0], tf["alt_key"]) not in (None, ""):
+						value = _row_col(fetched_data[0], tf["alt_key"])
+					if tf.get("force_str_type") == 1 and value is not None:
+						value = str(value)
+					lookup_key = f"{child_doctype}:{tfn}:{tf['sl_column']}"
+					if lookup_key in value_map_lookup and value is not None:
+						map_data = value_map_lookup[lookup_key]
+						value_map = map_data.get("map") or {}
+						map_default = map_data.get("default")
+						value = value_map.get(str(value), map_default if map_default is not None else value)
+					if lookup_key in mapped_value_lookup and value is not None:
+						mv = mapped_value_lookup[lookup_key]
+						sl_id_val = _row_col(fetched_data[0], mv.get("sl_id"))
+						if sl_id_val is not None:
+							resolved_mv = controller.get_mapped_value(
+								sl_id=f"{instance}:{mv.get('table_name')}:{sl_id_val}",
+								doc_type=mv.get("doc_type"),
+								fieldname=mv.get("fieldname"),
+							)
+							if resolved_mv:
+								value = str(resolved_mv)
+					phone_key = f"{child_doctype}:{tfn}"
+					if phone_key in phone_field_lookup and value:
+						value = format_phone_number(value, phone_field_lookup[phone_key]["country_code"])
+					if phone_key in trim_lookup and value is not None:
+						value = str(value)[:trim_lookup[phone_key]]
+				elif tf.get("default") is not None:
+					value = tf["default"]
+				else:
+					continue
+				if value in ["", None] and tf.get("reqd") == 1:
+					skip_row = True
+					break
+				resolved[tfn] = value
+			if skip_row or not resolved:
+				continue
+
+			if existing:
+				child_name = existing[0].name
+				action = "adopted"
+			else:
+				parent_docstatus = frappe.db.get_value(doctype_name, parent_docname, "docstatus") or 0
+				last_idx_row = frappe.get_all(
+					child_doctype,
+					filters={"parent": parent_docname, "parentfield": fieldname},
+					fields=["idx"], order_by="idx desc", limit=1,
+				)
+				next_idx = (last_idx_row[0].idx if last_idx_row else 0) + 1
+				child_name = frappe.generate_hash(length=8)
+				new_row = frappe.get_doc({
+					"doctype": child_doctype,
+					"parenttype": doctype_name,
+					"parent": parent_docname,
+					"name": child_name,
+					"parentfield": fieldname,
+					"idx": next_idx,
+					"docstatus": parent_docstatus,
+				})
+				new_row.insert(ignore_permissions=True, ignore_mandatory=True)
+				# insert() renames the doc (set_new_name resets doc.name) —
+				# the generated name must be used from here on
+				child_name = new_row.name
+				action = "created"
+
+			for tfn, value in resolved.items():
+				if value not in ["", None]:
+					frappe.db.set_value(child_doctype, child_name, tfn, value)
+
+			for tf in field["table_fields"]:
+				if tf.get("sl_column"):
+					controller.insert_mapping_row(
+						mapping_doc_name=mapping_name,
+						data={
+							"mapping_doctype": doctype_name,
+							"docname": parent_docname,
+							"fieldname": fieldname,
+							"child_row_fieldname": tf.get("table_fieldname"),
+							"child_row_name": child_name,
+							"child_row_doctype": child_doctype,
+							"selectline_column": trim_value(tf["sl_column"], tf),
+						},
+					)
+
+			make_log(
+				f"Info-row repair for {mapping_name}: {action} {child_doctype} row {child_name} "
+				f"on {doctype_name} {parent_docname} (group {fieldname}, {label_field}={label_value})",
+				"INFO",
+				controller.APP_NAME,
+			)
+			frappe.db.commit()
+
+
 def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping_row, schema: str = "") -> dict:
 	"""Bulk equivalent of check_timestamp() for every mapping of one type.
 
@@ -1728,6 +1913,32 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "INFO",
                         controller.APP_NAME,
                     )
+
+        # Create non-mq child rows (info table rows) that the document never
+        # received — e.g. info groups added to the mapping JSON after the doc
+        # was imported. Without this such a group can never sync: the entry
+        # loop below updates only rows a Sync Mapping Entry already points at,
+        # and the stored source hash hides the change from every future run
+        # (dead-end state).
+        try:
+            create_missing_info_rows(
+                mapping_doc=mapping_doc,
+                mapping_json=mapping_json,
+                fetched_data=fetched_data,
+                mapping_name=mapping_name,
+                instance=instance,
+                value_map_lookup=value_map_lookup,
+                mapped_value_lookup=mapped_value_lookup,
+                phone_field_lookup=phone_field_lookup,
+                trim_lookup=trim_lookup,
+            )
+        except Exception as info_err:
+            make_log(
+                f"Info-row repair failed for {mapping_name}: {info_err}",
+                "ERROR",
+                controller.APP_NAME,
+                with_traceback=True,
+            )
 
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:
