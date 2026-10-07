@@ -557,12 +557,17 @@ def create_missing_info_rows(
 					"name": child_name,
 					"parentfield": fieldname,
 					"idx": next_idx,
-					"docstatus": parent_docstatus,
 				})
 				new_row.insert(ignore_permissions=True, ignore_mandatory=True)
 				# insert() renames the doc (set_new_name resets doc.name) —
 				# the generated name must be used from here on
 				child_name = new_row.name
+				if parent_docstatus:
+					# A new child doc always starts at docstatus 0 — putting the
+					# parent's docstatus into the insert dict raises
+					# DocstatusTransitionError for submitted/cancelled parents.
+					# Write it on the DB level instead (no transition validation).
+					frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
 				action = "created"
 
 			for tfn, value in resolved.items():
@@ -1881,12 +1886,17 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "name": child_name,
                         "parentfield": fieldname,
                         "idx": next_idx,
-                        "docstatus": parent_docstatus,
                     })
                     new_row.insert(ignore_permissions=True, ignore_mandatory=True)
                     # insert() renames the doc (set_new_name resets doc.name) —
                     # the generated name must be used from here on
                     child_name = new_row.name
+                    if parent_docstatus:
+                        # A new child doc always starts at docstatus 0 — putting the
+                        # parent's docstatus into the insert dict raises
+                        # DocstatusTransitionError for submitted/cancelled parents.
+                        # Write it on the DB level instead (no transition validation).
+                        frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
                     next_idx += 1
 
                     for tfn, value in resolved.items():
