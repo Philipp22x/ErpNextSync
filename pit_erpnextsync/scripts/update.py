@@ -557,12 +557,17 @@ def create_missing_info_rows(
 					"name": child_name,
 					"parentfield": fieldname,
 					"idx": next_idx,
-					"docstatus": parent_docstatus,
 				})
 				new_row.insert(ignore_permissions=True, ignore_mandatory=True)
 				# insert() renames the doc (set_new_name resets doc.name) —
 				# the generated name must be used from here on
 				child_name = new_row.name
+				if parent_docstatus:
+					# A new child doc always starts at docstatus 0 — putting the
+					# parent's docstatus into the insert dict raises
+					# DocstatusTransitionError for submitted/cancelled parents.
+					# Write it on the DB level instead (no transition validation).
+					frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
 				action = "created"
 
 			for tfn, value in resolved.items():
@@ -1783,6 +1788,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 # instead of creating a new one. The pool is consumed per source row,
                 # so legitimate repeated values (same article, different qty) still
                 # get their own row.
+                adopted_rows: list = []
                 if match_child_fieldname and match_sl_col and parent_docname:
                     tracked_names = {
                         e.child_row_name for el in entries_by_child.values() for e in el
@@ -1796,14 +1802,15 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         value = row.get(match_child_fieldname)
                         if value in (None, "") or row.get("name") in tracked_names:
                             continue
-                        pool[str(value)] = pool.get(str(value), 0) + 1
+                        pool.setdefault(str(value), []).append(row.name)
                     if pool:
                         guarded = []
                         adopted = 0
                         for key in new_keys:
                             value = _get_col(source_by_key[key], match_sl_col)
-                            if value is not None and pool.get(str(value), 0) > 0:
-                                pool[str(value)] -= 1
+                            rows_for_value = pool.get(str(value)) if value is not None else None
+                            if rows_for_value:
+                                adopted_rows.append({"key": key, "row_name": rows_for_value.pop(0)})
                                 adopted += 1
                                 continue
                             guarded.append(key)
@@ -1816,8 +1823,39 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                                 controller.APP_NAME,
                             )
                         new_keys = guarded
-                        if not new_keys:
-                            continue
+
+                # An adopted row is already on the document, but its Sync Mapping
+                # Entries may be missing (e.g. entries removed by an earlier
+                # structural sync while the row itself survived). Without entries
+                # the stored key set never converges with the source set, so the
+                # mapping is flagged "child rows changed" on EVERY cycle and is
+                # re-updated forever. Track the adoption like a creation.
+                for adopted in adopted_rows:
+                    for tf in field.get("table_fields", []):
+                        if tf.get("sl_column"):
+                            controller.insert_mapping_row(
+                                mapping_doc_name=mapping_name,
+                                data={
+                                    "mapping_doctype": doctype_name,
+                                    "docname": parent_docname,
+                                    "fieldname": fieldname,
+                                    "child_row_fieldname": tf.get("table_fieldname"),
+                                    "child_row_name": adopted["row_name"],
+                                    "child_row_doctype": child_doctype,
+                                    "selectline_column": trim_value(tf["sl_column"], tf),
+                                    "source_row_key": adopted["key"],
+                                },
+                            )
+                    make_log(
+                        f"Duplicate guard: tracked adopted {child_doctype} row {adopted['row_name']} "
+                        f"of {doctype_name} {parent_docname} (match_key_column="
+                        f"{match_key_col}={adopted['key']}) with Sync Mapping Entries",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+
+                if not new_keys:
+                    continue
 
                 for key in new_keys:
                     srow = source_by_key[key]
@@ -1881,12 +1919,17 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "name": child_name,
                         "parentfield": fieldname,
                         "idx": next_idx,
-                        "docstatus": parent_docstatus,
                     })
                     new_row.insert(ignore_permissions=True, ignore_mandatory=True)
                     # insert() renames the doc (set_new_name resets doc.name) —
                     # the generated name must be used from here on
                     child_name = new_row.name
+                    if parent_docstatus:
+                        # A new child doc always starts at docstatus 0 — putting the
+                        # parent's docstatus into the insert dict raises
+                        # DocstatusTransitionError for submitted/cancelled parents.
+                        # Write it on the DB level instead (no transition validation).
+                        frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
                     next_idx += 1
 
                     for tfn, value in resolved.items():
