@@ -237,14 +237,16 @@ def detect_child_row_changes(
 	# Value fingerprint: a changed value inside an EXISTING row keeps the child
 	# key set, the parent row and the parent hash untouched, so none of the other
 	# signals can see it. Compare the hash over all mapped child values instead;
-	# an empty stored hash is a one-time backfill (first run after deploy).
-	stored_child_hash: str = frappe.db.get_value("Sync Mapping", mapping_name, "child_hash") or ""
-	computed_child_hash: str = combine_child_fingerprints(group_fps)
-	if not stored_child_hash or computed_child_hash != stored_child_hash:
-		result["changed"] = True
-		result["child_hash_changed"] = True
-		result["computed_child_hash"] = computed_child_hash
-		result["stored_child_hash"] = stored_child_hash
+	# an empty stored hash is a one-time backfill (first run after deploy), and a
+	# site that has not run the patch yet keeps the net inactive.
+	if child_hash_available():
+		stored_child_hash: str = frappe.db.get_value("Sync Mapping", mapping_name, "child_hash") or ""
+		computed_child_hash: str = combine_child_fingerprints(group_fps)
+		if not stored_child_hash or computed_child_hash != stored_child_hash:
+			result["changed"] = True
+			result["child_hash_changed"] = True
+			result["computed_child_hash"] = computed_child_hash
+			result["stored_child_hash"] = stored_child_hash
 
 	return result
 
@@ -388,6 +390,25 @@ def compute_source_hash(row: dict, hash_columns: list) -> str:
 		value = _row_value(row, alias, sql_col)
 		parts.append("%s=%s" % (alias, "" if value is None else str(value).strip()))
 	return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+_CHILD_HASH_AVAILABLE: dict = {}
+
+
+def child_hash_available() -> bool:
+	"""True when the `child_hash` Custom Field exists on this site.
+
+	Deploy order is migrate-then-restart (the patch creates the field), but a
+	restart before the migrate must not turn every transaction mapping into
+	"changed" — while the column is missing the value net simply stays inactive.
+	Cached per process: `has_column` hits INFORMATION_SCHEMA.
+	"""
+	if "v" not in _CHILD_HASH_AVAILABLE:
+		try:
+			_CHILD_HASH_AVAILABLE["v"] = bool(frappe.db.has_column("Sync Mapping", "child_hash"))
+		except Exception:
+			_CHILD_HASH_AVAILABLE["v"] = False
+	return _CHILD_HASH_AVAILABLE["v"]
 
 
 def get_child_value_columns(group: dict) -> list:
@@ -705,8 +726,8 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 	mapping_rows: list = frappe.get_all(
 		"Sync Mapping",
 		filters={"selectline_db_instance": instance, "type": mapping_type, "enable": 1},
-		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type", "source_hash",
-				"child_hash"],
+		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type", "source_hash"]
+		+ (["child_hash"] if child_hash_available() else []),
 		limit_page_length=0,
 	)
 	if not mapping_rows:
@@ -893,7 +914,7 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 						bucket.get("rows") or [], get_child_value_columns(g), g["match_key_column"]
 					)
 			computed_child_hash: str = combine_child_fingerprints(group_fps) if mq_groups else ""
-			if collect_fingerprints and mq_groups:
+			if collect_fingerprints and mq_groups and child_hash_available():
 				result["fingerprints"][m["name"]] = computed_child_hash
 
 			child_changed: bool = False
@@ -919,13 +940,16 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 				# key set (and the parent row) untouched, so only the value hash can
 				# see it. Never 'break' out of the group loop above — every group must
 				# contribute, or the combined hash cannot match the stored one.
-				stored_child_hash: str = m.get("child_hash") or ""
-				if not stored_child_hash:
-					child_values_changed = True  # one-time backfill after deploy
-				elif computed_child_hash != stored_child_hash:
-					child_values_changed = True
-				if child_values_changed:
-					child_changed = True
+				# While the field is missing (restart before migrate) the net stays
+				# inactive instead of flagging every mapping as changed.
+				if child_hash_available():
+					stored_child_hash: str = m.get("child_hash") or ""
+					if not stored_child_hash:
+						child_values_changed = True  # one-time backfill after deploy
+					elif computed_child_hash != stored_child_hash:
+						child_values_changed = True
+					if child_values_changed:
+						child_changed = True
 
 			hash_changed: bool = False
 			if not ts_changed and not child_changed:
@@ -2323,12 +2347,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # the only signal that can trigger the update for such a change — and the
         # two checks read this value back, so it must come from the same helper.
         try:
-            frappe.db.set_value(
-                "Sync Mapping", mapping_name,
-                "child_hash",
-                combine_child_fingerprints(child_group_fps),
-                update_modified=False,
-            )
+            if child_hash_available():
+                frappe.db.set_value(
+                    "Sync Mapping", mapping_name,
+                    "child_hash",
+                    combine_child_fingerprints(child_group_fps),
+                    update_modified=False,
+                )
         except Exception as child_hash_err:
             make_log(f"Could not store child hash for {mapping_name}: {child_hash_err}", "ERROR", controller.APP_NAME)
         frappe.db.set_value("Sync Mapping", mapping_name, "last_update", datetime.datetime.now(), update_modified=False)

@@ -33,6 +33,12 @@ def main(instance: str, types_str: str = "", dry_run=1) -> dict:
 	instance_doc = frappe.get_doc("Sync Instance", instance)
 	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
 
+	if not update.child_hash_available():
+		raise Exception(
+			"Sync Mapping.child_hash does not exist on this site - run `bench --site <site> migrate` "
+			"(patch pit_erpnextsync.patches.add_child_hash_field) first."
+		)
+
 	types: list = [r.type for r in instance_doc.table_mapping]
 	if types_str:
 		wanted = {t.strip() for t in str(types_str).split(",") if t.strip()}
