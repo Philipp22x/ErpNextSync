@@ -100,6 +100,7 @@ def get_multiple_query_groups(instance_doc: Document, mapping_type: str) -> list
 						"multiple_query_table": field.get("multiple_query_table"),
 						"multiple_query_condition": field.get("multiple_query_condition"),
 						"match_key_column": match_key_col,
+						"table_fields": field.get("table_fields") or [],
 					}
 				)
 	return groups
@@ -178,6 +179,7 @@ def detect_child_row_changes(
 		return result
 
 	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+	group_fps: dict = {}
 
 	for group in groups:
 		doctype_name: str = group.get("doctype")
@@ -194,7 +196,7 @@ def detect_child_row_changes(
 			condition=mq_condition,
 			schema=schema,
 			parent_data=parent_data,
-			columns=[match_key_col],
+			columns=[match_key_col] + get_child_value_columns(group),
 		)
 		if not source_rows:
 			make_log(
@@ -203,6 +205,7 @@ def detect_child_row_changes(
 				"DEBUG",
 				controller.APP_NAME,
 			)
+			group_fps[fieldname] = ""
 			continue
 
 		source_keys: set = set()
@@ -215,6 +218,9 @@ def detect_child_row_changes(
 		stored_keys: set = stored.get("keys") or set()
 
 		group_changed: bool = bool(stored.get("missing")) or source_keys != stored_keys
+		group_fps[fieldname] = compute_child_fingerprint(
+			source_rows, get_child_value_columns(group), match_key_col
+		)
 		result["groups"].append(
 			{
 				"doctype": doctype_name,
@@ -227,6 +233,18 @@ def detect_child_row_changes(
 		)
 		if group_changed:
 			result["changed"] = True
+
+	# Value fingerprint: a changed value inside an EXISTING row keeps the child
+	# key set, the parent row and the parent hash untouched, so none of the other
+	# signals can see it. Compare the hash over all mapped child values instead;
+	# an empty stored hash is a one-time backfill (first run after deploy).
+	stored_child_hash: str = frappe.db.get_value("Sync Mapping", mapping_name, "child_hash") or ""
+	computed_child_hash: str = combine_child_fingerprints(group_fps)
+	if not stored_child_hash or computed_child_hash != stored_child_hash:
+		result["changed"] = True
+		result["child_hash_changed"] = True
+		result["computed_child_hash"] = computed_child_hash
+		result["stored_child_hash"] = stored_child_hash
 
 	return result
 
@@ -369,6 +387,60 @@ def compute_source_hash(row: dict, hash_columns: list) -> str:
 	for sql_col, alias in hash_columns or []:
 		value = _row_value(row, alias, sql_col)
 		parts.append("%s=%s" % (alias, "" if value is None else str(value).strip()))
+	return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def get_child_value_columns(group: dict) -> list:
+	"""Mapped plain source columns of a multiple_query group's table_fields.
+
+	Plain columns only: a child table_field may not be an SQL expression (the
+	child path resolves sl_column verbatim), and alt_key / mapped_value columns
+	resolve from other rows, so neither belongs into a value fingerprint.
+	"""
+	columns: list = []
+	for tf in (group or {}).get("table_fields") or []:
+		col = tf.get("sl_column")
+		if not col or " AS " in col or " as " in col:
+			continue
+		if col not in columns:
+			columns.append(col)
+	return columns
+
+
+def compute_child_fingerprint(rows: list, columns: list, key_col: str) -> str:
+	"""Stable hash over the VALUES of one multiple_query group's source rows.
+
+	The child key set (match_key_column) only proves WHICH rows exist: a changed
+	value inside an existing row keeps the key, the parent row and the parent
+	hash untouched, so the document counted as unchanged and the ERP child row
+	kept the old value forever (observed: an order line switched to a different
+	article never reached ERPNext). This fingerprint is that missing trigger.
+	Both sides of the comparison (source fingerprint and the value stored on
+	Sync Mapping.child_hash) MUST use this function.
+	"""
+	if not rows:
+		return ""
+	lines: list = []
+	for row in rows:
+		values: list = []
+		for col in columns or []:
+			value = get_row_col(row, col)
+			values.append("%s=%s" % (col.upper(), "" if value is None else str(value).strip()))
+		key_val = get_row_col(row, key_col) if key_col else None
+		lines.append("%s|%s" % ("" if key_val is None else str(key_val).strip(), "|".join(values)))
+	return hashlib.md5("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
+
+
+def combine_child_fingerprints(per_group: dict) -> str:
+	"""One value per mapping: md5 over the sorted '<fieldname>:<fingerprint>' lines.
+
+	Empty groups participate with an empty fingerprint so all three call sites
+	(bulk check, per-mapping check, update write-back) compute identical values.
+	"""
+	parts: list = [
+		"%s:%s" % (fieldname, fingerprint)
+		for fieldname, fingerprint in sorted((per_group or {}).items())
+	]
 	return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -608,25 +680,33 @@ def create_missing_info_rows(
 			frappe.db.commit()
 
 
-def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping_row, schema: str = "") -> dict:
+def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping_row, schema: str = "",
+							collect_fingerprints: bool = False) -> dict:
 	"""Bulk equivalent of check_timestamp() for every mapping of one type.
 
 	Returns {"changed": [{"mapping_name", "id_data"}], "unchanged", "ts_changed",
-	"child_changed", "no_source_row", "skipped", "fallback"} — `fallback` is set
-	when the bulk answer cannot be trusted and the caller must use the
-	per-mapping path for this type.
+	"child_changed", "child_value_changed", "no_source_row", "skipped", "fallback"}
+	— `fallback` is set when the bulk answer cannot be trusted and the caller must
+	use the per-mapping path for this type.
+
+	With `collect_fingerprints=True` the result also carries
+	{"fingerprints": {mapping_name: combined child value hash}} — the seed script
+	(scripts/seed_child_hash.py) stores those without touching any document, so
+	adding the value net does not force a mass update of every transaction.
 	"""
 	mapping_type: str = table_mapping_row.type
 	ts_col: str = table_mapping_row.timestamp_column_name or ""
 	result: dict = {
 		"changed": [], "unchanged": 0, "ts_changed": 0, "child_changed": 0,
+		"child_value_changed": 0, "fingerprints": {},
 		"hash_changed": 0, "no_source_row": 0, "skipped": 0, "fallback": False, "queries": 0,
 	}
 
 	mapping_rows: list = frappe.get_all(
 		"Sync Mapping",
 		filters={"selectline_db_instance": instance, "type": mapping_type, "enable": 1},
-		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type", "source_hash"],
+		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type", "source_hash",
+				"child_hash"],
 		limit_page_length=0,
 	)
 	if not mapping_rows:
@@ -754,6 +834,12 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 			for col in placeholder_cols:
 				if col not in child_columns:
 					child_columns.append(col)
+			# The mapped value columns ride along in the same query — they feed the
+			# value fingerprint below, which is what detects a changed value inside
+			# an existing row (the key set cannot see it).
+			for col in get_child_value_columns(g):
+				if col not in child_columns:
+					child_columns.append(col)
 			where: str = strip_placeholder_predicates(g.get("multiple_query_condition"))
 			child_rows = _cached_fetch(
 				("child", g["multiple_query_table"], tuple(child_columns), where),
@@ -772,8 +858,11 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 			for child_row in child_rows:
 				group_key = tuple(str(get_row_col(child_row, c)) for c in placeholder_cols)
 				key_val = get_row_col(child_row, g["match_key_column"])
-				if key_val is not None:
-					grouped.setdefault(group_key, set()).add(str(key_val))
+				if key_val is None:
+					continue
+				bucket = grouped.setdefault(group_key, {"keys": set(), "rows": []})
+				bucket["keys"].add(str(key_val))
+				bucket["rows"].append(child_row)
 			child_sets[g["fieldname"]] = grouped
 
 		for m, id_data in members:
@@ -787,25 +876,56 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 			)
 			ts_changed: bool = ts_value != (m.get("db_time_stamp") or "")
 
-			child_changed: bool = False
-			if not ts_changed and mq_groups:
+			# Child state of this document: which rows exist (key sets) and the value
+			# fingerprint. Computed for every mapping — not only the not-ts-changed
+			# ones — because collect_fingerprints=True exports them for the seeding.
+			group_fps: dict = {}
+			group_keys: dict = {}
+			if mq_groups:
 				for g in mq_groups:
 					placeholder_cols = get_condition_columns(g.get("multiple_query_condition"))
 					group_key = tuple(str(get_row_col(source_row, c)) for c in placeholder_cols)
-					source_keys: set = child_sets.get(g["fieldname"], {}).get(group_key) or set()
+					bucket: dict = child_sets.get(g["fieldname"], {}).get(group_key) or {}
+					group_keys[g["fieldname"]] = bucket.get("keys") or set()
+					# An empty group participates with "" so every call site (bulk check,
+					# per-mapping check, update write-back) hashes identically.
+					group_fps[g["fieldname"]] = compute_child_fingerprint(
+						bucket.get("rows") or [], get_child_value_columns(g), g["match_key_column"]
+					)
+			computed_child_hash: str = combine_child_fingerprints(group_fps) if mq_groups else ""
+			if collect_fingerprints and mq_groups:
+				result["fingerprints"][m["name"]] = computed_child_hash
+
+			child_changed: bool = False
+			child_values_changed: bool = False
+			if not ts_changed and mq_groups:
+				for g in mq_groups:
+					source_keys: set = group_keys.get(g["fieldname"]) or set()
 					stored = stored_all.get((m["name"], g["fieldname"])) or {}
 					stored_keys: set = stored.get("keys") or set()
 					# entries exist but carry no source key → per-mapping detection
 					# treats this as changed, so mirror that here
 					if stored.get("count") and not stored_keys:
 						child_changed = True
-						break
+						continue
 					if not source_keys:
 						# empty source set: update_mapping() skips it by design
 						continue
 					if source_keys != stored_keys:
 						child_changed = True
-						break
+						continue
+
+				# Value fingerprint: a changed value inside an EXISTING row leaves the
+				# key set (and the parent row) untouched, so only the value hash can
+				# see it. Never 'break' out of the group loop above — every group must
+				# contribute, or the combined hash cannot match the stored one.
+				stored_child_hash: str = m.get("child_hash") or ""
+				if not stored_child_hash:
+					child_values_changed = True  # one-time backfill after deploy
+				elif computed_child_hash != stored_child_hash:
+					child_values_changed = True
+				if child_values_changed:
+					child_changed = True
 
 			hash_changed: bool = False
 			if not ts_changed and not child_changed:
@@ -819,6 +939,8 @@ def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping
 					hash_changed = compute_source_hash(source_row, hash_columns) != stored_hash
 
 			if ts_changed or child_changed or hash_changed:
+				if child_values_changed:
+					result["child_value_changed"] += 1
 				if ts_changed:
 					result["ts_changed"] += 1
 				elif child_changed:
@@ -999,6 +1121,7 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
                         f"Bulk check {instance}/{current_type}: {len(mapping_items)} changed of "
                         f"{len(bulk_result['changed']) + bulk_result['unchanged'] + bulk_result['no_source_row']} checked "
                         f"(timestamps: {bulk_result['ts_changed']}, child rows: {bulk_result['child_changed']}, "
+                        f"child values: {bulk_result.get('child_value_changed', 0)}, "
                         f"hash: {bulk_result['hash_changed']}, "
                         f"no source row: {bulk_result['no_source_row']}, unchanged: {bulk_result['unchanged']}) "
                         f"with {bulk_result['queries']} source quer(ies)",
@@ -1589,6 +1712,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # Fetch multiple_query child table data so child rows can be updated.
         # Maps child_row_name -> {COLUMN: value, ...} from the source child table.
         mq_child_data: dict[str, dict] = {}
+        # fieldname -> value fingerprint of the group's source rows (see
+        # compute_child_fingerprint) — written to Sync Mapping.child_hash below.
+        child_group_fps: dict[str, str] = {}
         for mapped_doctype in mapping_json:
             doctype_name = mapped_doctype.get("doctype")
             for field in mapped_doctype.get("fields", []):
@@ -1629,6 +1755,14 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     parent_data=fetched_data[0],
                     columns=mq_columns if mq_columns else None,
                 )
+
+                if match_key_col:
+                    # Same helper/columns as bulk_check_type_changes() and
+                    # detect_child_row_changes() — the stored value is read back by
+                    # those two, so all three must hash identically.
+                    child_group_fps[field.get("fieldname")] = compute_child_fingerprint(
+                        source_rows or [], get_child_value_columns(field), match_key_col
+                    )
 
                 if not source_rows:
                     continue
@@ -2183,6 +2317,20 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             )
         except Exception as hash_err:
             make_log(f"Could not store source hash for {mapping_name}: {hash_err}", "ERROR", controller.APP_NAME)
+
+        # Store the child value hash. A changed value inside an EXISTING child row
+        # leaves both the child key set and the parent row untouched, so this is
+        # the only signal that can trigger the update for such a change — and the
+        # two checks read this value back, so it must come from the same helper.
+        try:
+            frappe.db.set_value(
+                "Sync Mapping", mapping_name,
+                "child_hash",
+                combine_child_fingerprints(child_group_fps),
+                update_modified=False,
+            )
+        except Exception as child_hash_err:
+            make_log(f"Could not store child hash for {mapping_name}: {child_hash_err}", "ERROR", controller.APP_NAME)
         frappe.db.set_value("Sync Mapping", mapping_name, "last_update", datetime.datetime.now(), update_modified=False)
 
         frappe.db.commit()
