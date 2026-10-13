@@ -1,7 +1,9 @@
+import hashlib
 import json
 import re
 import uuid
 from pprint import pprint
+
 import frappe
 import datetime
 from frappe.model.document import Document
@@ -45,6 +47,990 @@ def split_sql_columns(col_string: str) -> list:
 	if s := "".join(buf).strip():
 		columns.append(s)
 	return columns
+
+
+MQ_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def get_row_col(row_data: dict, col: str):
+	"""Case-insensitive lookup of a column in a fetched source row.
+
+	MSSQL returns the DB casing, 4D returns PascalCase while mappings use
+	UPPERCASE — every place that reads a fetched row needs this fallback.
+	"""
+	if not row_data or not col:
+		return None
+	if col in row_data:
+		return row_data[col]
+	upper = col.upper()
+	for key, value in row_data.items():
+		if key.upper() == upper:
+			return value
+	return None
+
+
+def get_multiple_query_groups(instance_doc: Document, mapping_type: str) -> list:
+	"""Return the trackable multiple_query child-table blocks of a type.
+
+	A block is only returned when it declares `match_key_column`: that stable
+	source row key is what makes both a set comparison here and the structural
+	add/delete sync in `update_mapping()` possible. Blocks without it keep the
+	legacy value-only behaviour (see the `if not match_key_col: continue` guard).
+	"""
+	groups: list = []
+	for row in instance_doc.table_mapping or []:
+		if row.type != mapping_type:
+			continue
+		try:
+			mapping_json: list = json.loads(row.mapping or "[]")
+		except (ValueError, TypeError):
+			continue
+		for mapped_doctype in mapping_json:
+			doctype_name: str = mapped_doctype.get("doctype")
+			for field in mapped_doctype.get("fields", []):
+				if not field.get("multiple_query") or not field.get("table_fields"):
+					continue
+				match_key_col: str = field.get("match_key_column")
+				if not match_key_col:
+					continue
+				groups.append(
+					{
+						"doctype": doctype_name,
+						"fieldname": field.get("fieldname"),
+						"multiple_query_table": field.get("multiple_query_table"),
+						"multiple_query_condition": field.get("multiple_query_condition"),
+						"match_key_column": match_key_col,
+						"table_fields": field.get("table_fields") or [],
+					}
+				)
+	return groups
+
+
+def get_condition_columns(condition: str) -> list:
+	"""Parent-row columns referenced as {Placeholder} in a multiple_query condition."""
+	if not condition:
+		return []
+	columns: list = []
+	for name in MQ_PLACEHOLDER_RE.findall(condition):
+		name = name.strip()
+		if name and name not in columns:
+			columns.append(name)
+	return columns
+
+
+def get_stored_child_row_keys(mapping_name: str, doctype_name: str, fieldname: str) -> dict:
+	"""Source row keys stored on this mapping's entries of one child group.
+
+	Returns {"keys": set, "missing": bool}. `missing` is True when at least one
+	entry has no `source_row_key` (entries written before the mapping got a
+	`match_key_column`) or when the group has no entries at all — both can only
+	be settled by running the update, which backfills the key or drops the row.
+	"""
+	rows = frappe.db.sql(
+		"""
+		SELECT DISTINCT source_row_key
+		FROM `tabSync Mapping Entry`
+		WHERE parent = %s AND mapping_doctype = %s AND fieldname = %s
+			AND child_row_fieldname IS NOT NULL AND child_row_fieldname != ''
+			AND child_row_name IS NOT NULL AND child_row_name != ''
+		""",
+		(mapping_name, doctype_name, fieldname),
+		as_dict=True,
+	)
+	keys: set = set()
+	missing: bool = not rows
+	for row in rows or []:
+		key = row.get("source_row_key")
+		if key in (None, ""):
+			missing = True
+		else:
+			keys.add(str(key))
+	return {"keys": keys, "missing": missing}
+
+
+def detect_child_row_changes(
+	instance: str,
+	mapping_name: str,
+	mapping_type: str,
+	parent_data: dict,
+	instance_doc: Document = None,
+) -> dict:
+	"""Compare the source child rows of each match_key_column group with the
+	keys stored on the mapping's entries.
+
+	This is the child-level change signal the timestamp check is missing: the
+	parent row's timestamp column (e.g. the date-only `Modifiziert_Datum` on
+	SelectLine transaction headers) does not move when a line is added or
+	removed, so a timestamp-only check never repairs a transaction whose
+	positions changed while its header stayed untouched.
+
+	A group whose source query returns no rows at all is reported as unchanged:
+	`update_mapping()` skips an empty source set by design, so flagging it would
+	re-queue the same mapping on every cycle without ever converging.
+	"""
+	result: dict = {"changed": False, "groups": []}
+	if not parent_data:
+		return result
+	if instance_doc is None:
+		instance_doc = frappe.get_doc("Sync Instance", instance)
+
+	groups: list = get_multiple_query_groups(instance_doc, mapping_type)
+	if not groups:
+		return result
+
+	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+	group_fps: dict = {}
+
+	for group in groups:
+		doctype_name: str = group.get("doctype")
+		fieldname: str = group.get("fieldname")
+		mq_table: str = group.get("multiple_query_table")
+		mq_condition: str = group.get("multiple_query_condition")
+		match_key_col: str = group.get("match_key_column")
+		if not doctype_name or not fieldname or not mq_table or not mq_condition:
+			continue
+
+		source_rows: list = controller.fetch_multiple_rows(
+			instance=instance,
+			table=mq_table,
+			condition=mq_condition,
+			schema=schema,
+			parent_data=parent_data,
+			columns=[match_key_col] + get_child_value_columns(group),
+		)
+		if not source_rows:
+			make_log(
+				f"No source rows returned for {doctype_name}.{fieldname} of {mapping_name} "
+				f"({mq_table}) - child change detection skipped for this group",
+				"DEBUG",
+				controller.APP_NAME,
+			)
+			group_fps[fieldname] = ""
+			continue
+
+		source_keys: set = set()
+		for source_row in source_rows:
+			key_val = get_row_col(source_row, match_key_col)
+			if key_val is not None:
+				source_keys.add(str(key_val))
+
+		stored: dict = get_stored_child_row_keys(mapping_name, doctype_name, fieldname)
+		stored_keys: set = stored.get("keys") or set()
+
+		group_changed: bool = bool(stored.get("missing")) or source_keys != stored_keys
+		group_fps[fieldname] = compute_child_fingerprint(
+			source_rows, get_child_value_columns(group), match_key_col
+		)
+		result["groups"].append(
+			{
+				"doctype": doctype_name,
+				"fieldname": fieldname,
+				"source_rows": len(source_keys),
+				"stored_rows": len(stored_keys),
+				"missing_keys": bool(stored.get("missing")),
+				"changed": group_changed,
+			}
+		)
+		if group_changed:
+			result["changed"] = True
+
+	# Value fingerprint: a changed value inside an EXISTING row keeps the child
+	# key set, the parent row and the parent hash untouched, so none of the other
+	# signals can see it. Compare the hash over all mapped child values instead;
+	# an empty stored hash is a one-time backfill (first run after deploy), and a
+	# site that has not run the patch yet keeps the net inactive.
+	if child_hash_available():
+		stored_child_hash: str = frappe.db.get_value("Sync Mapping", mapping_name, "child_hash") or ""
+		computed_child_hash: str = combine_child_fingerprints(group_fps)
+		if not stored_child_hash or computed_child_hash != stored_child_hash:
+			result["changed"] = True
+			result["child_hash_changed"] = True
+			result["computed_child_hash"] = computed_child_hash
+			result["stored_child_hash"] = stored_child_hash
+
+	return result
+
+
+# Bulk (per-type) change detection ------------------------------------------------------------------
+#
+# check_timestamp() needs 1–3 *separate* connections to the source ERP per
+# mapping: on a 2-core box with ~30k mappings that is ~30–90k logins per cycle
+# and takes hours. The functions below answer the same question with ONE source
+# query per table plus one child query per multiple_query group, then diff in
+# memory against the stored states. Anything it cannot check with certainty
+# makes it fall back to the per-mapping path, so it is purely an optimisation.
+
+# `<col> = {Placeholder}` / `{Placeholder} = <col>` predicates of an mq condition
+PLACEHOLDER_PREDICATE_RE = re.compile(
+	r"(?:\bAND\b\s*)?(?:[\[\]\w]+\.)?[\[\]\w]+\s*=\s*\{[A-Za-z_][A-Za-z0-9_]*\}"
+	r"|(?:\bAND\b\s*)?\{[A-Za-z_][A-Za-z0-9_]*\}\s*=\s*(?:[\[\]\w]+\.)?[\[\]\w]+",
+	re.IGNORECASE,
+)
+
+
+def strip_placeholder_predicates(condition: str) -> str:
+	"""Drop the parent-dependent predicates of a multiple_query condition.
+
+	The bulk child query fetches the child rows of *all* parents at once, so the
+	`AND <col> = {Placeholder}` parts have to go; the static predicates
+	(e.g. `Kennung = 'B' AND Menge > 0`) stay.
+	"""
+	if not condition:
+		return ""
+	clean = re.sub(r"^\s*WHERE\s+", "", condition.strip(), flags=re.IGNORECASE)
+	clean = PLACEHOLDER_PREDICATE_RE.sub("", clean)
+	clean = re.sub(r"^\s*(AND|WHERE)\s+", "", clean.strip(), flags=re.IGNORECASE)
+	clean = re.sub(r"\s+AND\s+$", "", clean.strip(), flags=re.IGNORECASE)
+	return re.sub(r"\s{2,}", " ", clean).strip()
+
+
+def make_bulk_select(instance: str, table_name: str, columns: list, schema: str = "", where: str = "") -> str:
+	"""SELECT many rows at once, with the driver's column quoting."""
+	db_cred: dict = controller.get_instance_data(instance=instance) or {}
+	driver: str = db_cred.get("driver", "pymssql")
+	schema_prefix: str = f"{schema}." if schema else ""
+	if driver == "p4d":
+		col_string = ", ".join([controller._quote_4d_col(c) for c in columns])
+	else:
+		col_string = ", ".join([controller._quote_mssql_col(c) for c in columns])
+	sql: str = f"SELECT {col_string} FROM {schema_prefix}{table_name}"
+	if where:
+		sql += f" WHERE {where}"
+	return sql
+
+
+def get_stored_child_row_keys_bulk(mapping_names: list, fieldnames: list) -> dict:
+	"""Stored source_row_keys of many mappings in one query → {(mapping, fieldname): set}."""
+	keys: dict = {}
+	chunk_size: int = 500
+	for start in range(0, len(mapping_names), chunk_size):
+		chunk = mapping_names[start:start + chunk_size]
+		placeholders = ",".join(["%s"] * len(chunk))
+		rows = frappe.db.sql(
+			f"""SELECT parent, fieldname, source_row_key FROM `tabSync Mapping Entry`
+				WHERE parent IN ({placeholders})
+				AND fieldname IN ({",".join(["%s"] * len(fieldnames))})
+				AND child_row_fieldname IS NOT NULL AND child_row_fieldname != ''""",
+			tuple(chunk) + tuple(fieldnames),
+			as_dict=True,
+		)
+		for row in rows:
+			group_key = (row.get("parent"), row.get("fieldname"))
+			bucket = keys.setdefault(group_key, {"keys": set(), "count": 0})
+			bucket["count"] += 1
+			if row.get("source_row_key") not in (None, ""):
+				bucket["keys"].add(str(row["source_row_key"]))
+	return keys
+
+
+FRAGILE_SQL_TOKENS: tuple = (
+	"SUBSTRING(", "CHARINDEX(", "PATINDEX(", "LEFT(", "RIGHT(", "REPLACE(", "STUFF(", "CONVERT(",
+)
+
+
+def _row_value(row: dict, *keys) -> object:
+	"""Fetch the first matching key from a source row (exact, then case-insensitive)."""
+	for key in keys:
+		if key and key in row:
+			return row[key]
+	lowered = {str(k).lower(): v for k, v in row.items()}
+	for key in keys:
+		if key and str(key).lower() in lowered:
+			return lowered[str(key).lower()]
+	return None
+
+
+def _add_hash_col(cols: dict, col: str) -> None:
+	"""Register one column for the source hash. Expressions keep their AS alias;
+	plain columns are aliased with a stable synthetic name so both the bulk
+	check and update_mapping() see identical row keys.
+
+	Fragile expressions are skipped: the bulk check evaluates them for every row
+	of the source table, and e.g. SUBSTRING over CHARINDEX raises MSSQL error 537
+	on rows where the searched pattern is absent. Skipping them everywhere keeps
+	the hashes on both sides comparable.
+	"""
+	if not col:
+		return
+	upper = str(col).upper()
+	if any(token in upper for token in FRAGILE_SQL_TOKENS):
+		return
+	parts = re.split(r"\sAS\s", col, flags=re.IGNORECASE)
+	if len(parts) > 1 and parts[-1].strip():
+		alias = parts[-1].strip().strip("[]")
+	else:
+		alias = "h_" + hashlib.md5(col.encode("utf-8")).hexdigest()[:8]
+	cols.setdefault(col, (col, alias))
+
+
+def get_hash_columns(mapping_json: list) -> list:
+	"""All parent-table columns that feed mapped values, as (sql_column, alias)
+	tuples. Used to build a comparable source hash for change detection."""
+	cols: dict = {}
+	for mapped_doctype in mapping_json or []:
+		for field in mapped_doctype.get("fields", []):
+			if field.get("multiple_query"):
+				continue
+			if field.get("sl_column"):
+				_add_hash_col(cols, field["sl_column"])
+			if field.get("mapped_value") and field["mapped_value"].get("sl_id"):
+				_add_hash_col(cols, field["mapped_value"]["sl_id"])
+			for tf in field.get("table_fields", []):
+				if tf.get("sl_column"):
+					_add_hash_col(cols, tf["sl_column"])
+				if tf.get("mapped_value") and tf["mapped_value"].get("sl_id"):
+					_add_hash_col(cols, tf["mapped_value"]["sl_id"])
+	return list(cols.values())
+
+
+def compute_source_hash(row: dict, hash_columns: list) -> str:
+	"""Stable hash over the mapped source values of one parent row."""
+	parts: list = []
+	for sql_col, alias in hash_columns or []:
+		value = _row_value(row, alias, sql_col)
+		parts.append("%s=%s" % (alias, "" if value is None else str(value).strip()))
+	return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+_CHILD_HASH_AVAILABLE: dict = {}
+
+
+def child_hash_available() -> bool:
+	"""True when the `child_hash` Custom Field exists on this site.
+
+	Deploy order is migrate-then-restart (the patch creates the field), but a
+	restart before the migrate must not turn every transaction mapping into
+	"changed" — while the column is missing the value net simply stays inactive.
+	Cached per process: `has_column` hits INFORMATION_SCHEMA.
+	"""
+	if "v" not in _CHILD_HASH_AVAILABLE:
+		try:
+			_CHILD_HASH_AVAILABLE["v"] = bool(frappe.db.has_column("Sync Mapping", "child_hash"))
+		except Exception:
+			_CHILD_HASH_AVAILABLE["v"] = False
+	return _CHILD_HASH_AVAILABLE["v"]
+
+
+def get_child_value_columns(group: dict) -> list:
+	"""Mapped plain source columns of a multiple_query group's table_fields.
+
+	Plain columns only: a child table_field may not be an SQL expression (the
+	child path resolves sl_column verbatim), and alt_key / mapped_value columns
+	resolve from other rows, so neither belongs into a value fingerprint.
+	"""
+	columns: list = []
+	for tf in (group or {}).get("table_fields") or []:
+		col = tf.get("sl_column")
+		if not col or " AS " in col or " as " in col:
+			continue
+		if col not in columns:
+			columns.append(col)
+	return columns
+
+
+def compute_child_fingerprint(rows: list, columns: list, key_col: str) -> str:
+	"""Stable hash over the VALUES of one multiple_query group's source rows.
+
+	The child key set (match_key_column) only proves WHICH rows exist: a changed
+	value inside an existing row keeps the key, the parent row and the parent
+	hash untouched, so the document counted as unchanged and the ERP child row
+	kept the old value forever (observed: an order line switched to a different
+	article never reached ERPNext). This fingerprint is that missing trigger.
+	Both sides of the comparison (source fingerprint and the value stored on
+	Sync Mapping.child_hash) MUST use this function.
+	"""
+	if not rows:
+		return ""
+	lines: list = []
+	for row in rows:
+		values: list = []
+		for col in columns or []:
+			value = get_row_col(row, col)
+			values.append("%s=%s" % (col.upper(), "" if value is None else str(value).strip()))
+		key_val = get_row_col(row, key_col) if key_col else None
+		lines.append("%s|%s" % ("" if key_val is None else str(key_val).strip(), "|".join(values)))
+	return hashlib.md5("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
+
+
+def combine_child_fingerprints(per_group: dict) -> str:
+	"""One value per mapping: md5 over the sorted '<fieldname>:<fingerprint>' lines.
+
+	Empty groups participate with an empty fingerprint so all three call sites
+	(bulk check, per-mapping check, update write-back) compute identical values.
+	"""
+	parts: list = [
+		"%s:%s" % (fieldname, fingerprint)
+		for fieldname, fingerprint in sorted((per_group or {}).items())
+	]
+	return hashlib.md5("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def rematch_stale_child_row(mapping_json: list, mapping_doctype: str, fieldname: str,
+							selectline_column: str, parent_name: str) -> str | None:
+	"""Find the current child row for a stale non-mq child entry.
+
+	Child rows can be re-created outside the mapping entries, which orphans the
+	entry's child_row_name. The mapping JSON group containing the entry's
+	sl_column also defines a label field (a table_field with only `default`,
+	e.g. type = "WINFO: Umwandlungsnummer") that identifies the child row.
+	"""
+	for mapped_doctype in mapping_json or []:
+		if mapped_doctype.get("doctype") != mapping_doctype:
+			continue
+		for field in mapped_doctype.get("fields", []):
+			if field.get("fieldname") != fieldname or field.get("multiple_query") or not field.get("table_fields"):
+				continue
+			if not any(tf.get("sl_column") == selectline_column for tf in field["table_fields"]):
+				continue
+			label_tf = next((tf for tf in field["table_fields"] if not tf.get("sl_column") and tf.get("default")), None)
+			label_field = label_tf.get("table_fieldname") if label_tf else None
+			label_value = label_tf.get("default") if label_tf else None
+			if not label_field or label_value is None:
+				return None
+			try:
+				child_doctype = frappe.get_meta(mapping_doctype).get_field(fieldname).options
+			except Exception:
+				return None
+			rows = frappe.get_all(
+				child_doctype,
+				filters={"parent": parent_name, "parenttype": mapping_doctype, label_field: label_value},
+				fields=["name"], limit=1, order_by="idx",
+			)
+			if rows:
+				return rows[0].name
+	return None
+
+
+def create_missing_info_rows(
+	mapping_doc: Document,
+	mapping_json: list,
+	fetched_data: list,
+	mapping_name: str,
+	instance: str,
+	value_map_lookup: dict,
+	mapped_value_lookup: dict,
+	phone_field_lookup: dict,
+	trim_lookup: dict,
+) -> None:
+	"""Create non-mq child rows (info table rows) the document never received.
+
+	An info-row group added to a mapping after a document was imported can
+	never reach that document through the regular update: the entry loop
+	updates only rows a Sync Mapping Entry already points at, so a group
+	without entries has nothing to iterate — and since the stored source
+	hash reflects the source state, no later run re-triggers the update
+	(the document is stuck in a dead-end state). This repairs that state at
+	update time: create the missing child row from the fetched parent data,
+	adopt an existing untracked row, and write the Sync Mapping Entry rows
+	so every future update finds the row.
+	"""
+
+	def _row_col(row_data: dict, col: str):
+		if not row_data or not col:
+			return None
+		if col in row_data:
+			return row_data[col]
+		upper = col.upper()
+		for k, v in row_data.items():
+			if k.upper() == upper:
+				return v
+		return None
+
+	# One parent document per mapping — but taken from an entry of the doctype
+	# currently being processed: a mapping JSON can produce several doctypes from
+	# one source row (e.g. Item Group + UOM + Item), and a sibling doctype's
+	# docname (an Item Group or UOM name) would fail the exists() check below and
+	# silently skip the whole group.
+	for mapped_doctype in mapping_json or []:
+		doctype_name = mapped_doctype.get("doctype")
+		if not doctype_name:
+			continue
+		parent_docname = next(
+			(
+				e.docname
+				for e in mapping_doc.mapping_table
+				if e.docname and e.mapping_doctype == doctype_name
+			),
+			None,
+		)
+		if not parent_docname:
+			continue
+		for field in mapped_doctype.get("fields", []):
+			fieldname = field.get("fieldname")
+			if not fieldname or field.get("multiple_query") or not field.get("table_fields"):
+				continue
+			try:
+				child_doctype = frappe.get_meta(doctype_name).get_field(fieldname).options
+			except Exception:
+				continue
+			if not child_doctype:
+				continue
+
+			# The label field identifies the row (same semantics as
+			# rematch_stale_child_row): a table_field with only `default`.
+			label_tf = next(
+				(tf for tf in field["table_fields"] if not tf.get("sl_column") and tf.get("default")),
+				None,
+			)
+			label_field = label_tf.get("table_fieldname") if label_tf else None
+			label_value = label_tf.get("default") if label_tf else None
+			if not label_field or label_value is None:
+				continue
+
+			if not frappe.db.exists(doctype_name, parent_docname):
+				continue
+
+			existing = frappe.get_all(
+				child_doctype,
+				filters={"parent": parent_docname, "parenttype": doctype_name, label_field: label_value},
+				fields=["name"], limit=2, order_by="idx",
+			)
+			if len(existing) > 1:
+				# Ambiguous manual data situation — leave it to a one-off repair.
+				continue
+			if existing and any(mrow.child_row_name == existing[0].name for mrow in mapping_doc.mapping_table):
+				# Group already tracked — the entry loop keeps the row updated.
+				continue
+
+			# Resolve the group's values from the fetched parent row
+			resolved: dict = {}
+			skip_row = False
+			for tf in field["table_fields"]:
+				tfn = tf.get("table_fieldname")
+				if not tfn:
+					continue
+				if tf.get("sl_column"):
+					col_key = tf["sl_column"]
+					if " AS " in col_key or " as " in col_key:
+						col_key = col_key.rsplit(" AS ", 1)[-1].rsplit(" as ", 1)[-1].strip()
+					value = _row_col(fetched_data[0], col_key)
+					if tf.get("alt_key") and _row_col(fetched_data[0], tf["alt_key"]) not in (None, ""):
+						value = _row_col(fetched_data[0], tf["alt_key"])
+					if tf.get("force_str_type") == 1 and value is not None:
+						value = str(value)
+					lookup_key = f"{child_doctype}:{tfn}:{tf['sl_column']}"
+					if lookup_key in value_map_lookup and value is not None:
+						map_data = value_map_lookup[lookup_key]
+						value_map = map_data.get("map") or {}
+						map_default = map_data.get("default")
+						value = value_map.get(str(value), map_default if map_default is not None else value)
+					if lookup_key in mapped_value_lookup and value is not None:
+						mv = mapped_value_lookup[lookup_key]
+						sl_id_val = _row_col(fetched_data[0], mv.get("sl_id"))
+						if sl_id_val is not None:
+							resolved_mv = controller.get_mapped_value(
+								sl_id=f"{instance}:{mv.get('table_name')}:{sl_id_val}",
+								doc_type=mv.get("doc_type"),
+								fieldname=mv.get("fieldname"),
+							)
+							if resolved_mv:
+								value = str(resolved_mv)
+					phone_key = f"{child_doctype}:{tfn}"
+					if phone_key in phone_field_lookup and value:
+						value = format_phone_number(value, phone_field_lookup[phone_key]["country_code"])
+					if phone_key in trim_lookup and value is not None:
+						value = str(value)[:trim_lookup[phone_key]]
+				elif tf.get("default") is not None:
+					value = tf["default"]
+				else:
+					continue
+				if value in ["", None] and tf.get("reqd") == 1:
+					skip_row = True
+					break
+				resolved[tfn] = value
+			if skip_row or not resolved:
+				continue
+
+			if existing:
+				child_name = existing[0].name
+				action = "adopted"
+			else:
+				parent_docstatus = frappe.db.get_value(doctype_name, parent_docname, "docstatus") or 0
+				last_idx_row = frappe.get_all(
+					child_doctype,
+					filters={"parent": parent_docname, "parentfield": fieldname},
+					fields=["idx"], order_by="idx desc", limit=1,
+				)
+				next_idx = (last_idx_row[0].idx if last_idx_row else 0) + 1
+				child_name = frappe.generate_hash(length=8)
+				new_row = frappe.get_doc({
+					"doctype": child_doctype,
+					"parenttype": doctype_name,
+					"parent": parent_docname,
+					"name": child_name,
+					"parentfield": fieldname,
+					"idx": next_idx,
+				})
+				new_row.insert(ignore_permissions=True, ignore_mandatory=True)
+				# insert() renames the doc (set_new_name resets doc.name) —
+				# the generated name must be used from here on
+				child_name = new_row.name
+				if parent_docstatus:
+					# A new child doc always starts at docstatus 0 — putting the
+					# parent's docstatus into the insert dict raises
+					# DocstatusTransitionError for submitted/cancelled parents.
+					# Write it on the DB level instead (no transition validation).
+					frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
+				action = "created"
+
+			for tfn, value in resolved.items():
+				if value not in ["", None]:
+					frappe.db.set_value(child_doctype, child_name, tfn, value)
+
+			for tf in field["table_fields"]:
+				if tf.get("sl_column"):
+					controller.insert_mapping_row(
+						mapping_doc_name=mapping_name,
+						data={
+							"mapping_doctype": doctype_name,
+							"docname": parent_docname,
+							"fieldname": fieldname,
+							"child_row_fieldname": tf.get("table_fieldname"),
+							"child_row_name": child_name,
+							"child_row_doctype": child_doctype,
+							"selectline_column": trim_value(tf["sl_column"], tf),
+						},
+					)
+
+			make_log(
+				f"Info-row repair for {mapping_name}: {action} {child_doctype} row {child_name} "
+				f"on {doctype_name} {parent_docname} (group {fieldname}, {label_field}={label_value})",
+				"INFO",
+				controller.APP_NAME,
+			)
+			frappe.db.commit()
+
+
+def bulk_check_type_changes(instance: str, instance_doc: Document, table_mapping_row, schema: str = "",
+							collect_fingerprints: bool = False) -> dict:
+	"""Bulk equivalent of check_timestamp() for every mapping of one type.
+
+	Returns {"changed": [{"mapping_name", "id_data"}], "unchanged", "ts_changed",
+	"child_changed", "child_value_changed", "no_source_row", "skipped", "fallback"}
+	— `fallback` is set when the bulk answer cannot be trusted and the caller must
+	use the per-mapping path for this type.
+
+	With `collect_fingerprints=True` the result also carries
+	{"fingerprints": {mapping_name: combined child value hash}} — the seed script
+	(scripts/seed_child_hash.py) stores those without touching any document, so
+	adding the value net does not force a mass update of every transaction.
+	"""
+	mapping_type: str = table_mapping_row.type
+	ts_col: str = table_mapping_row.timestamp_column_name or ""
+	result: dict = {
+		"changed": [], "unchanged": 0, "ts_changed": 0, "child_changed": 0,
+		"child_value_changed": 0, "fingerprints": {},
+		"hash_changed": 0, "no_source_row": 0, "skipped": 0, "fallback": False, "queries": 0,
+	}
+
+	mapping_rows: list = frappe.get_all(
+		"Sync Mapping",
+		filters={"selectline_db_instance": instance, "type": mapping_type, "enable": 1},
+		fields=["name", "selectline_id", "primary_key_column", "db_time_stamp", "time_stamp_type", "source_hash"]
+		+ (["child_hash"] if child_hash_available() else []),
+		limit_page_length=0,
+	)
+	if not mapping_rows:
+		return result
+
+	# Type has no timestamp column at all: the per-mapping path updates every
+	# mapping in that case, so mirror it.
+	if not ts_col:
+		for m in mapping_rows:
+			id_data: dict = get_id_data(m.get("selectline_id"))
+			if not id_data:
+				result["skipped"] += 1
+				continue
+			result["changed"].append({"mapping_name": m["name"], "id_data": id_data})
+		return result
+
+	mq_groups: list = [
+		g for g in get_multiple_query_groups(instance_doc, mapping_type)
+		if g.get("multiple_query_condition") and g.get("multiple_query_table") and g.get("match_key_column")
+	]
+
+	# Hash columns: every parent-table column feeding a mapped value. The source
+	# timestamp is a DATE without a time component, so a change made on the same
+	# day as the stored timestamp is invisible to the ts comparison — the hash
+	# over all mapped values catches it.
+	hash_columns: list = get_hash_columns(json.loads(table_mapping_row.mapping or "[]"))
+
+	# Mappings of a type normally share table + pk column, but resolve per mapping
+	# to stay correct when they do not. resolve_table_name_for_mapping() costs two
+	# DB reads per call, and within one type the result only depends on the table
+	# name from the object id — cache it (tens of thousands of mappings of a type
+	# almost always share a handful of distinct table names).
+	resolve_cache: dict = {}
+
+	def _resolve_table(table_from_id: str, mapping_name: str) -> str:
+		if not table_from_id:
+			return table_from_id
+		if table_from_id not in resolve_cache:
+			resolve_cache[table_from_id] = resolve_table_name_for_mapping(
+				instance=instance, mapping_name=mapping_name, table_from_id=table_from_id
+			)
+		return resolve_cache[table_from_id]
+
+	by_table: dict = {}
+	for m in mapping_rows:
+		pk_col = m.get("primary_key_column")
+		id_data = get_id_data(m.get("selectline_id"))
+		table = _resolve_table(id_data.get("table") or "", m["name"])
+		if not table or not pk_col or not id_data:
+			result["skipped"] += 1
+			continue
+		by_table.setdefault((table, pk_col), []).append((m, id_data))
+
+	all_names: list = [m["name"] for m in mapping_rows]
+	fieldnames: list = [g["fieldname"] for g in mq_groups]
+	stored_all: dict = get_stored_child_row_keys_bulk(all_names, fieldnames) if fieldnames else {}
+
+	query_cache: dict = {}
+
+	def _cached_fetch(cache_key: tuple, sql: str):
+		"""Execute each distinct bulk query once per type (two mq groups may read
+		the same table)."""
+		if cache_key in query_cache:
+			return query_cache[cache_key]
+		data = controller.fetch_data(instance=instance, sql=sql)
+		query_cache[cache_key] = data
+		result["queries"] += 1
+		return data
+
+	for (table_name, pk_col), members in by_table.items():
+		parent_columns: list = [pk_col, ts_col]
+		for g in mq_groups:
+			for col in get_condition_columns(g.get("multiple_query_condition")):
+				if col not in parent_columns:
+					parent_columns.append(col)
+		for sql_col, _alias in hash_columns:
+			if sql_col not in parent_columns:
+				parent_columns.append(sql_col)
+
+		rows = _cached_fetch(
+			("parent", table_name, tuple(parent_columns)),
+			make_bulk_select(instance, table_name, parent_columns, schema),
+		)
+		if rows is None and hash_columns:
+			# Some mappings contain fragile SQL expressions (e.g. SUBSTRING over
+			# CHARINDEX) that blow up when evaluated across the whole table
+			# (rows where the searched pattern is absent raise MSSQL error 537).
+			# Retry without the hash columns instead of losing the bulk fast
+			# path; the hash net then stays disabled for this type (the
+			# per-mapping check_timestamp() still compares hashes).
+			make_log(
+				f"Bulk check: hash columns unusable for {instance}/{mapping_type} ({table_name}) — "
+				f"retrying without them (hash detection disabled for this type)",
+				"WARNING",
+				controller.APP_NAME,
+			)
+			hash_columns = []
+			parent_columns = [c for c in parent_columns if all(c != sql_col for sql_col, _a in get_hash_columns(
+				json.loads(table_mapping_row.mapping or "[]")))]
+			rows = _cached_fetch(
+				("parent", table_name, tuple(parent_columns)),
+				make_bulk_select(instance, table_name, parent_columns, schema),
+			)
+		if rows is None:
+			make_log(
+				f"Bulk check: parent query failed for {instance}/{mapping_type} ({table_name}) — "
+				f"falling back to per-mapping checks",
+				"WARNING",
+				controller.APP_NAME,
+			)
+			result["fallback"] = True
+			return result
+
+		by_pk: dict = {}
+		for row in rows:
+			value = get_row_col(row, pk_col)
+			if value is not None:
+				by_pk[str(value)] = row
+
+		# one child query per multiple_query group, grouped by the parent columns
+		child_sets: dict = {}
+		for g in mq_groups:
+			placeholder_cols: list = get_condition_columns(g.get("multiple_query_condition"))
+			child_columns: list = [g["match_key_column"]]
+			for col in placeholder_cols:
+				if col not in child_columns:
+					child_columns.append(col)
+			# The mapped value columns ride along in the same query — they feed the
+			# value fingerprint below, which is what detects a changed value inside
+			# an existing row (the key set cannot see it).
+			for col in get_child_value_columns(g):
+				if col not in child_columns:
+					child_columns.append(col)
+			where: str = strip_placeholder_predicates(g.get("multiple_query_condition"))
+			child_rows = _cached_fetch(
+				("child", g["multiple_query_table"], tuple(child_columns), where),
+				make_bulk_select(instance, g["multiple_query_table"], child_columns, schema, where),
+			)
+			if child_rows is None:
+				make_log(
+					f"Bulk check: child query failed for {instance}/{mapping_type} "
+					f"({g['multiple_query_table']}) — falling back to per-mapping checks",
+					"WARNING",
+					controller.APP_NAME,
+				)
+				result["fallback"] = True
+				return result
+			grouped: dict = {}
+			for child_row in child_rows:
+				group_key = tuple(str(get_row_col(child_row, c)) for c in placeholder_cols)
+				key_val = get_row_col(child_row, g["match_key_column"])
+				if key_val is None:
+					continue
+				bucket = grouped.setdefault(group_key, {"keys": set(), "rows": []})
+				bucket["keys"].add(str(key_val))
+				bucket["rows"].append(child_row)
+			child_sets[g["fieldname"]] = grouped
+
+		for m, id_data in members:
+			source_row = by_pk.get(str(id_data.get("primary_key")))
+			if source_row is None:
+				result["no_source_row"] += 1
+				continue
+
+			ts_value: str = controller.convert_timestamp_to_string(
+				get_row_col(source_row, ts_col), m.get("time_stamp_type") or "datetime"
+			)
+			ts_changed: bool = ts_value != (m.get("db_time_stamp") or "")
+
+			# Child state of this document: which rows exist (key sets) and the value
+			# fingerprint. Computed for every mapping — not only the not-ts-changed
+			# ones — because collect_fingerprints=True exports them for the seeding.
+			group_fps: dict = {}
+			group_keys: dict = {}
+			if mq_groups:
+				for g in mq_groups:
+					placeholder_cols = get_condition_columns(g.get("multiple_query_condition"))
+					group_key = tuple(str(get_row_col(source_row, c)) for c in placeholder_cols)
+					bucket: dict = child_sets.get(g["fieldname"], {}).get(group_key) or {}
+					group_keys[g["fieldname"]] = bucket.get("keys") or set()
+					# An empty group participates with "" so every call site (bulk check,
+					# per-mapping check, update write-back) hashes identically.
+					group_fps[g["fieldname"]] = compute_child_fingerprint(
+						bucket.get("rows") or [], get_child_value_columns(g), g["match_key_column"]
+					)
+			computed_child_hash: str = combine_child_fingerprints(group_fps) if mq_groups else ""
+			if collect_fingerprints and mq_groups and child_hash_available():
+				result["fingerprints"][m["name"]] = computed_child_hash
+
+			child_changed: bool = False
+			child_values_changed: bool = False
+			if not ts_changed and mq_groups:
+				for g in mq_groups:
+					source_keys: set = group_keys.get(g["fieldname"]) or set()
+					stored = stored_all.get((m["name"], g["fieldname"])) or {}
+					stored_keys: set = stored.get("keys") or set()
+					# entries exist but carry no source key → per-mapping detection
+					# treats this as changed, so mirror that here
+					if stored.get("count") and not stored_keys:
+						child_changed = True
+						continue
+					if not source_keys:
+						# empty source set: update_mapping() skips it by design
+						continue
+					if source_keys != stored_keys:
+						child_changed = True
+						continue
+
+				# Value fingerprint: a changed value inside an EXISTING row leaves the
+				# key set (and the parent row) untouched, so only the value hash can
+				# see it. Never 'break' out of the group loop above — every group must
+				# contribute, or the combined hash cannot match the stored one.
+				# While the field is missing (restart before migrate) the net stays
+				# inactive instead of flagging every mapping as changed.
+				if child_hash_available():
+					stored_child_hash: str = m.get("child_hash") or ""
+					if not stored_child_hash:
+						child_values_changed = True  # one-time backfill after deploy
+					elif computed_child_hash != stored_child_hash:
+						child_values_changed = True
+					if child_values_changed:
+						child_changed = True
+
+			hash_changed: bool = False
+			if not ts_changed and not child_changed:
+				# Hash net: the source timestamp is a DATE (no time), so changes
+				# made on the same day as the stored timestamp never bump it.
+				# An empty stored hash means one-time backfill → treat as changed.
+				stored_hash: str = m.get("source_hash") or ""
+				if not stored_hash:
+					hash_changed = True
+				else:
+					hash_changed = compute_source_hash(source_row, hash_columns) != stored_hash
+
+			if ts_changed or child_changed or hash_changed:
+				if child_values_changed:
+					result["child_value_changed"] += 1
+				if ts_changed:
+					result["ts_changed"] += 1
+				elif child_changed:
+					result["child_changed"] += 1
+				else:
+					result["hash_changed"] += 1
+				result["changed"].append({"mapping_name": m["name"], "id_data": id_data})
+			else:
+				result["unchanged"] += 1
+
+	return result
+
+
+def bulk_check_instance(instance: str, types_str: str = None, log_summary: bool = True) -> dict:
+	"""Run the bulk change detection for an instance (one aggregate query per table).
+
+	Returns {"items": [{"mapping_name","id_data","type"}], "fallback_types": [...],
+	"counts": {...}} without enqueuing anything.
+	"""
+	instance_doc: Document = frappe.get_doc("Sync Instance", instance)
+	schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+	arg_types_list: list = []
+	if types_str:
+		try:
+			arg_types_list = json.loads(types_str) if isinstance(types_str, str) else list(types_str)
+		except Exception:
+			arg_types_list = [t.strip() for t in str(types_str).split(",") if t.strip()]
+
+	summary: dict = {"items": [], "fallback_types": [], "counts": {}}
+	for table_mapping_row in instance_doc.table_mapping:
+		if arg_types_list and table_mapping_row.type not in arg_types_list:
+			continue
+
+		res = bulk_check_type_changes(instance, instance_doc, table_mapping_row, schema)
+		summary["counts"][table_mapping_row.type] = {
+			k: res.get(k) for k in ("unchanged", "ts_changed", "child_changed", "no_source_row", "skipped", "queries")
+		}
+		summary["counts"][table_mapping_row.type]["changed_total"] = len(res["changed"])
+		summary["counts"][table_mapping_row.type]["fallback"] = res["fallback"]
+		if res["fallback"]:
+			summary["fallback_types"].append(table_mapping_row.type)
+			continue
+		for item in res["changed"]:
+			summary["items"].append({**item, "type": table_mapping_row.type})
+
+	if log_summary:
+		make_log(
+			f"Bulk check for {instance}: {len(summary['items'])} changed mapping(s), "
+			f"fallback types: {summary['fallback_types'] or 'none'}, detail: {summary['counts']}",
+			"INFO",
+			controller.APP_NAME,
+		)
+	return summary
+
+
+@frappe.whitelist()
+def bulk_check_preview(instance: str, types_str: str = None) -> dict:
+	"""Dry run of the bulk change detection — returns counts, enqueues nothing."""
+	summary = bulk_check_instance(instance=instance, types_str=types_str)
+	return {
+		"instance": instance,
+		"counts": summary["counts"],
+		"fallback_types": summary["fallback_types"],
+		"changed_total": len(summary["items"]),
+		"sample": [i["mapping_name"] for i in summary["items"][:5]],
+	}
 
 
 @frappe.whitelist()
@@ -136,6 +1122,41 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
                 continue
             mapping_items.append({"mapping_name": mapping_name, "id_data": id_data})
 
+        # Bulk change detection: one aggregate source query per table instead of
+        # one connection per mapping. If the bulk answer cannot be trusted, keep
+        # all mappings and let check_timestamp() decide per mapping (as before).
+        prefiltered: bool = False
+        if not ignore_ts and mapping_items:
+            table_mapping_row = next((r for r in instance_doc.table_mapping if r.type == current_type), None)
+            if table_mapping_row:
+                schema: str = frappe.db.get_value("Sync Instance", instance, "schema") or ""
+                bulk_result: dict = bulk_check_type_changes(instance, instance_doc, table_mapping_row, schema)
+                if bulk_result.get("fallback"):
+                    make_log(
+                        f"Bulk check not usable for {instance}/{current_type} - falling back to per-mapping checks",
+                        "WARNING",
+                        controller.APP_NAME,
+                    )
+                else:
+                    keep_names: set = {item["mapping_name"] for item in bulk_result["changed"]}
+                    mapping_items = [item for item in mapping_items if item["mapping_name"] in keep_names]
+                    prefiltered = True
+                    make_log(
+                        f"Bulk check {instance}/{current_type}: {len(mapping_items)} changed of "
+                        f"{len(bulk_result['changed']) + bulk_result['unchanged'] + bulk_result['no_source_row']} checked "
+                        f"(timestamps: {bulk_result['ts_changed']}, child rows: {bulk_result['child_changed']}, "
+                        f"child values: {bulk_result.get('child_value_changed', 0)}, "
+                        f"hash: {bulk_result['hash_changed']}, "
+                        f"no source row: {bulk_result['no_source_row']}, unchanged: {bulk_result['unchanged']}) "
+                        f"with {bulk_result['queries']} source quer(ies)",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+
+        if not mapping_items:
+            make_log(f"Nothing to update for type {current_type} on {instance}", "INFO", controller.APP_NAME)
+            continue
+
         # Split into batches and enqueue one job per batch
         type_job_ids: list = []
         for i in range(0, len(mapping_items), batch_size):
@@ -149,7 +1170,8 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
                 instance=instance,
                 batch_items=batch,
                 run_number=run_number,
-                ignore_ts=ignore_ts
+                ignore_ts=ignore_ts,
+                prefiltered=prefiltered
             )
             type_job_ids.append(job_id)
 
@@ -194,19 +1216,37 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
     return None
 
 
-def update_batch(instance: str, batch_items: list, run_number: int, ignore_ts: bool = False) -> None:
+def update_batch(instance: str, batch_items: list, run_number: int, ignore_ts: bool = False, prefiltered: bool = False) -> None:
     """Background job: processes a batch of mappings serially.
     Each item in batch_items is a dict with keys: mapping_name, id_data.
+
+    prefiltered=True means the bulk check already decided that these mappings
+    changed, so update_mapping() runs directly (no second timestamp fetch).
     """
     for item in batch_items:
-        check_timestamp(
-            instance=instance,
-            id_data=item["id_data"],
-            mapping_name=item["mapping_name"],
-            run_number=run_number,
-            skip_job_update=True,
-            ignore_ts=ignore_ts
-        )
+        if prefiltered:
+            try:
+                update_mapping(
+                    instance=instance,
+                    id_data=item["id_data"],
+                    mapping_name=item["mapping_name"],
+                    run_number=run_number,
+                )
+            except Exception as exc:
+                make_log(
+                    f"update_mapping failed for {item['mapping_name']}: {exc}",
+                    "ERROR",
+                    controller.APP_NAME,
+                )
+        else:
+            check_timestamp(
+                instance=instance,
+                id_data=item["id_data"],
+                mapping_name=item["mapping_name"],
+                run_number=run_number,
+                skip_job_update=True,
+                ignore_ts=ignore_ts
+            )
     controller.update_jobs(instance=instance, skip_hooks=True)
 
 
@@ -269,9 +1309,11 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         mapping_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "type")
         instance_doc = frappe.get_doc("Sync Instance", instance)
         ts_col: str = None
+        mapping_json_for_hash: list = []
         for table_mapping_row in instance_doc.table_mapping:
             if table_mapping_row.type == mapping_type:
                 ts_col = table_mapping_row.timestamp_column_name
+                mapping_json_for_hash = json.loads(table_mapping_row.mapping or "[]")
                 break
         if not ts_col:
             make_log(f"No timestamp column configured for {mapping_name}, proceeding with update", "INFO", controller.APP_NAME)
@@ -293,11 +1335,26 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
         # get the timestamp column type from mapping
         time_stamp_type: str = frappe.db.get_value("Sync Mapping", mapping_name, "time_stamp_type") or "datetime"
 
+        # Collect the parent columns the query must return: the timestamp column
+        # plus every column referenced as {Placeholder} by a multiple_query
+        # condition — the child-level change detection below needs those values
+        # to build the source child query.
+        mq_groups: list = get_multiple_query_groups(instance_doc, mapping_type)
+        hash_columns: list = get_hash_columns(mapping_json_for_hash)
+        parent_columns: list = [ts_col]
+        for mq_group in mq_groups:
+            for placeholder_col in get_condition_columns(mq_group.get("multiple_query_condition")):
+                if placeholder_col not in parent_columns:
+                    parent_columns.append(placeholder_col)
+        for sql_col, _alias in hash_columns:
+            if sql_col not in parent_columns:
+                parent_columns.append(sql_col)
+
         # Build SQL using helper function
         sql: str = controller.make_sql_string_single_row(
             instance=instance,
             table_name=table_name,
-            columns=[ts_col],
+            columns=parent_columns,
             primary_key_col=primary_key_column,
             primary_key_val=primary_key,
             schema=schema
@@ -339,7 +1396,69 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
             raise Exception(f"No timestamp in mapping {mapping_name}")
 
         # check timestamp strings
-        if timestamp_str == mapped_timestamp:
+        ts_changed: bool = timestamp_str != mapped_timestamp
+        child_changed: bool = False
+
+        # The header timestamp cannot see child-table changes: SelectLine
+        # transaction headers carry a date-only `Modifiziert_Datum`, and a
+        # position added or removed in the source does not necessarily move it.
+        # For every multiple_query group with a match_key_column, compare the
+        # source row keys against the keys stored on the mapping's entries and
+        # treat a difference as a change, so the structural add/delete sync in
+        # update_mapping() runs for exactly those mappings.
+        if not ts_changed and mq_groups and fetched_ts:
+            try:
+                child_result: dict = detect_child_row_changes(
+                    instance=instance,
+                    mapping_name=mapping_name,
+                    mapping_type=mapping_type,
+                    parent_data=fetched_ts[0],
+                    instance_doc=instance_doc,
+                )
+                child_changed = bool(child_result.get("changed"))
+                if child_changed:
+                    make_log(
+                        f"Child rows changed for {mapping_name} while the header timestamp "
+                        f"stayed at {timestamp_str}: {child_result.get('groups')}",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+            except Exception as child_err:
+                # Never let detection failures block the regular timestamp path.
+                make_log(
+                    f"Child row change detection failed for {mapping_name}: {child_err}",
+                    "WARNING",
+                    controller.APP_NAME,
+                    with_traceback=True,
+                )
+
+        if not ts_changed and not child_changed:
+            # Hash net: the source timestamp is a DATE, so a change made on the
+            # same day as the stored timestamp never bumps it. Compare a hash
+            # over all mapped parent columns instead.
+            try:
+                hash_changed: bool = False
+                if mapping_json_for_hash:
+                    stored_hash: str = frappe.db.get_value("Sync Mapping", mapping_name, "source_hash") or ""
+                    if not stored_hash:
+                        hash_changed = True  # one-time backfill
+                    else:
+                        hash_changed = compute_source_hash(fetched_ts[0], hash_columns) != stored_hash
+                if hash_changed:
+                    make_log(
+                        f"Source hash changed for {mapping_name} (timestamp stayed at {timestamp_str})",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+                    ts_changed = True  # reuse the regular update trigger path
+            except Exception as hash_err:
+                make_log(
+                    f"Source hash comparison failed for {mapping_name}: {hash_err}",
+                    "WARNING",
+                    controller.APP_NAME,
+                )
+
+        if not ts_changed and not child_changed:
             make_log(f"Mapping {mapping_name} up to date", "INFO", controller.APP_NAME)
             if not skip_job_update:
                 controller.update_jobs(instance=instance, skip_hooks=True)
@@ -390,6 +1509,7 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
             if tm_row.type == mapping_doc.type:
                 time_stamp_col_name = tm_row.timestamp_column_name
                 mapping_json = json.loads(tm_row.mapping)
+                mapping_json = controller.apply_instance_vars_to_mapping(mapping_json, controller.get_instance_vars(instance))
                 table_mapping_row = tm_row
                 break
 
@@ -464,6 +1584,13 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         for needed_col in mq_condition_columns | ({primary_key_col_name} if primary_key_col_name else set()):
             if needed_col and needed_col not in columns:
                 columns.append(needed_col)
+
+        # Hash columns: the parent query must contain every JSON-mapped parent
+        # column so the stored source_hash stays comparable with the bulk check
+        # (which selects exactly these columns).
+        for sql_col, _alias in get_hash_columns(mapping_json):
+            if sql_col not in columns:
+                columns.append(sql_col)
 
 
         # Build phone + value_map + mapped_value + trim lookups from mapping JSON
@@ -609,6 +1736,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
         # Fetch multiple_query child table data so child rows can be updated.
         # Maps child_row_name -> {COLUMN: value, ...} from the source child table.
         mq_child_data: dict[str, dict] = {}
+        # fieldname -> value fingerprint of the group's source rows (see
+        # compute_child_fingerprint) — written to Sync Mapping.child_hash below.
+        child_group_fps: dict[str, str] = {}
         for mapped_doctype in mapping_json:
             doctype_name = mapped_doctype.get("doctype")
             for field in mapped_doctype.get("fields", []):
@@ -649,6 +1779,14 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     parent_data=fetched_data[0],
                     columns=mq_columns if mq_columns else None,
                 )
+
+                if match_key_col:
+                    # Same helper/columns as bulk_check_type_changes() and
+                    # detect_child_row_changes() — the stored value is read back by
+                    # those two, so all three must hash identically.
+                    child_group_fps[field.get("fieldname")] = compute_child_fingerprint(
+                        source_rows or [], get_child_value_columns(field), match_key_col
+                    )
 
                 if not source_rows:
                     continue
@@ -735,9 +1873,22 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     mq_child_data[crn] = matched_source
                     if matched_key:
                         matched_keys.add(matched_key)
-                    if match_key_col and matched_key and not stored_key:
+                    if match_key_col and matched_key:
+                        # Refresh stored keys that differ from the matched source
+                        # key — not just missing ones: after a match_key_column
+                        # change every entry of a row still carries the old key,
+                        # which would otherwise make the child-row change
+                        # detection report the same difference on every cycle
+                        # (it compares key sets) without ever settling.
                         for e in entries:
-                            frappe.db.set_value("Sync Mapping Entry", e.name, "source_row_key", matched_key, update_modified=False)
+                            if e.get("source_row_key") != matched_key:
+                                frappe.db.set_value(
+                                    "Sync Mapping Entry",
+                                    e.name,
+                                    "source_row_key",
+                                    matched_key,
+                                    update_modified=False,
+                                )
 
                 if mq_child_data:
                     make_log(
@@ -762,8 +1913,15 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                             "INFO",
                             controller.APP_NAME,
                         )
-                    for e in entries:
-                        frappe.delete_doc("Sync Mapping Entry", e.name, ignore_permissions=True, force=True)
+                    entry_names = [e.name for e in entries]
+                    if entry_names:
+                        # Bulk delete: frappe.delete_doc() enqueues a
+                        # delete_dynamic_links background job per document, so
+                        # deleting a removed line's entries one by one (≈one per
+                        # mapped field) flooded the queue with tens of thousands
+                        # of trivial jobs during a large structural sync.
+                        frappe.db.delete("Sync Mapping Entry", {"name": ["in", entry_names]})
+                        frappe.db.commit()
 
                 # Create child rows for source rows without a matching child row
                 new_keys = [k for k in source_by_key if k not in matched_keys]
@@ -789,6 +1947,83 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     limit=1,
                 )
                 next_idx = (last_idx_row[0].idx if last_idx_row else 0) + 1
+
+                # Duplicate guard: a child row with the same value may already exist
+                # on the document without being tracked by *this* mapping — e.g. the
+                # same document is mapped by another Sync Instance, or the row was
+                # created outside the sync. Creating a second row for it duplicates
+                # positions on the document, so adopt such untracked rows one-for-one
+                # instead of creating a new one. The pool is consumed per source row,
+                # so legitimate repeated values (same article, different qty) still
+                # get their own row.
+                adopted_rows: list = []
+                if match_child_fieldname and match_sl_col and parent_docname:
+                    tracked_names = {
+                        e.child_row_name for el in entries_by_child.values() for e in el
+                    }
+                    pool: dict = {}
+                    for row in frappe.get_all(
+                        child_doctype,
+                        filters={"parent": parent_docname, "parentfield": fieldname},
+                        fields=["name", match_child_fieldname],
+                    ):
+                        value = row.get(match_child_fieldname)
+                        if value in (None, "") or row.get("name") in tracked_names:
+                            continue
+                        pool.setdefault(str(value), []).append(row.name)
+                    if pool:
+                        guarded = []
+                        adopted = 0
+                        for key in new_keys:
+                            value = _get_col(source_by_key[key], match_sl_col)
+                            rows_for_value = pool.get(str(value)) if value is not None else None
+                            if rows_for_value:
+                                adopted_rows.append({"key": key, "row_name": rows_for_value.pop(0)})
+                                adopted += 1
+                                continue
+                            guarded.append(key)
+                        if adopted:
+                            make_log(
+                                f"Duplicate guard: adopted {adopted} untracked {child_doctype} row(s) on "
+                                f"{doctype_name} {parent_docname} instead of creating duplicates "
+                                f"(match field {match_child_fieldname})",
+                                "WARNING",
+                                controller.APP_NAME,
+                            )
+                        new_keys = guarded
+
+                # An adopted row is already on the document, but its Sync Mapping
+                # Entries may be missing (e.g. entries removed by an earlier
+                # structural sync while the row itself survived). Without entries
+                # the stored key set never converges with the source set, so the
+                # mapping is flagged "child rows changed" on EVERY cycle and is
+                # re-updated forever. Track the adoption like a creation.
+                for adopted in adopted_rows:
+                    for tf in field.get("table_fields", []):
+                        if tf.get("sl_column"):
+                            controller.insert_mapping_row(
+                                mapping_doc_name=mapping_name,
+                                data={
+                                    "mapping_doctype": doctype_name,
+                                    "docname": parent_docname,
+                                    "fieldname": fieldname,
+                                    "child_row_fieldname": tf.get("table_fieldname"),
+                                    "child_row_name": adopted["row_name"],
+                                    "child_row_doctype": child_doctype,
+                                    "selectline_column": trim_value(tf["sl_column"], tf),
+                                    "source_row_key": adopted["key"],
+                                },
+                            )
+                    make_log(
+                        f"Duplicate guard: tracked adopted {child_doctype} row {adopted['row_name']} "
+                        f"of {doctype_name} {parent_docname} (match_key_column="
+                        f"{match_key_col}={adopted['key']}) with Sync Mapping Entries",
+                        "INFO",
+                        controller.APP_NAME,
+                    )
+
+                if not new_keys:
+                    continue
 
                 for key in new_keys:
                     srow = source_by_key[key]
@@ -852,12 +2087,17 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "name": child_name,
                         "parentfield": fieldname,
                         "idx": next_idx,
-                        "docstatus": parent_docstatus,
                     })
                     new_row.insert(ignore_permissions=True, ignore_mandatory=True)
                     # insert() renames the doc (set_new_name resets doc.name) —
                     # the generated name must be used from here on
                     child_name = new_row.name
+                    if parent_docstatus:
+                        # A new child doc always starts at docstatus 0 — putting the
+                        # parent's docstatus into the insert dict raises
+                        # DocstatusTransitionError for submitted/cancelled parents.
+                        # Write it on the DB level instead (no transition validation).
+                        frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
                     next_idx += 1
 
                     for tfn, value in resolved.items():
@@ -884,6 +2124,32 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         "INFO",
                         controller.APP_NAME,
                     )
+
+        # Create non-mq child rows (info table rows) that the document never
+        # received — e.g. info groups added to the mapping JSON after the doc
+        # was imported. Without this such a group can never sync: the entry
+        # loop below updates only rows a Sync Mapping Entry already points at,
+        # and the stored source hash hides the change from every future run
+        # (dead-end state).
+        try:
+            create_missing_info_rows(
+                mapping_doc=mapping_doc,
+                mapping_json=mapping_json,
+                fetched_data=fetched_data,
+                mapping_name=mapping_name,
+                instance=instance,
+                value_map_lookup=value_map_lookup,
+                mapped_value_lookup=mapped_value_lookup,
+                phone_field_lookup=phone_field_lookup,
+                trim_lookup=trim_lookup,
+            )
+        except Exception as info_err:
+            make_log(
+                f"Info-row repair failed for {mapping_name}: {info_err}",
+                "ERROR",
+                controller.APP_NAME,
+                with_traceback=True,
+            )
 
         # go through mapping table and set new values in the docs
         for row in mapping_doc.mapping_table:
@@ -996,11 +2262,37 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                     target_child_name = row.child_row_name
 
                     # Update ONLY updates existing child rows. Never creates.
-                    # If the child row is missing, skip — reconcile will fix it.
+                    # If the entry's child_row_name no longer points at an
+                    # existing row of this document (child rows can be
+                    # re-created outside the mapping entries), try to re-match
+                    # it via the mapping JSON's label field before skipping.
                     if not target_child_doctype or not target_child_name:
                         continue
-                    if not frappe.db.exists(target_child_doctype, target_child_name):
-                        continue
+                    if not frappe.db.get_value(
+                        target_child_doctype, {"name": target_child_name, "parent": row.docname}
+                    ):
+                        repaired_name = rematch_stale_child_row(
+                            mapping_json=mapping_json,
+                            mapping_doctype=row.mapping_doctype,
+                            fieldname=row.fieldname,
+                            selectline_column=row.selectline_column,
+                            parent_name=row.docname,
+                        )
+                        if not repaired_name or not frappe.db.get_value(
+                            target_child_doctype, {"name": repaired_name, "parent": row.docname}
+                        ):
+                            continue
+                        frappe.db.set_value(
+                            "Sync Mapping Entry", row.name, "child_row_name", repaired_name, update_modified=False
+                        )
+                        row.child_row_name = repaired_name
+                        target_child_name = repaired_name
+                        make_log(
+                            f"Re-matched stale child entry {row.name} to {target_child_doctype} "
+                            f"{repaired_name} on {row.docname}",
+                            "INFO",
+                            controller.APP_NAME,
+                        )
 
                     lookup_key = f"{target_child_doctype}:{row.child_row_fieldname}"
                     if lookup_key in phone_field_lookup and field_value:
@@ -1037,6 +2329,33 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                 frappe.db.set_value("Sync Mapping", mapping_name, "db_time_stamp", ts_str, update_modified=False)
             except Exception as ts_err:
                 make_log(f"Could not update timestamp for {mapping_name}: {ts_err}", "ERROR", controller.APP_NAME)
+
+        # Store the source hash so the bulk check can detect changes the DATE
+        # timestamp cannot see (changes made on the same day).
+        try:
+            frappe.db.set_value(
+                "Sync Mapping", mapping_name,
+                "source_hash",
+                compute_source_hash(fetched_data[0], get_hash_columns(mapping_json)),
+                update_modified=False,
+            )
+        except Exception as hash_err:
+            make_log(f"Could not store source hash for {mapping_name}: {hash_err}", "ERROR", controller.APP_NAME)
+
+        # Store the child value hash. A changed value inside an EXISTING child row
+        # leaves both the child key set and the parent row untouched, so this is
+        # the only signal that can trigger the update for such a change — and the
+        # two checks read this value back, so it must come from the same helper.
+        try:
+            if child_hash_available():
+                frappe.db.set_value(
+                    "Sync Mapping", mapping_name,
+                    "child_hash",
+                    combine_child_fingerprints(child_group_fps),
+                    update_modified=False,
+                )
+        except Exception as child_hash_err:
+            make_log(f"Could not store child hash for {mapping_name}: {child_hash_err}", "ERROR", controller.APP_NAME)
         frappe.db.set_value("Sync Mapping", mapping_name, "last_update", datetime.datetime.now(), update_modified=False)
 
         frappe.db.commit()

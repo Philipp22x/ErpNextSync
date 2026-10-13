@@ -245,8 +245,10 @@ def reconcile_single_mapping(
 				stale_entry_names.append(entry.get("name"))
 
 		if stale_entry_names:
-			for entry_name in stale_entry_names:
-				frappe.delete_doc("Sync Mapping Entry", entry_name, ignore_permissions=True, force=True)
+			# Bulk delete: frappe.delete_doc() enqueues a delete_dynamic_links
+			# background job per document — looping it over thousands of stale
+			# entries floods the job queue (see the flood note in update.py).
+			frappe.db.delete("Sync Mapping Entry", {"name": ["in", stale_entry_names]})
 			# Re-fetch stored entries after deletion
 			stored_entries = controller.get_mapping_table_data(mapping_name)
 			make_log(
@@ -1399,13 +1401,54 @@ def apply_field_additions(
 						APP_NAME
 					)
 
-					# Update child row field
-					frappe.db.set_value(
-						child_info["child_doctype"],
-						child_info["child_name"],
-						child_row_fieldname,
-						field_value
-					)
+					# Update child row field. A failure here is typically a unique-key
+					# violation (e.g. Item Barcode.barcode) caused by an orphaned row that
+					# still holds the value. Never leave the freshly created child row
+					# behind with only its sibling fields filled: adopt the row that owns
+					# the value when it is orphaned, otherwise drop our row and skip the
+					# whole group so no half-written row survives.
+					try:
+						frappe.db.set_value(
+							child_info["child_doctype"],
+							child_info["child_name"],
+							child_row_fieldname,
+							field_value,
+						)
+					except Exception as write_error:
+						adopted = _adopt_orphaned_child_row(
+							child_doctype=child_info["child_doctype"],
+							child_row_fieldname=child_row_fieldname,
+							value=field_value,
+							doctype=doctype,
+							docname=docname,
+							fieldname=fieldname,
+						)
+						if adopted:
+							if child_info.get("created"):
+								frappe.db.delete(child_info["child_doctype"], {"name": child_info["child_name"]})
+							if child_cache_key:
+								child_rows_cache[child_cache_key] = adopted
+							child_info = adopted
+							frappe.db.set_value(
+								child_info["child_doctype"],
+								child_info["child_name"],
+								child_row_fieldname,
+								field_value,
+							)
+						else:
+							make_log(
+								f"Could not write {doctype}.{fieldname}.{child_row_fieldname}="
+								f"{field_value!r}: {write_error}",
+								"ERROR",
+								APP_NAME,
+							)
+							if child_info.get("created"):
+								frappe.db.delete(child_info["child_doctype"], {"name": child_info["child_name"]})
+								if child_cache_key:
+									child_rows_cache.pop(child_cache_key, None)
+							if child_cache_key:
+								skipped_groups.add(child_cache_key)
+							raise
 
 					# Skip creating mapping entry for pure default fields (no sl_column, no get_redis)
 					if not has_trackable_source:
@@ -1811,8 +1854,8 @@ def delete_mapping_entries_for_child(
 		},
 		pluck="name",
 	)
-	for entry_name in entries:
-		frappe.delete_doc("Sync Mapping Entry", entry_name)
+	if entries:
+		frappe.db.delete("Sync Mapping Entry", {"name": ["in", entries]})
 
 
 def _score_conversion_factor(value: Any) -> int:
@@ -1884,8 +1927,8 @@ def apply_field_removals(
 				pluck="name"
 			)
 			
-			for entry_name in entries:
-				frappe.delete_doc("Sync Mapping Entry", entry_name)
+			if entries:
+				frappe.db.delete("Sync Mapping Entry", {"name": ["in", entries]})
 			
 			removed_count += len(entries)
 			
@@ -2215,6 +2258,65 @@ def get_field_value(
 	return None
 
 
+def _adopt_orphaned_child_row(
+	child_doctype: str,
+	child_row_fieldname: str,
+	value: Any,
+	doctype: str,
+	docname: str,
+	fieldname: str,
+) -> Optional[Dict]:
+	"""Link an existing child row that already holds `value` to the parent document.
+
+	Rows written before the parent-linking fix sit in the child table with
+	parent = NULL while still holding their unique value (Item Barcode.barcode has a
+	unique index), so inserting the same value again fails with a duplicate-key error
+	and the item keeps its barcode row missing.  Re-parenting the orphan IS the repair
+	- it is exactly the row this document is missing.
+
+	Returns {"child_doctype", "child_name"} of the adopted row, or None if no orphaned
+	row holds the value (the caller then drops its own fresh row).
+	"""
+	if value in (None, ""):
+		return None
+
+	try:
+		orphans = frappe.db.sql(
+			f"""SELECT name FROM `tab{child_doctype}`
+				WHERE `{child_row_fieldname}` = %s AND (parent IS NULL OR parent = '')
+				ORDER BY creation ASC
+				LIMIT 1""",
+			value,
+			as_dict=True,
+		)
+	except Exception as e:
+		make_log(
+			f"Could not look up an orphaned {child_doctype} row for "
+			f"{child_row_fieldname}={value!r}: {e}",
+			"ERROR",
+			APP_NAME,
+		)
+		return None
+
+	if not orphans:
+		return None
+
+	orphan_name = orphans[0]["name"]
+	frappe.db.set_value(
+		child_doctype,
+		orphan_name,
+		{"parent": docname, "parenttype": doctype, "parentfield": fieldname},
+		update_modified=False,
+	)
+	make_log(
+		f"Adopted orphaned {child_doctype} {orphan_name} "
+		f"({child_row_fieldname}={value!r}) for {doctype} {docname}",
+		"INFO",
+		APP_NAME,
+	)
+	return {"child_doctype": child_doctype, "child_name": orphan_name}
+
+
 def get_or_create_child_row(
 	mapping_name: str,
 	doctype: str,
@@ -2253,15 +2355,23 @@ def get_or_create_child_row(
 					"selectline_column": source_column,
 				},
 				fields=["child_row_name", "child_row_doctype"],
-				limit=1,
+				limit=0,
 			)
-			if existing_children and existing_children[0].get("child_row_name") and (
-				child_names_in_use is None or existing_children[0]["child_row_name"] not in child_names_in_use
-			):
-				return {
-					"child_doctype": existing_children[0]["child_row_doctype"],
-					"child_name": existing_children[0]["child_row_name"],
-				}
+			# Only reuse when the referenced child row still exists on the
+			# document. Stale child_row_names (child rows get re-created
+			# outside the mapping entries) would make the write below a
+			# silent no-op and cause duplicate child rows on every run.
+			for candidate in existing_children:
+				cand_name = candidate.get("child_row_name")
+				if not cand_name:
+					continue
+				if child_names_in_use is not None and cand_name in child_names_in_use:
+					continue
+				if frappe.db.get_value(candidate["child_row_doctype"], {"name": cand_name, "parent": docname}):
+					return {
+						"child_doctype": candidate["child_row_doctype"],
+						"child_name": cand_name,
+					}
 
 			# Fallback: no Sync Mapping Entry found for this sl_column child field,
 			# but the child row may already exist on the document (e.g. mapping entry
@@ -2299,15 +2409,20 @@ def get_or_create_child_row(
 						"child_row_name": ["not in", ["", None]],
 					},
 					fields=["child_row_name", "child_row_doctype"],
-					limit=1,
+					limit=0,
 				)
-				if sibling_entries and (
-					child_names_in_use is None or sibling_entries[0]["child_row_name"] not in child_names_in_use
-				):
-					return {
-						"child_doctype": sibling_entries[0]["child_row_doctype"],
-						"child_name": sibling_entries[0]["child_row_name"],
-					}
+				if sibling_entries:
+					for candidate in sibling_entries:
+						cand_name = candidate.get("child_row_name")
+						if not cand_name:
+							continue
+						if child_names_in_use is not None and cand_name in child_names_in_use:
+							continue
+						if frappe.db.get_value(candidate["child_row_doctype"], {"name": cand_name, "parent": docname}):
+							return {
+								"child_doctype": candidate["child_row_doctype"],
+								"child_name": cand_name,
+							}
 
 			parent_doc = frappe.get_doc(doctype, docname)
 			existing_child_rows = parent_doc.get(fieldname) or []
@@ -2359,7 +2474,8 @@ def get_or_create_child_row(
 		
 		return {
 			"child_doctype": child_doctype,
-			"child_name": child_name
+			"child_name": child_name,
+			"created": True,
 		}
 		
 	except Exception as e:
@@ -2613,7 +2729,12 @@ def get_current_json_mapping(instance_doc: Document, mapping_type: str) -> Optio
 		for row in instance_doc.table_mapping:
 			if row.type == mapping_type:
 				if row.mapping:
-					return json.loads(row.mapping)
+					mapping: List[Dict] = json.loads(row.mapping)
+					# resolve Sync Instance variables ({var}, e.g. {company}) so defaults and
+					# other string values are written with the actual instance values
+					return controller.apply_instance_vars_to_mapping(
+						mapping, controller.get_instance_vars(instance_doc.name)
+					)
 		return None
 	except Exception as e:
 		make_log(

@@ -19,6 +19,7 @@ Supports two backends: **pymssql** (MSSQL) and **p4d** (4D). SQL generation, col
 | `Selectline Table Mapping` | Child table of Sync Instance; JSON-based table/field mapping definitions |
 | `PIT ERPNextSync Settings` | Single doctype (global settings, e.g. cascade-delete toggle) |
 | `Sync Instance Hooks` | Child table of Sync Instance; Server Script hooks (before/after import/update) |
+| `Sync Instance Variable` | Child table of Sync Instance; mapping variables (`var_name` + Dynamic Link to any document) usable as `{var}` placeholders |
 
 ### Scripts (all in `pit_erpnextsync/scripts/`)
 | Script | Role |

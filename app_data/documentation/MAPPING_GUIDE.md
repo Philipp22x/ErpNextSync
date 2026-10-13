@@ -585,21 +585,47 @@ Before running large imports, test with a small subset:
 }
 ```
 
-### 6. Leverage Field Variables for Global Settings
+### 6. Sync Instance Variables (`{var}`)
 
-Set common values in the Sync Instance's field variables:
-- `default_territory`
-- `default_customer_group`
-- `default_company`
+The Sync Instance carries a **Mapping Variables** child table (section *Mapping
+Variables*). Each row defines one placeholder:
 
-Then reference them in mappings:
+| Field | Meaning |
+|-------|---------|
+| **Var Name** | The placeholder name, used in mappings as `{var_name}` (e.g. `company`) |
+| **Document Type** | Any DocType (Link) — the type of the value document |
+| **Document Name** | The selected document (Dynamic Link on *Document Type*) |
+
+The **Document Name** can be a document of any DocType — Company, Territory,
+Customer Group, Warehouse, Cost Center, … So a static mapping can target the
+right record without hardcoding it.
+
+Example row: `Var Name = company`, `Document Type = Company`,
+`Document Name = My Company` → placeholder `{company}` resolves to `My Company`.
 
 ```json
 {
-  "fieldname": "territory",
-  "field_var": "default_territory"
+  "fieldname": "company",
+  "default": "{company}"
 }
 ```
+
+Also works inside any other string value, e.g. a `multiple_query_condition`
+(the value is quoted as a SQL string literal):
+
+```json
+{
+  "fieldname": "contacts",
+  "multiple_query": true,
+  "multiple_query_table": "CONTACTS",
+  "multiple_query_condition": "Company = {company} AND CustomerId = {sl_column:CustomerId}"
+}
+```
+
+Placeholders are resolved at import, update and reconcile time; the
+`multiple_query_condition` placeholder is quoted by the SQL layer, all other
+values are substituted verbatim. `{sl_column:ColumnName}` still resolves a parent
+row column as before.
 
 ### 7. Use Cross-References for Relationships
 

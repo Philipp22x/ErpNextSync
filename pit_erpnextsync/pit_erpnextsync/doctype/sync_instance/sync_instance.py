@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
 from pit_erpnextsync.scripts import controller
@@ -10,6 +11,15 @@ from pit_erpnext.scripts.logger import make_log
 
 
 class SyncInstance(Document):
+
+	def validate(self) -> None:
+		seen: set = set()
+		for row in self.mapping_variables or []:
+			if not row.var_name:
+				continue
+			if row.var_name in seen:
+				frappe.throw(_("Duplicate mapping variable name: {0}").format(row.var_name))
+			seen.add(row.var_name)
 
 	def before_rename(self, old: str, new: str, merge: bool=False):
 		controller.change_mapping_id_bulk(old, new)

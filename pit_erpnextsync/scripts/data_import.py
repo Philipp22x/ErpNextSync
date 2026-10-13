@@ -12,6 +12,15 @@ from pit_erpnextsync.scripts import controller
 
 
 #* trim value to max length ##########################################################################
+def _sv(fieldname, value):
+    """Sanitize a value when written to a field that must not contain line breaks (item_name)."""
+    if fieldname == "item_name" and isinstance(value, str):
+        value = " ".join(value.split())
+        if len(value) > 140:
+            value = value[:140]
+    return value
+
+
 def trim_value(value, field_def: dict):
 	"""Trim a value to the max characters specified by the 'trim' mapping keyword.
 
@@ -379,6 +388,13 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
 
     # after import hooks - trigger once after ALL types have been processed sequentially
     controller.trigger_hooks(instance=instance, before_after="after", import_update="import")
+
+    # Item specifications from dbo.ShopSachmerkmale (incremental; the source has no
+    # timestamp column, so this is a full compare with minimal writes). Runs at the
+    # end of every import - manual and scheduled - because the import creates the items.
+    from pit_erpnextsync.scripts.item_specification_sync import _run_in_cycle
+    _run_in_cycle(instance)
+
     make_log(f"Import completed for instance {instance}", "INFO", controller.APP_NAME)
 
 
@@ -430,8 +446,9 @@ def import_fetched_object(instance: str, fetched_obj: dict, table_mapping_row: d
         ):
             raise Exception("Args invalid")
 
-        # load mapping table json
+        # load mapping table json and resolve Sync Instance variables ({var}, e.g. {company})
         mapping: list = json.loads(table_mapping_row.mapping)
+        mapping = controller.apply_instance_vars_to_mapping(mapping, controller.get_instance_vars(instance))
 
         # check reqd fields for obj
         missing_columns: list = check_obj_requirements(fetched_obj=fetched_obj, mapping=mapping)
@@ -860,7 +877,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         row_has_data = False
                                         break
                                     else:
-                                        new_child_row.set(table_field["table_fieldname"], field_value)
+                                        new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
                                         if field_value not in ["", None]:
                                             row_has_data = True
 
@@ -914,7 +931,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                         row_has_data = False
                                         break
                                     elif field_value not in ["", None]:
-                                        new_child_row.set(table_field["table_fieldname"], field_value)
+                                        new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
                                         row_has_data = True
 
                                 elif table_field.get("default"):
@@ -999,7 +1016,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                                 row_has_data = False
                                 break
                             else:
-                                new_child_row.set(table_field["table_fieldname"], field_value)
+                                new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
 
                             if field_value not in ["", None]:
                                 row_has_data = True
@@ -1033,7 +1050,7 @@ def create_doc(instance: str, mapped_doctype: dict, fetched_obj: dict, table_map
                             if field_value in ["", None] and table_field.get("reqd") == 1:
                                 return {"code": 101} if doc_is_reqd in [0, None] else {"code": 102}
                             elif field_value not in ["", None]:
-                                new_child_row.set(table_field["table_fieldname"], field_value)
+                                new_child_row.set(table_field["table_fieldname"], _sv(table_field["table_fieldname"], field_value))
                                 row_has_data = True
 
                         elif table_field.get("default"):
@@ -1281,13 +1298,17 @@ def check_obj_requirements(fetched_obj: dict, mapping: list) -> list:
 
 #* HOOKS #########################################################################################
 def before_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:
+    # Only skip auto-naming when the mapping already provided a name.
+    # Setting flags.name_set unconditionally makes Frappe's set_new_name()
+    # return early during insert, so new_doc.name is still None when
+    # set_parent_in_children() runs directly after it (frappe/model/document.py
+    # insert()) - every appended child row (Item barcodes, the information
+    # table, ...) would then be inserted with parent = NULL and never show up
+    # on the document.
     match new_doc.doctype:
-        case "Customer":
-            new_doc.flags.name_set = True
-        case "Supplier":
-            new_doc.flags.name_set = True
-        case "Item":
-            new_doc.flags.name_set = True
+        case "Customer" | "Supplier" | "Item":
+            if new_doc.name:
+                new_doc.flags.name_set = True
 
 
 def after_doc_insert_hook(new_doc: Document, fetched_obj: dict, table_mapping_row: dict) -> None:

@@ -218,7 +218,7 @@
                                 "reqd": 1
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "TAX_CODE",
                                 "reqd": 1,
                                 "force_str_type": 1
@@ -234,7 +234,7 @@
                                 "default": "Sales Rep"
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "SALES_REP_CODE",
                                 "reqd": 1,
                                 "force_str_type": 1
@@ -964,7 +964,7 @@
                                 "reqd": 1
                             },
                             {
-                                "table_fieldname": "info",
+                                "table_fieldname": "value",
                                 "sl_column": "STORAGE_BIN",
                                 "reqd": 1,
                                 "force_str_type": 1

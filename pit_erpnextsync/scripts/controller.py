@@ -1,5 +1,6 @@
 import json
 from pprint import pprint
+from typing import Any
 
 import frappe
 import pymssql
@@ -322,6 +323,66 @@ def _quote_mssql_col(col: str) -> str:
 	return f"[{col}]"
 
 
+# *## INSTANCE VARIABLES ##########################################################################
+
+
+def get_instance_vars(instance: str) -> dict:
+	"""Return mapping variables defined on the Sync Instance doc.
+
+	Each row of the ``mapping_variables`` child table maps a ``var_name`` to a
+	document name (``document_name``, chosen via a Dynamic Link on
+	``document_type``). The name is usable as a ``{var}`` placeholder inside the
+	mapping JSON — e.g. ``{"fieldname": "company", "default": "{company}"}`` or
+	inside a ``multiple_query_condition``. Any doctype can be used as the value.
+	"""
+
+	instance_var_map: dict = {}
+	if not instance:
+		return instance_var_map
+
+	rows = frappe.db.get_all(
+		"Sync Instance Variable",
+		filters={"parent": instance, "parenttype": "Sync Instance"},
+		fields=["var_name", "document_name"],
+	)
+	for row in rows:
+		if row.var_name and row.document_name:
+			instance_var_map[row.var_name] = row.document_name
+	return instance_var_map
+
+
+def apply_instance_vars(value: Any, instance_vars: dict) -> Any:
+	"""Replace ``{var}`` placeholders in a string with Sync Instance values."""
+
+	if not instance_vars or not isinstance(value, str):
+		return value
+	for var_name, var_value in instance_vars.items():
+		placeholder: str = "{" + var_name + "}"
+		if placeholder in value:
+			value = value.replace(placeholder, str(var_value))
+	return value
+
+
+def apply_instance_vars_to_mapping(mapping: Any, instance_vars: dict) -> Any:
+	"""Recursively substitute ``{var}`` placeholders in a parsed mapping structure.
+
+	``multiple_query_condition`` values are intentionally left untouched: their
+	placeholders are resolved (and SQL-quoted) in ``fetch_multiple_rows`` via the
+	parent row data, which also carries the instance variables (see there).
+	"""
+
+	if not instance_vars:
+		return mapping
+	if isinstance(mapping, dict):
+		return {
+			key: (val if key == "multiple_query_condition" else apply_instance_vars_to_mapping(val, instance_vars))
+			for key, val in mapping.items()
+		}
+	if isinstance(mapping, list):
+		return [apply_instance_vars_to_mapping(item, instance_vars) for item in mapping]
+	return apply_instance_vars(mapping, instance_vars)
+
+
 def fetch_multiple_rows(
 	instance: str, table: str, condition: str, schema: str = "", parent_data: dict = None,
 	columns: list | None = None,
@@ -359,6 +420,15 @@ def fetch_multiple_rows(
 		condition_clean = condition.strip()
 		if condition_clean.upper().startswith("WHERE "):
 			condition_clean = condition_clean[6:].strip()
+
+		# Merge in Sync Instance mapping variables (e.g. {company}) so conditions
+		# can filter on instance-level values; parent row data wins on key clashes.
+		instance_vars: dict = get_instance_vars(instance)
+		if instance_vars:
+			merged_data: dict = dict(instance_vars)
+			if parent_data:
+				merged_data.update(parent_data)
+			parent_data = merged_data
 
 		# Replace placeholders with parent data values
 		# Format 1: TableAlias.ColumnName -> replaced with actual value from parent_data
@@ -766,6 +836,13 @@ def wait_for_jobs(job_ids: list, poll_interval: int = 2, timeout: int = 3600) ->
 	This prevents race conditions where e.g. ItemVarChild jobs run before
 	Item Attribute jobs finish, causing empty attribute values.
 
+	Completion is judged by membership in the queue list plus the running
+	(wip) set: a job that is in neither has finished (or failed). The previous
+	implementation polled the FinishedJobRegistry, which has a ~500 s TTL — a run
+	whose jobs finish spread over more than that (any real update run) could never
+	observe "all done", so the dispatcher burned the full timeout and was then
+	killed with a JobTimeoutException while occupying a worker slot.
+
 	Args:
 	    job_ids: List of job IDs to wait for
 	    poll_interval: Seconds between status checks (default: 2)
@@ -779,30 +856,31 @@ def wait_for_jobs(job_ids: list, poll_interval: int = 2, timeout: int = 3600) ->
 
 	import time
 	queue = get_queue("long")
-	finished_registry = FinishedJobRegistry(queue=queue)
 	failed_registry = FailedJobRegistry(queue=queue)
 
 	start_time = time.time()
 	site_prefix = f"{frappe.local.site}::"
+	# The wip key mirrors the queue key name (`rq:wip:<queuename>`).
+	wip_key = queue.key.replace("rq:queue:", "rq:wip:", 1)
+	wip_conn = queue.connection
+
+	# Normalise to the full (site-prefixed) id, exactly as stored in RQ.
+	full_job_ids = [
+		f"{site_prefix}{job_id}" if not job_id.startswith(site_prefix) else job_id
+		for job_id in job_ids
+	]
 
 	while time.time() - start_time < timeout:
-		finished_ids = set(finished_registry.get_job_ids())
-		failed_ids = set(failed_registry.get_job_ids())
-		done_ids = finished_ids | failed_ids
+		queued_ids = set(queue.get_job_ids())
+		in_flight = {
+			item.decode() if isinstance(item, bytes) else item
+			for item in wip_conn.zrange(wip_key, 0, -1)
+		}
+		remaining = [jid for jid in full_job_ids if jid in queued_ids or jid in in_flight]
 
-		# Check if all jobs are done (with or without site prefix)
-		all_done = True
-		for job_id in job_ids:
-			full_id = f"{site_prefix}{job_id}" if not job_id.startswith(site_prefix) else job_id
-			if full_id not in done_ids and job_id not in done_ids:
-				all_done = False
-				break
-
-		if all_done:
-			failed_count = sum(
-				1 for jid in job_ids
-				if f"{site_prefix}{jid}" in failed_ids or jid in failed_ids
-			)
+		if not remaining:
+			failed_ids = set(failed_registry.get_job_ids())
+			failed_count = sum(1 for jid in full_job_ids if jid in failed_ids)
 			if failed_count > 0:
 				make_log(
 					f"Jobs completed with {failed_count} failures out of {len(job_ids)}",
