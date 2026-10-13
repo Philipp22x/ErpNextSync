@@ -443,14 +443,24 @@ def create_missing_info_rows(
 				return v
 		return None
 
-	# One parent document per mapping — take it from any entry with a docname.
-	parent_docname = next((e.docname for e in mapping_doc.mapping_table if e.docname), None)
-	if not parent_docname:
-		return
-
+	# One parent document per mapping — but taken from an entry of the doctype
+	# currently being processed: a mapping JSON can produce several doctypes from
+	# one source row (e.g. Item Group + UOM + Item), and a sibling doctype's
+	# docname (an Item Group or UOM name) would fail the exists() check below and
+	# silently skip the whole group.
 	for mapped_doctype in mapping_json or []:
 		doctype_name = mapped_doctype.get("doctype")
 		if not doctype_name:
+			continue
+		parent_docname = next(
+			(
+				e.docname
+				for e in mapping_doc.mapping_table
+				if e.docname and e.mapping_doctype == doctype_name
+			),
+			None,
+		)
+		if not parent_docname:
 			continue
 		for field in mapped_doctype.get("fields", []):
 			fieldname = field.get("fieldname")
