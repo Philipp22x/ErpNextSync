@@ -286,6 +286,13 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
             instance_runs = instance_values.get('runs')
             batch_size: int = max(int(instance_values.get('import_batch_size') or 10), 1)
 
+            # One query instead of one per source row: the per-row existence check
+            # dominated the cycle on the big types (measured on Ackerl: 74-107 s for
+            # Item, 55-78 s for Customer per 5-minute cycle). See
+            # controller.get_existing_mapping_ids(). A row that slips through here is
+            # still caught by create_mapping_doc()'s duplicate guard.
+            existing_ids: set = controller.get_existing_mapping_ids(instance=instance, mapping_type=row.type)
+
             # collect items to import, then enqueue in batches
             current_batch: list[dict] = []
             type_job_ids: list = []
@@ -310,9 +317,9 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
                     mapping_type=row.type
                 )
 
-                # check if mapping already exists
-                mapping_exists: str | None = controller.check_mapping_exists(obj_id)
-                if mapping_exists:
+                # check if mapping already exists — membership test in the set
+                # prefetched above (one query per type instead of one per row)
+                if obj_id in existing_ids:
                     continue
 
                 # add to current batch
