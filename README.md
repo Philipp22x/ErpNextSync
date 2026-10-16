@@ -116,7 +116,23 @@ start_import(
 
 ### 4. Enable Scheduled Sync
 
-On the Sync Instance, check **Enable Scheduler** and set the **Repetition** interval. The Frappe scheduler will then automatically run imports and incremental updates at the configured frequency.
+On the Sync Instance, check **Enable Scheduler**, then add one or more rows to the **Scheduled Jobs** table. Each row is an independent job:
+
+| Field | Meaning |
+|-------|---------|
+| **Enabled** | untick to switch this single job off without deleting it |
+| **Repetition** | `all` / `hourly` / `daily` / `weekly` / `monthly` / `cron` |
+| **Cron Expression** | standard cron expression when Repetition = `cron`, e.g. `*/30 * * * *` |
+| **Import** | run the import phase (new source records) |
+| **Update** | run the incremental update phase (changed source records) |
+| **Reconcile** | run the reconciliation phase (structural child-table repair) |
+| **Types To Import** | types for this job only, e.g. `Item, Customer`; empty = the instance's Import Settings |
+| **Import Batch Size** | batch size for this job only; `0` = the instance's Import Settings |
+| **Last Scheduled Sync** | stamped automatically when the row fires |
+
+This allows different intervals for different phases -- e.g. an hourly row with Import + Update and a daily row with Reconcile only. **Enable Scheduler** stays the master switch for all rows of the instance; a cycle never contains an unselected phase. **Types To Import** and **Import Batch Size** may be set per row (they override the instance's Import Settings for scheduled runs, which stay in charge of manual import/update calls); an empty row value falls back to the instance setting.
+
+Cycles of the same instance never overlap: a per-instance lock serializes them, so two rows (or two ticks) cannot import/update the same records at the same time. A row also scopes the reconcile phase to its own types; empty = every `multiple_query` type of the instance.
 
 ---
 
@@ -195,18 +211,30 @@ All core logic lives in `pit_erpnextsync/scripts/`:
 | `data_import.py` | Initial bulk import from source database into ERPNext |
 | `update.py` | Timestamp-based incremental updates |
 | `reconcile.py` | Diff current JSON mapping against stored Sync Mapping entries |
-| `scheduler.py` | Frappe scheduler entry points (all/daily/hourly/weekly/monthly) |
+| `scheduler.py` | Frappe scheduler entry points (all/daily/hourly/weekly/monthly/cron) |
 | `custom_scripts.py` | Ad-hoc bulk operations (e.g. create Website Items) |
 | `classes/field_vars.py` | `FieldVars` class -- dynamic field variable resolution |
 
 ### Scheduler Flow
 
-Each scheduled cycle executes two phases per enabled instance:
+Every enabled **Scheduled Jobs** row of an enabled instance runs its own cycle, restricted to the phases checked in that row:
 
-1. **`start_import()`** -- import new records that don't yet have a Sync Mapping
-2. **`run_bulk_update()`** -- detect and apply changes to previously imported records
+1. **`start_import()`** -- import new records that don't yet have a Sync Mapping (phase *Import*)
+2. **`run_bulk_update()`** -- detect and apply changes to previously imported records (phase *Update*)
+3. **`start_reconciliation()`** -- structural child-table repair, only for types with `multiple_query` child tables (phase *Reconcile*)
+
+A cycle runs its phases in that order and waits for the previous phase, so an update never races the import of the same records. Additionally a per-instance cycle lock serializes concurrent cycles (two rows, or a tick while the previous cycle is still running).
 
 Long-running jobs are enqueued via `frappe.enqueue(queue="long", timeout=600)`.
+
+### `Sync Instance Schedule` (child DocType)
+
+One row = one scheduled job of a Sync Instance: `enabled`, `repetition` (+ `cron_expression`),
+the three phase flags, `types_to_import` and `import_batch_size` (empty = instance fallback). The legacy single-value fields on
+Sync Instance (`repetition`, `cron_expression`, `enable_reconcile`,
+`last_scheduled_sync`) are kept on the doctype but hidden and read-only: the patch
+`pit_erpnextsync.patches.migrate_scheduler_to_child_table` copies their values into
+one schedule row per instance, and they are never read by the scheduler again.
 
 ---
 
@@ -410,7 +438,7 @@ Each **Sync Instance** can be configured independently:
 
 - Database connection (driver, host, port, credentials)
 - Table mappings (one or more JSON definitions)
-- Scheduler repetition interval
+- Scheduled jobs (repetition + Import/Update/Reconcile per row)
 - Field variables (key-value pairs available to all mappings)
 - Hook scripts (custom logic before/after import and update)
 - Amount of data rows to process per run
@@ -443,7 +471,7 @@ Each **Sync Instance** can be configured independently:
 ### Incremental Updates Not Running
 
 - Confirm the Sync Instance has **Enable Scheduler** checked
-- Check that the **Repetition** interval matches the Frappe scheduler frequency
+- Check that a **Scheduled Jobs** row exists, is due (Repetition / Cron Expression) and has **Update** checked
 - Review Scheduled Job Logs for errors
 - Verify the source table has a reliable timestamp column for change detection
 

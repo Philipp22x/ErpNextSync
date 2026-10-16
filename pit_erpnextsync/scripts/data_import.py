@@ -206,8 +206,12 @@ def repair_address_customer_links(instance: str, dry_run: bool = True) -> dict:
 
 #* entry point for data import ##########################################################################
 @frappe.whitelist()
-def start_import(instance: str, top: int, types_str: str = "") -> str:
+def start_import(instance: str, top: int, types_str: str = "", batch_size: int = 0) -> str:
     """Entry point - enqueues the actual import as a long-running background job.
+
+    Args:
+        batch_size: 0/None = the instance's Import Settings value (scheduler
+            rows may set their own batch size).
 
     Returns:
         str: The job_id of the enqueued background job.
@@ -220,12 +224,13 @@ def start_import(instance: str, top: int, types_str: str = "") -> str:
         job_id=job_id,
         instance=instance,
         top=top,
-        types_str=types_str
+        types_str=types_str,
+        batch_size=batch_size
     )
     return job_id
 
 
-def _run_import(instance: str, top: int, types_str: str = "") -> None:
+def _run_import(instance: str, top: int, types_str: str = "", batch_size: int = 0) -> None:
     """Actual import logic - runs as a long background job."""
 
     # before import hooks
@@ -284,7 +289,8 @@ def _run_import(instance: str, top: int, types_str: str = "") -> None:
             # Cache the runs value and batch size - avoid repeated DB queries for every row
             instance_values = frappe.get_value('Sync Instance', instance, ['runs', 'import_batch_size'], as_dict=True)
             instance_runs = instance_values.get('runs')
-            batch_size: int = max(int(instance_values.get('import_batch_size') or 10), 1)
+            # a scheduler row may pass its own batch size; 0/None = instance setting
+            batch_size: int = max(int(batch_size or instance_values.get('import_batch_size') or 10), 1)
 
             # One query instead of one per source row: the per-row existence check
             # dominated the cycle on the big types (measured on Ackerl: 74-107 s for

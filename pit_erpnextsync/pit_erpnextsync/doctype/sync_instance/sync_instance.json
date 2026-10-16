@@ -60,11 +60,8 @@
   "enable_reconcile",
   "repetition",
   "cron_expression",
-  "column_break_pozb",
   "last_scheduled_sync",
-  "column_break_jrhk",
-  "column_break_dras",
-  "column_break_snqx"
+  "schedules"
  ],
  "fields": [
   {
@@ -262,49 +259,17 @@
    "label": "Scheduler"
   },
   {
-   "fieldname": "column_break_pozb",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_jrhk",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_dras",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "column_break_snqx",
-   "fieldtype": "Column Break"
-  },
-  {
    "default": "0",
    "fieldname": "enable_scheduler",
    "fieldtype": "Check",
    "label": "Enable Scheduler"
   },
   {
-   "default": "0",
-   "description": "Run reconciliation after scheduled import/update for types with multiple_query child tables. Adds new child rows and removes rows deleted in the source.",
-   "fieldname": "enable_reconcile",
-   "fieldtype": "Check",
-   "label": "Enable Reconcile"
-  },
-  {
-   "default": "all",
-   "description": "\"all\" = 4 minutes by default, depends on settings",
-   "fieldname": "repetition",
-   "fieldtype": "Select",
-   "label": "Repetition",
-   "options": "all\ndaily\nhourly\nweekly\nmonthly\ncron"
-  },
-  {
-   "depends_on": "eval:doc.repetition=='cron'",
-   "description": "Cron expression, e.g. \"*/5 * * * *\" (every 5 minutes)",
-   "fieldname": "cron_expression",
-   "fieldtype": "Data",
-   "label": "Cron Expression",
-   "mandatory_depends_on": "eval:doc.repetition=='cron'"
+   "description": "Each row is an independent scheduled job: its own repetition and its own Import / Update / Reconcile phases. Only active while Enable Scheduler is checked.",
+   "fieldname": "schedules",
+   "fieldtype": "Table",
+   "label": "Scheduled Jobs",
+   "options": "Sync Instance Schedule"
   },
   {
    "collapsible": 1,
@@ -374,9 +339,34 @@
    "options": "Sync Import Ignore Rule"
   },
   {
+   "default": "all",
+   "fieldname": "repetition",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Repetition (legacy)",
+   "options": "all\ndaily\nhourly\nweekly\nmonthly\ncron",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cron_expression",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Cron Expression (legacy)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_reconcile",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Enable Reconcile (legacy)",
+   "read_only": 1
+  },
+  {
    "fieldname": "last_scheduled_sync",
    "fieldtype": "Datetime",
-   "label": "Last Scheduled Sync",
+   "hidden": 1,
+   "label": "Last Scheduled Sync (legacy)",
    "read_only": 1
   }
  ],
@@ -388,7 +378,7 @@
    "link_fieldname": "selectline_db_instance"
   }
  ],
- "modified": "2026-10-06 14:30:00.000000",
+ "modified": "2026-10-16 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "PIT ERPNextSync",
  "name": "Sync Instance",

@@ -39,9 +39,14 @@ def parse_types_input(types_input: str) -> List[str]:
 def start_reconciliation(
 	instance: str, 
 	types_str: str = "", 
-	dry_run: bool = True
+	dry_run: bool = True,
+	batch_size: int = 0
 ) -> Dict:
-	"""Entry point for reconciliation. Enqueues the actual work as a background job."""
+	"""Entry point for reconciliation. Enqueues the actual work as a background job.
+
+	batch_size: 0/None = the instance's Import Settings value (scheduler rows
+	may set their own batch size).
+	"""
 	import uuid
 	frappe.enqueue(
 		"pit_erpnextsync.scripts.reconcile._run_reconciliation",
@@ -50,7 +55,8 @@ def start_reconciliation(
 		job_id=f"pes_reconcile_main:{uuid.uuid4().hex[:8]}",
 		instance=instance,
 		types_str=types_str,
-		dry_run=dry_run
+		dry_run=dry_run,
+		batch_size=batch_size
 	)
 	return {
 		"status": "success",
@@ -61,7 +67,8 @@ def start_reconciliation(
 def _run_reconciliation(
 	instance: str, 
 	types_str: str = "", 
-	dry_run: bool = True
+	dry_run: bool = True,
+	batch_size: int = 0
 ) -> Dict:
 	"""Actual reconciliation logic - runs as a long background job."""
 	try:
@@ -123,7 +130,8 @@ def _run_reconciliation(
 		instance_values = frappe.get_value(
 			"Sync Instance", instance, ["import_batch_size"], as_dict=True
 		)
-		batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
+		# a scheduler row may pass its own batch size; 0/None = instance setting
+		batch_size: int = max(int(batch_size or instance_values.get("import_batch_size") or 10), 1)
 
 		import uuid
 		all_queued_jobs: List[str] = []
