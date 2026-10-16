@@ -1,0 +1,85 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-16 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "repetition",
+  "cron_expression",
+  "enable_import",
+  "enable_update",
+  "enable_reconcile",
+  "last_scheduled_sync"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "default": "all",
+   "fieldname": "repetition",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Repetition",
+   "options": "all\ndaily\nhourly\nweekly\nmonthly\ncron",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.repetition=='cron'",
+   "description": "Standard cron expression, e.g. */30 * * * * (checked every minute by the scheduler)",
+   "fieldname": "cron_expression",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cron Expression",
+   "mandatory_depends_on": "eval:doc.repetition=='cron'"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "enable_import",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Import"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "enable_update",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Update"
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "enable_reconcile",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Reconcile"
+  },
+  {
+   "columns": 3,
+   "fieldname": "last_scheduled_sync",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Scheduled Sync",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-16 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "PIT ERPNextSync",
+ "name": "Sync Instance Schedule",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
