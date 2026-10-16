@@ -87,23 +87,30 @@ def get_schedules(repetition: str) -> list:
 			"parenttype": "Sync Instance",
 			"parent": ["in", list(instances.keys())],
 			"repetition": repetition,
+			"enabled": 1,
 		},
 		fields=[
 			"name",
 			"parent",
+			"enabled",
 			"repetition",
 			"cron_expression",
 			"enable_import",
 			"enable_update",
 			"enable_reconcile",
+			"types_to_import",
+			"import_batch_size",
 		],
 		order_by="parent asc, idx asc",
 	)
 
 	for schedule in schedules:
-		instance = instances.get(schedule.get("parent"))
+		instance = instances.get(schedule.get("parent")) or {}
+		# a row may carry its own import settings; an empty row value falls back
+		# to the instance's Import Settings (so migrated rows keep their scope)
+		schedule["types_to_import"] = schedule.get("types_to_import") or instance.get("types_to_import")
+		schedule["import_batch_size"] = schedule.get("import_batch_size") or instance.get("import_batch_size")
 		schedule["amount_of_data_rows"] = instance.get("amount_of_data_rows")
-		schedule["types_to_import"] = instance.get("types_to_import")
 
 	return schedules
 
@@ -113,7 +120,7 @@ def get_instance_schedules(instance: str) -> list:
 	return frappe.get_all(
 		SCHEDULE_DOCTYPE,
 		filters={"parenttype": "Sync Instance", "parent": instance},
-		fields=["name", "repetition", "cron_expression", "enable_import", "enable_update", "enable_reconcile", "last_scheduled_sync", "idx"],
+		fields=["name", "enabled", "repetition", "cron_expression", "enable_import", "enable_update", "enable_reconcile", "types_to_import", "import_batch_size", "last_scheduled_sync", "idx"],
 		order_by="idx asc",
 	)
 
@@ -190,6 +197,9 @@ def run(schedules: list) -> None:
 		instance_name = schedule.get("parent")
 		repetition = schedule.get("repetition")
 
+		if not schedule.get("enabled"):
+			continue
+
 		do_import: bool = bool(schedule.get("enable_import"))
 		do_update: bool = bool(schedule.get("enable_update"))
 		do_reconcile: bool = bool(schedule.get("enable_reconcile"))
@@ -244,6 +254,7 @@ def run(schedules: list) -> None:
 			repetition=repetition,
 			amount_of_data_rows=schedule.get("amount_of_data_rows"),
 			types_to_import=schedule.get("types_to_import"),
+			import_batch_size=schedule.get("import_batch_size"),
 			do_import=do_import,
 			do_update=do_update,
 			do_reconcile=do_reconcile,
@@ -256,6 +267,7 @@ def _run_cycle(
 	repetition="all",
 	amount_of_data_rows=None,
 	types_to_import=None,
+	import_batch_size=None,
 	do_import=True,
 	do_update=True,
 	do_reconcile=False,
@@ -263,7 +275,9 @@ def _run_cycle(
 	"""Long-queue orchestration: import -> wait -> update -> wait -> reconcile.
 
 	Only the phases enabled in the schedule row run; each phase waits for the
-	previous one so updates never race imports on the same records.
+	previous one so updates never race imports on the same records. types_to_import
+	and import_batch_size come from the schedule row and fall back to the
+	instance's Import Settings when the row leaves them empty.
 	"""
 	if not (do_import or do_update or do_reconcile):
 		return
@@ -287,6 +301,7 @@ def _run_cycle(
 				instance=instance,
 				top=amount_of_data_rows,
 				types_str=types_to_import,
+				batch_size=import_batch_size,
 			)
 			# import first, then update - never the other way round, so updates
 			# don't race against imports on the same records
@@ -296,6 +311,7 @@ def _run_cycle(
 			update_job_id = run_bulk_update(
 				instance=instance,
 				types_str=types_to_import,
+				batch_size=import_batch_size,
 			)
 
 		make_log(
@@ -310,6 +326,17 @@ def _run_cycle(
 			if update_job_id:
 				controller.wait_for_jobs([update_job_id])
 			mq_types: list = get_multiple_query_types(instance)
+			# a row's types scope the reconcile too (empty = all mq types)
+			row_types: list = controller.parse_types_input(types_to_import)
+			if row_types:
+				scoped_types: list = [mapping_type for mapping_type in mq_types if mapping_type in row_types]
+				if len(scoped_types) != len(mq_types):
+					make_log(
+						f"Reconcile for {instance} scoped by the schedule row's types: {scoped_types} (instance mq types: {mq_types})",
+						"INFO",
+						controller.APP_NAME,
+					)
+				mq_types = scoped_types
 			if mq_types:
 				make_log(
 					f"Starting reconcile for {instance} (types: {mq_types})",
@@ -320,6 +347,7 @@ def _run_cycle(
 					instance=instance,
 					types_str=json.dumps(mq_types),
 					dry_run=False,
+					batch_size=import_batch_size,
 				)
 
 	except Exception as e:

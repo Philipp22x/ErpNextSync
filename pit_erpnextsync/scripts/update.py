@@ -1034,8 +1034,12 @@ def bulk_check_preview(instance: str, types_str: str = None) -> dict:
 
 
 @frappe.whitelist()
-def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
+def run_bulk_update(instance: str, types_str: str, ignore_ts = False, batch_size: int = 0) -> str:
     """Entry point - enqueues the actual update as a long-running background job.
+
+    Args:
+        batch_size: 0/None = the instance's Import Settings value (scheduler
+            rows may set their own batch size).
 
     Returns:
         str: The job_id of the enqueued background job.
@@ -1048,12 +1052,13 @@ def run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> str:
         job_id=job_id,
         instance=instance,
         types_str=types_str,
-        ignore_ts=ignore_ts
+        ignore_ts=ignore_ts,
+        batch_size=batch_size
     )
     return job_id
 
 
-def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
+def _run_bulk_update(instance: str, types_str: str, ignore_ts = False, batch_size: int = 0) -> None:
     """Actual update logic - runs as a long background job."""
     # Convert ignore_ts to boolean (Frappe may pass it as string)
     if isinstance(ignore_ts, str):
@@ -1091,7 +1096,8 @@ def _run_bulk_update(instance: str, types_str: str, ignore_ts = False) -> None:
     # Get the current runs value and batch size
     instance_values = frappe.get_value("Sync Instance", instance, ["runs", "import_batch_size"], as_dict=True)
     run_number = instance_values.get("runs") or 1
-    batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
+    # a scheduler row may pass its own batch size; 0/None = instance setting
+    batch_size: int = max(int(batch_size or instance_values.get("import_batch_size") or 10), 1)
 
     all_job_ids: list = []
 

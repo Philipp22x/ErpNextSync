@@ -38,12 +38,16 @@ def execute():
 		doc.append(
 			"schedules",
 			{
+				"enabled": 1,
 				"repetition": legacy.get("repetition") or "all",
 				"cron_expression": legacy.get("cron_expression"),
 				"enable_import": 1,
 				"enable_update": 1,
 				# the old single flag decided whether the cycle reconciled
 				"enable_reconcile": 1 if legacy.get("enable_reconcile") else 0,
+				# types_to_import / import_batch_size stay EMPTY on the migrated row:
+				# an empty row value falls back to the instance's Import Settings, so
+				# the instance keeps exactly its previous scope and batch size
 				"last_scheduled_sync": legacy.get("last_scheduled_sync"),
 			},
 		)

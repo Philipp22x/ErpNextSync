@@ -120,16 +120,19 @@ On the Sync Instance, check **Enable Scheduler**, then add one or more rows to t
 
 | Field | Meaning |
 |-------|---------|
+| **Enabled** | untick to switch this single job off without deleting it |
 | **Repetition** | `all` / `hourly` / `daily` / `weekly` / `monthly` / `cron` |
 | **Cron Expression** | standard cron expression when Repetition = `cron`, e.g. `*/30 * * * *` |
 | **Import** | run the import phase (new source records) |
 | **Update** | run the incremental update phase (changed source records) |
 | **Reconcile** | run the reconciliation phase (structural child-table repair) |
+| **Types To Import** | types for this job only, e.g. `Item, Customer`; empty = the instance's Import Settings |
+| **Import Batch Size** | batch size for this job only; `0` = the instance's Import Settings |
 | **Last Scheduled Sync** | stamped automatically when the row fires |
 
-This allows different intervals for different phases -- e.g. an hourly row with Import + Update and a daily row with Reconcile only. **Enable Scheduler** stays the master switch for all rows of the instance; a cycle never contains an unselected phase.
+This allows different intervals for different phases -- e.g. an hourly row with Import + Update and a daily row with Reconcile only. **Enable Scheduler** stays the master switch for all rows of the instance; a cycle never contains an unselected phase. **Types To Import** and **Import Batch Size** may be set per row (they override the instance's Import Settings for scheduled runs, which stay in charge of manual import/update calls); an empty row value falls back to the instance setting.
 
-Cycles of the same instance never overlap: a per-instance lock serializes them, so two rows (or two ticks) cannot import/update the same records at the same time.
+Cycles of the same instance never overlap: a per-instance lock serializes them, so two rows (or two ticks) cannot import/update the same records at the same time. A row also scopes the reconcile phase to its own types; empty = every `multiple_query` type of the instance.
 
 ---
 
@@ -226,7 +229,8 @@ Long-running jobs are enqueued via `frappe.enqueue(queue="long", timeout=600)`.
 
 ### `Sync Instance Schedule` (child DocType)
 
-One row = one scheduled job of a Sync Instance. The legacy single-value fields on
+One row = one scheduled job of a Sync Instance: `enabled`, `repetition` (+ `cron_expression`),
+the three phase flags, `types_to_import` and `import_batch_size` (empty = instance fallback). The legacy single-value fields on
 Sync Instance (`repetition`, `cron_expression`, `enable_reconcile`,
 `last_scheduled_sync`) are kept on the doctype but hidden and read-only: the patch
 `pit_erpnextsync.patches.migrate_scheduler_to_child_table` copies their values into

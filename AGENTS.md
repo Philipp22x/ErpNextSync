@@ -34,7 +34,7 @@ Supports two backends: **pymssql** (MSSQL) and **p4d** (4D). SQL generation, col
 | `utils.py` | **Empty** — placeholder, do not use |
 
 ### Scheduler flow
-Each row of `Sync Instance Schedule` (child of Sync Instance, master switch `enable_scheduler`) is an independent job: own repetition + own Import/Update/Reconcile phases. One cycle per due row: `start_import()` → `run_bulk_update()` → optional reconcile, waiting phase by phase; a per-instance cycle lock serializes concurrent cycles. Long-running jobs use `frappe.enqueue(queue="long", timeout=600)`.
+Each ENABLED row of `Sync Instance Schedule` (child of Sync Instance, master switch `enable_scheduler`) is an independent job: own repetition + own Import/Update/Reconcile phases + own `types_to_import` / `import_batch_size` (empty = the instance's Import Settings, which stay in charge of manual runs). One cycle per due row: `start_import()` → `run_bulk_update()` → optional reconcile, waiting phase by phase; a per-instance cycle lock serializes concurrent cycles. Long-running jobs use `frappe.enqueue(queue="long", timeout=600)`.
 
 ### Mapping ID format
 ```
