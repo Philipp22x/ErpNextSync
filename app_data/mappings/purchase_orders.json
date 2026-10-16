@@ -1,0 +1,166 @@
+[
+ {
+  "_comment": "=== Purchase Order import from OfficeNo1 (SelectLine) 4D database ===",
+  "_comment2": "Mirrors the officeno1_sales_orders instance: only purchase orders that are NOT fully delivered are imported (allesgeliefert flag), line items come from BESTELLUNGpos",
+  "_comment3": "Sales orders park the already delivered qty in custom_custom_text_1 / MENGEGELIEFERT; for purchase orders the delivered qty per line is mapped onto the item's received_qty (MengeGeliefert), so per_received is calculated by ERPNext from real numbers",
+  "_comment4": "IMPORTANT: sl_column, primary_key, order_by, timestamp_column_name and the {PLACEHOLDER} of the child query must be UPPERCASE because the 4D driver returns uppercase dict keys",
+  "idx": 1,
+  "type": "PurchaseOrder",
+  "doc_type": "Purchase Order",
+  "table_name": "BESTELLUNG",
+  "primary_key": "BESTELLNR",
+  "order_by": "BESTELLNR DESC",
+  "timestamp_column_name": "LETZTEAENDERUNG",
+  "timestamp_column_type": "datetime",
+  "query_filter": "t.[allesgeliefert] IS NULL OR t.[allesgeliefert] = false",
+  "mapping": [
+   {
+    "doctype": "Purchase Order",
+    "reqd": 1,
+    "doctype_flags": [
+     {
+      "ignore_validate": 1
+     },
+     {
+      "ignore_links": 1
+     }
+    ],
+    "fields": [
+     {
+      "_comment": "--- Supplier (Lieferant, synced by officeno1_migration) ---",
+      "fieldname": "supplier",
+      "sl_column": "LIEFERANTENNR",
+      "force_str_type": 1,
+      "reqd": 1
+     },
+     {
+      "fieldname": "transaction_date",
+      "sl_column": "BESTELLDATUM",
+      "reqd": 1
+     },
+     {
+      "_comment": "--- Keep the ERPNext naming series of the existing (manually created) purchase orders ---",
+      "fieldname": "naming_series",
+      "default": "LNG-BE-2026-.####"
+     },
+     {
+      "fieldname": "company",
+      "default": "Lang Kunstgewerbe GmbH"
+     },
+     {
+      "_comment": "--- Currency: taken from the source order again (4D BESTELLUNG.Waehrung is 'Eur' / 'EUR' / 'ATS' - no USD anywhere), NOT fixed (PIT-TASK-2027-000365 ADJUSTMENT 4). The currency and the buying price list that the order is finally booked with follow the SUPPLIER (Supplier.default_currency / default_price_list - the customer's own configuration, which his 40 manually created purchase orders follow 100%): Chinese/Indian suppliers are USD orders on Standard-Kauf-USD, German suppliers are EUR orders on Standard-Kauf. That alignment is done by the server script 'fill purchase order prices from usd price list' (hook after/both), because a mapping cannot read the Supplier master. ---",
+      "fieldname": "currency",
+      "sl_column": "WAEHRUNG",
+      "value_map": {
+       "Eur": "EUR",
+       "EUR": "EUR",
+       "USD": "USD"
+      },
+      "value_map_default": "EUR"
+     },
+     {
+      "_comment": "--- Buying price list of the mirrored orders: source currency (WAEHRUNG) as the default, the server script then sets Standard-Kauf-USD / Standard-Kauf from the supplier master (PIT-TASK-2027-000365 ADJUSTMENT 4; ADJUSTMENT 3 had it fixed to Standard-Kauf-USD for ALL orders, which mixed the euro source prices of the German suppliers' orders into a USD price list) ---",
+      "fieldname": "buying_price_list",
+      "sl_column": "WAEHRUNG",
+      "value_map": {
+       "USD": "Standard-Kauf-USD"
+      },
+      "value_map_default": "Standard-Kauf"
+     },
+     {
+      "_comment": "--- Source rate (4D UMRECHFRW = 1.0 for the EUR orders); the server script sets 0.86207 for the USD orders (the rate the customer uses in his own USD purchase orders, LNG-BE-2026-0007 .. 0041; ERPNext has no Currency Exchange record on this site) and 1.0 for the EUR orders. ---",
+      "fieldname": "conversion_rate",
+      "sl_column": "UMRECHFRW"
+     },
+     {
+      "fieldname": "payment_terms_template",
+      "sl_column": "ZAHLUNGSBED"
+     },
+     {
+      "_comment": "--- Source order number (OfficeNo1 BestellNr) for traceability, like the manual POs ---",
+      "fieldname": "custom_header_text",
+      "sl_column": "BESTELLNR",
+      "force_str_type": 1
+     },
+     {
+      "fieldname": "custom_shipping_date",
+      "sl_column": "LIEFERDATUM"
+     },
+     {
+      "fieldname": "custom_confirmed_delivery_date",
+      "sl_column": "BESTAETIGTES_LIEFERDATUMK"
+     },
+     {
+      "fieldname": "custom_footer_text",
+      "sl_column": "FUSSTEXT"
+     },
+     {
+      "fieldname": "custom_additional_info_text",
+      "sl_column": "BEMERKUNG"
+     },
+     {
+      "_comment": "--- Order lines from BESTELLUNGpos (condition is matched against the parent row). qty/received_qty/uom stay the 1:1 source values; the price of every line (rate/price_list_rate) is set by the server script 'fill purchase order prices from usd price list' to the price list price of the order's currency (PIT-TASK-2027-000365 ADJUSTMENT 4). 4D BESTELLUNGpos.Preis_EK is NOT used as the line price any more: measured, it is the EUR book value of the line for all 276 priced lines (it equals the EUR price list price to the cent), even for the USD suppliers' orders, and that value may not be mixed into a USD price list. ---",
+      "fieldname": "items",
+      "multiple_query": 1,
+      "multiple_query_table": "BESTELLUNGpos",
+      "multiple_query_condition": "BestellNr = {BESTELLNR}",
+      "match_key_column": "PRIMARYKEY",
+      "table_fields": [
+       {
+        "table_fieldname": "item_code",
+        "sl_column": "ARTIKELNR",
+        "reqd": 1
+       },
+       {
+        "table_fieldname": "item_name",
+        "sl_column": "POSBEZEICHNUNG",
+        "reqd": 1,
+        "trim": 140
+       },
+       {
+        "table_fieldname": "qty",
+        "sl_column": "MENGE",
+        "reqd": 1
+       },
+       {
+        "table_fieldname": "uom",
+        "sl_column": "ME"
+       },
+       {
+        "table_fieldname": "conversion_factor",
+        "default": 1
+       },
+       {
+        "_comment": "--- The price lists provide the rate (server script); the 4D source price is kept as the initial value for a new import ---",
+        "table_fieldname": "rate",
+        "sl_column": "PREIS_EK"
+       },
+       {
+        "table_fieldname": "price_list_rate",
+        "sl_column": "PREIS_EK"
+       },
+       {
+        "table_fieldname": "discount_percentage",
+        "sl_column": "RABATT"
+       },
+       {
+        "_comment": "--- Already delivered qty per line (MengeGeliefert) -> ERPNext received qty / per_received ---",
+        "table_fieldname": "received_qty",
+        "sl_column": "MENGEGELIEFERT"
+       },
+       {
+        "table_fieldname": "schedule_date",
+        "sl_column": "LIEFERDATUM",
+        "reqd": 1
+       },
+       {
+        "table_fieldname": "warehouse",
+        "default": "Lagerräume - LNG"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+]
