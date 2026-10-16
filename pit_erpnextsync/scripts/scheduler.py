@@ -213,6 +213,42 @@ def run(schedules: list) -> None:
 			)
 			continue
 
+		# Enqueue the full import -> wait -> update -> wait -> reconcile cycle as ONE
+		# long-queue background job. The cron entry (default queue, 300s timeout) must
+		# never block on wait_for_jobs(), otherwise it dies with a JobTimeoutException
+		# ("Task exceeded maximum timeout value (300 seconds)"). deduplicate by job_id
+		# skips when a cycle for this SCHEDULE ROW is already QUEUED or STARTED, so
+		# cron ticks cannot start overlapping cycles of the same job - a tick that is
+		# deduplicated away (or a cycle waiting for the instance lock) must NOT be
+		# stamped as a run, otherwise the row would look like it fired every minute.
+		# Overlap between different rows of the same instance is prevented by the
+		# cycle lock inside _run_cycle (the second row WAITS for the first).
+		job = frappe.enqueue(
+			"pit_erpnextsync.scripts.scheduler._run_cycle",
+			queue="long",
+			timeout=CYCLE_LOCK_TTL,
+			job_id=f"pes_cycle:{instance_name}:{schedule.get('name')}",
+			deduplicate=True,
+			instance=instance_name,
+			schedule_row=schedule.get("name"),
+			repetition=repetition,
+			amount_of_data_rows=schedule.get("amount_of_data_rows"),
+			types_to_import=schedule.get("types_to_import"),
+			import_batch_size=schedule.get("import_batch_size"),
+			do_import=do_import,
+			do_update=do_update,
+			do_reconcile=do_reconcile,
+		)
+
+		if job is None:
+			make_log(
+				f"Scheduled job ({repetition}) for {instance_name} [{schedule.get('name')}] is already queued/running "
+				f"- tick skipped",
+				"INFO",
+				controller.APP_NAME,
+			)
+			continue
+
 		# stamp the row that actually fired (the parent field is legacy)
 		frappe.db.set_value(
 			SCHEDULE_DOCTYPE,
@@ -233,31 +269,6 @@ def run(schedules: list) -> None:
 			f"Scheduled {', '.join(phases)} ({repetition}) for {instance_name} is starting (cycle queued)...",
 			"INFO",
 			controller.APP_NAME,
-		)
-
-		# Enqueue the full import -> wait -> update -> wait -> reconcile cycle as ONE
-		# long-queue background job. The cron entry (default queue, 300s timeout) must
-		# never block on wait_for_jobs(), otherwise it dies with a JobTimeoutException
-		# ("Task exceeded maximum timeout value (300 seconds)"). deduplicate by job_id
-		# skips when a cycle for this SCHEDULE ROW is already QUEUED or STARTED, so
-		# cron ticks cannot start overlapping cycles of the same job. Overlap between
-		# different rows of the same instance is prevented by the cycle lock inside
-		# _run_cycle.
-		frappe.enqueue(
-			"pit_erpnextsync.scripts.scheduler._run_cycle",
-			queue="long",
-			timeout=CYCLE_LOCK_TTL,
-			job_id=f"pes_cycle:{instance_name}:{schedule.get('name')}",
-			deduplicate=True,
-			instance=instance_name,
-			schedule_row=schedule.get("name"),
-			repetition=repetition,
-			amount_of_data_rows=schedule.get("amount_of_data_rows"),
-			types_to_import=schedule.get("types_to_import"),
-			import_batch_size=schedule.get("import_batch_size"),
-			do_import=do_import,
-			do_update=do_update,
-			do_reconcile=do_reconcile,
 		)
 
 
