@@ -1494,7 +1494,6 @@ def check_timestamp(instance: str, id_data: dict, mapping_name: str, run_number:
 
 # update single mapping / called from timestamp check
 def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: int = None) -> None:
-    make_log(f"run update_mapping()", "ERROR", controller.APP_NAME)
     try:
         # get mapping doc
         mapping_doc: Document = frappe.get_doc("Sync Mapping", mapping_name)
