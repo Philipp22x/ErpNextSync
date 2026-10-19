@@ -8,3 +8,4 @@ pit_erpnextsync.patches.add_source_hash_field
 pit_erpnextsync.patches.add_child_hash_field
 pit_erpnextsync.patches.migrate_company_to_mapping_variables
 pit_erpnextsync.patches.migrate_scheduler_to_child_table
+pit_erpnextsync.patches.migrate_info_field_to_value
