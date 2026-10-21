@@ -1956,16 +1956,21 @@ def apply_field_removals(
 	for doctype, docnames in docs_to_check.items():
 		for docname in docnames:
 			try:
-				# Check if document is still referenced in any other mapping
-				other_mappings = frappe.get_all(
+				# Check if document is still referenced in any other mapping.
+				# `parent != x` renders as `coalesce(parent,'')<>'x'` — not sargable, so on a
+				# multi-million-row entry table MariaDB scanned the whole `modified` index on
+				# every call (measured: 43 s / 2.1M rows read for 3 matching rows). Fetch the
+				# (few) parents of this doctype+docname through the composite index and exclude
+				# the current mapping in Python instead.
+				other_parents = frappe.get_all(
 					"Sync Mapping Entry",
 					filters={
 						"mapping_doctype": doctype,
 						"docname": docname,
-						"parent": ["!=", mapping_name]  # Exclude current mapping
 					},
-					limit=1
+					pluck="parent",
 				)
+				other_mappings = [parent for parent in other_parents if (parent or "") != mapping_name]
 				
 				# Also check if document is still referenced in the current mapping
 				# (after removals, other fields may still have entries)
