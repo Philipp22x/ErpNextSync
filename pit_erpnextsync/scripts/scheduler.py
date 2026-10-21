@@ -1,7 +1,8 @@
 import frappe
 import json
 from croniter import croniter
-from frappe.utils import now_datetime
+from datetime import datetime
+from frappe.utils import get_datetime, now_datetime
 
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
@@ -100,6 +101,7 @@ def get_schedules(repetition: str) -> list:
 			"enable_reconcile",
 			"types_to_import",
 			"import_batch_size",
+			"last_scheduled_sync",
 		],
 		order_by="parent asc, idx asc",
 	)
@@ -143,12 +145,22 @@ def run_monthly() -> None:
 
 
 def run_cron() -> None:
-	"""Check all cron-based schedule rows and run those whose expression matches now."""
+	"""Check all cron-based schedule rows and run those that became due.
+
+	Catch-up statt minute-exaktem Match: Frappe dispatcht run_cron mit
+	Queue-Verzoegerung und Tick-Minuten koennen ganz uebersprungen werden
+	(Tick-Drift) — eine */5-Grenze, in deren Minute keine run_cron-Ausfuehrung
+	landet (z. B. Job-Start 09:35:59.8, erste Queries erst nach 09:36:00),
+	verliert ihren Slot sonst dauerhaft (beobachtet: Zyklus-Luecken von
+	10-20 min). Feuere daher, sobald das naechste Vorkommen nach dem letzten
+	TATSACHELICHEN Lauf (last_scheduled_sync) faellig ist; run() stempelt nur
+	tatsaechlich gestartete Zyklen, und das Job-Dedupe schuetzt vor
+	Doppel-Feuer, waehrend ein laufender Zyklus den Slot abdeckt."""
 	schedules = get_schedules("cron")
 	if not schedules:
 		return
 
-	now = now_datetime().replace(second=0, microsecond=0)
+	now = now_datetime()
 	due_schedules = []
 
 	for schedule in schedules:
@@ -156,9 +168,9 @@ def run_cron() -> None:
 		if not cron_expr:
 			continue
 		try:
-			if croniter.match(cron_expr, now):
+			if _cron_due(cron_expr, schedule.get("last_scheduled_sync"), now):
 				due_schedules.append(schedule)
-		except (ValueError, KeyError):
+		except (ValueError, KeyError, TypeError):
 			make_log(
 				f"Invalid cron expression '{cron_expr}' for schedule {schedule.get('name')} "
 				f"of instance {schedule.get('parent')}",
@@ -167,6 +179,17 @@ def run_cron() -> None:
 			)
 
 	run(due_schedules)
+
+
+def _cron_due(cron_expr: str, last, now) -> bool:
+	"""True, wenn zwischen dem letzten tatsaechlichen Lauf und `now` ein
+	Cron-Vorkommen des Ausdrucks faellig wurde (Catch-up); ohne Historie
+	(kein last_scheduled_sync) exaktes Minuten-Match wie bisher.
+	Wirft bei ungueltigem Cron-Ausdruck (ValueError/KeyError/TypeError)."""
+	if last:
+		next_due = croniter(cron_expr, get_datetime(last)).get_next(datetime)
+		return bool(now >= next_due)
+	return bool(croniter.match(cron_expr, now.replace(second=0, microsecond=0)))
 
 
 def get_multiple_query_types(instance: str) -> list:
@@ -331,11 +354,20 @@ def _run_cycle(
 			controller.APP_NAME,
 		)
 
+		# Update-Batches abwarten, BEVOR der Zyklus-Lock freigegeben wird -
+		# sonst laeuft der naechste Import (naechster Zyklus oder manueller
+		# Refresh) gegen die noch laufenden Update-Batches derselben Instanz.
+		if update_job_id and not controller.wait_for_jobs([update_job_id]):
+			make_log(
+				f"Scheduled job ({repetition}) for {instance} [{schedule_row}]: "
+				f"update jobs did not finish within timeout",
+				"WARNING",
+				controller.APP_NAME,
+			)
+
 		# Reconcile types with multiple_query child tables so structural
 		# changes (added/removed source rows) are applied to child tables.
 		if do_reconcile:
-			if update_job_id:
-				controller.wait_for_jobs([update_job_id])
 			mq_types: list = get_multiple_query_types(instance)
 			# a row's types scope the reconcile too (empty = all mq types)
 			row_types: list = controller.parse_types_input(types_to_import)
