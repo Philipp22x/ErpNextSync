@@ -95,6 +95,12 @@ doctype_list_js = {}
 # before_install = "pit_erpnextsync.install.before_install"
 after_install = "pit_erpnextsync.install.after_install"
 
+# Keep the composite (mapping_doctype, docname) index on `Sync Mapping Entry` in place.
+# The two per-mapping orphan checks (reconcile.apply_field_removals and
+# SyncMapping.on_delete_mapping) fall back to a full scan of that multi-million-row table
+# without it — see the measured numbers in pit_erpnextsync/install.py.
+after_migrate = ["pit_erpnextsync.install.ensure_sync_mapping_entry_index"]
+
 # Uninstallation
 # ------------
 

@@ -1,15 +1,25 @@
 import frappe
 import json
 
+from pit_erpnextsync.scripts.scheduler import get_instance_schedules
+
 
 def audit():
 	print("=== SYNC INSTANCES ===")
 	instances = frappe.get_all(
 		"Sync Instance",
-		fields=["name", "enabled", "repetition", "cron_expression", "import_batch_size"],
+		fields=["name", "enabled", "enable_scheduler", "import_batch_size"],
 	)
 	for inst in instances:
-		print(f"  {inst.name}: enabled={inst.enabled} rep={inst.repetition} batch={inst.import_batch_size}")
+		print(
+			f"  {inst.name}: enabled={inst.enabled} scheduler={inst.enable_scheduler} batch={inst.import_batch_size}"
+		)
+		for schedule in get_instance_schedules(inst.name):
+			print(
+				f"    schedule {schedule.name}: rep={schedule.repetition} cron={schedule.cron_expression} "
+				f"import={schedule.enable_import} update={schedule.enable_update} reconcile={schedule.enable_reconcile} "
+				f"last={schedule.last_scheduled_sync}"
+			)
 		tm_rows = frappe.get_all(
 			"Selectline Table Mapping",
 			filters={"parent": inst.name, "parenttype": "Sync Instance"},

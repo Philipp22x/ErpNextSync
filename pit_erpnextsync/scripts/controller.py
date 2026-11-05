@@ -591,6 +591,41 @@ def check_mapping_exists(selectline_id: str) -> str | None:
 		return None
 
 
+def get_existing_mapping_ids(instance: str, mapping_type: str = "") -> set:
+	"""All existing `selectline_id`s of an instance (optionally of one type) in ONE query.
+
+	The import loop used to call `check_mapping_exists()` once per source row — on an
+	instance with 15k items and 11k customers that is ~26'000 single-row queries per
+	5-minute cycle (measured on Ackerl: 74-107 s for Item alone, 55-78 s for Customer
+	of pure round-trip time per cycle). The same answer fits into one result set, so
+	the import loop tests membership in this set instead.
+
+	Args:
+	    instance (str): Name of the Sync Instance doc
+	    mapping_type (str): Optional mapping type filter (e.g. "Item"); empty = all types
+
+	Returns:
+	    set: existing selectline_id strings (empty set on error — the caller then
+	    re-imports and `create_mapping_doc()`'s duplicate guard takes over)
+	"""
+	filters: dict = {"selectline_db_instance": instance}
+	if mapping_type:
+		filters["type"] = mapping_type
+	try:
+		rows: list = frappe.get_all(
+			"Sync Mapping", filters=filters, pluck="selectline_id", limit_page_length=0
+		)
+	except Exception as e:
+		make_log(
+			f"Could not prefetch mapping ids for {instance}/{mapping_type}: {e}",
+			"ERROR",
+			APP_NAME,
+			with_traceback=True,
+		)
+		return set()
+	return {str(sid) for sid in (rows or []) if sid}
+
+
 # create new mapping
 def create_mapping_doc(
 	instance: str,

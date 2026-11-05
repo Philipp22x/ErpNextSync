@@ -39,9 +39,14 @@ def parse_types_input(types_input: str) -> List[str]:
 def start_reconciliation(
 	instance: str, 
 	types_str: str = "", 
-	dry_run: bool = True
+	dry_run: bool = True,
+	batch_size: int = 0
 ) -> Dict:
-	"""Entry point for reconciliation. Enqueues the actual work as a background job."""
+	"""Entry point for reconciliation. Enqueues the actual work as a background job.
+
+	batch_size: 0/None = the instance's Import Settings value (scheduler rows
+	may set their own batch size).
+	"""
 	import uuid
 	frappe.enqueue(
 		"pit_erpnextsync.scripts.reconcile._run_reconciliation",
@@ -50,7 +55,8 @@ def start_reconciliation(
 		job_id=f"pes_reconcile_main:{uuid.uuid4().hex[:8]}",
 		instance=instance,
 		types_str=types_str,
-		dry_run=dry_run
+		dry_run=dry_run,
+		batch_size=batch_size
 	)
 	return {
 		"status": "success",
@@ -61,7 +67,8 @@ def start_reconciliation(
 def _run_reconciliation(
 	instance: str, 
 	types_str: str = "", 
-	dry_run: bool = True
+	dry_run: bool = True,
+	batch_size: int = 0
 ) -> Dict:
 	"""Actual reconciliation logic - runs as a long background job."""
 	try:
@@ -123,7 +130,8 @@ def _run_reconciliation(
 		instance_values = frappe.get_value(
 			"Sync Instance", instance, ["import_batch_size"], as_dict=True
 		)
-		batch_size: int = max(int(instance_values.get("import_batch_size") or 10), 1)
+		# a scheduler row may pass its own batch size; 0/None = instance setting
+		batch_size: int = max(int(batch_size or instance_values.get("import_batch_size") or 10), 1)
 
 		import uuid
 		all_queued_jobs: List[str] = []
@@ -1948,16 +1956,21 @@ def apply_field_removals(
 	for doctype, docnames in docs_to_check.items():
 		for docname in docnames:
 			try:
-				# Check if document is still referenced in any other mapping
-				other_mappings = frappe.get_all(
+				# Check if document is still referenced in any other mapping.
+				# `parent != x` renders as `coalesce(parent,'')<>'x'` — not sargable, so on a
+				# multi-million-row entry table MariaDB scanned the whole `modified` index on
+				# every call (measured: 43 s / 2.1M rows read for 3 matching rows). Fetch the
+				# (few) parents of this doctype+docname through the composite index and exclude
+				# the current mapping in Python instead.
+				other_parents = frappe.get_all(
 					"Sync Mapping Entry",
 					filters={
 						"mapping_doctype": doctype,
 						"docname": docname,
-						"parent": ["!=", mapping_name]  # Exclude current mapping
 					},
-					limit=1
+					pluck="parent",
 				)
+				other_mappings = [parent for parent in other_parents if (parent or "") != mapping_name]
 				
 				# Also check if document is still referenced in the current mapping
 				# (after removals, other fields may still have entries)
