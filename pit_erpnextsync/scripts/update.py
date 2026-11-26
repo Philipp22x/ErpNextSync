@@ -501,6 +501,38 @@ def rematch_stale_child_row(mapping_json: list, mapping_doctype: str, fieldname:
 	return None
 
 
+def _write_child_values(child_doctype: str, child_name: str, resolved: dict,
+		created_row: bool, context: str) -> bool:
+	"""Write resolved values into a child row. Returns False when a value was rejected.
+
+	A rejected write (e.g. `(1062, "Duplicate entry ... for key 'barcode'")` on the UNIQUE
+	`tabItem Barcode.barcode`) must not leave the just-inserted EMPTY row behind: the label
+	lookup of the next run will not find it and inserts another one, so every sync cycle grew
+	a new empty row (observed on portal.eiermacher.at sl_import: 258 empty barcode rows from
+	two cycles). Rows this function created are deleted again; adopted rows are left as they
+	are, because they existed before this run.
+	"""
+	try:
+		for tfn, value in resolved.items():
+			if value not in ["", None]:
+				frappe.db.set_value(child_doctype, child_name, tfn, value)
+		return True
+	except Exception as write_err:
+		if created_row:
+			try:
+				frappe.db.delete(child_doctype, {"name": child_name})
+			except Exception as del_err:
+				make_log(
+					f"Could not remove rejected {child_doctype} row {child_name}: {del_err}",
+					"ERROR", controller.APP_NAME,
+				)
+		make_log(
+			f"Child row write rejected for {context}: {write_err}",
+			"WARNING", controller.APP_NAME,
+		)
+		return False
+
+
 def create_missing_info_rows(
 	mapping_doc: Document,
 	mapping_json: list,
@@ -673,9 +705,9 @@ def create_missing_info_rows(
 					frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
 				action = "created"
 
-			for tfn, value in resolved.items():
-				if value not in ["", None]:
-					frappe.db.set_value(child_doctype, child_name, tfn, value)
+			if not _write_child_values(child_doctype, child_name, resolved, action == "created",
+					f"{child_doctype} on {doctype_name} {parent_docname} (group {fieldname})"):
+				continue
 
 			for tf in field["table_fields"]:
 				if tf.get("sl_column"):
@@ -2105,9 +2137,9 @@ def update_mapping(instance: str, id_data: dict, mapping_name: str, run_number: 
                         frappe.db.set_value(child_doctype, child_name, "docstatus", parent_docstatus)
                     next_idx += 1
 
-                    for tfn, value in resolved.items():
-                        if value not in ["", None]:
-                            frappe.db.set_value(child_doctype, child_name, tfn, value)
+                    if not _write_child_values(child_doctype, child_name, resolved, True,
+                            f"{child_doctype} on {doctype_name} {parent_docname} (mq row)"):
+                        continue
 
                     for tf in field.get("table_fields", []):
                         if tf.get("sl_column"):
