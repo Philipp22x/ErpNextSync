@@ -200,12 +200,19 @@ def _desired_json(ref: dict[str, dict], item_values: dict[str, set]) -> str:
 
 
 def _ensure_item_rows(item: str, specs: list[str]) -> int:
-    """Insert missing `tabItem Specification` rows for one item (direct SQL, no hooks)."""
-    have = set(frappe.db.get_values(
-        "Item Specification", {"parent": item, "parenttype": "Item"},
-        "specification", as_dict=False,
+    """Insert missing `tabItem Specification` rows for one item (direct SQL, no hooks).
+
+    `have` must be a set of specification NAMES: frappe.db.get_values(..., as_dict=False)
+    returns one-element tuples, so a plain `s not in have` string test never matched and
+    every run re-inserted the whole spec list (observed on eiermacher: 4x duplicates per
+    item, 15720 instead of 3930 rows). Use get_all/pluck like the other helpers here.
+    """
+    have = set(frappe.get_all(
+        "Item Specification",
+        filters={"parent": item, "parenttype": "Item"},
+        pluck="specification",
     ))
-    missing = [s for s in specs if s not in have]
+    missing = [s for s in specs if s and s not in have]
     if not missing:
         return 0
     now = now_datetime()
