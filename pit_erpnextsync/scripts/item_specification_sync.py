@@ -28,8 +28,26 @@ from frappe.utils import now_datetime
 from pit_erpnext.scripts.logger import make_log
 from pit_erpnextsync.scripts import controller
 
-TEMPLATE_NAME = "HTX"
+DEFAULT_TEMPLATE_NAME = "HTX"
 SOURCE_TABLE = "ShopSachmerkmale"
+
+TEMPLATE_VARIABLE = "specification_template"
+
+
+def _template_name(instance: str) -> str:
+    """Specification Template to use for an instance.
+
+    Read from the Sync Instance Variable ``specification_template`` (var_name ->
+    document_name, Dynamic Link on ``Specification Template``); falls back to
+    ``DEFAULT_TEMPLATE_NAME`` so existing instances (e.g. hellatex) keep their
+    behaviour without any configuration.
+    """
+    name = frappe.db.get_value(
+        "Sync Instance Variable",
+        {"parent": instance, "parenttype": "Sync Instance", "var_name": TEMPLATE_VARIABLE},
+        "document_name",
+    )
+    return name or DEFAULT_TEMPLATE_NAME
 
 LOG_TAG = controller.APP_NAME
 
@@ -114,11 +132,11 @@ def _ensure_specifications(spec_values: dict[str, list[str]]) -> int:
     return created
 
 
-def _ensure_template(spec_values: dict[str, list[str]]) -> None:
+def _ensure_template(template_name: str, spec_values: dict[str, list[str]]) -> None:
     """Create the template if missing; extend its child rows via direct SQL (no hooks)."""
-    if not frappe.db.exists("Specification Template", TEMPLATE_NAME):
+    if not frappe.db.exists("Specification Template", template_name):
         d = frappe.new_doc("Specification Template")
-        d.specification_template_name = TEMPLATE_NAME
+        d.specification_template_name = template_name
         for spec in sorted(spec_values):
             d.append("specification", {"specification": spec, "available_for_filtering": 1})
         d.insert(ignore_permissions=True)
@@ -126,7 +144,7 @@ def _ensure_template(spec_values: dict[str, list[str]]) -> None:
         return
     have = set(frappe.get_all(
         "Specification Table",
-        filters={"parent": TEMPLATE_NAME, "parenttype": "Specification Template"},
+        filters={"parent": template_name, "parenttype": "Specification Template"},
         pluck="specification",
     ))
     missing = [s for s in sorted(spec_values) if s not in have]
@@ -136,15 +154,15 @@ def _ensure_template(spec_values: dict[str, list[str]]) -> None:
                "(name,creation,modified,modified_by,owner,parent,parenttype,parentfield,idx,docstatus,specification,available_for_filtering) "
                "VALUES (%s,%s,%s,'Administrator','Administrator',%s,'Specification Template','specification',%s,0,%s,1)")
         for i, s in enumerate(missing, start=len(have) + 1):
-            frappe.db.sql(sql, (frappe.generate_hash(length=10), now, now, TEMPLATE_NAME, i, s))
+            frappe.db.sql(sql, (frappe.generate_hash(length=10), now, now, template_name, i, s))
 
 
-def _load_reference() -> dict[str, dict]:
+def _load_reference(template_name: str) -> dict[str, dict]:
     """Live reference data: {spec: {selection_mode, options:[...]}} from ERPNext docs."""
     ref: dict[str, dict] = {}
     for row in frappe.get_all(
         "Specification Table",
-        filters={"parent": TEMPLATE_NAME, "parenttype": "Specification Template"},
+        filters={"parent": template_name, "parenttype": "Specification Template"},
         fields=["specification", "available_for_filtering"],
         order_by="idx",
     ):
@@ -213,15 +231,17 @@ def sync_item_specifications(instance: str) -> dict:
         stats["skipped_no_table"] = True
         return stats
 
+    template_name = _template_name(instance)
+
     stats["values_created"] = _ensure_specification_values(
         sorted({v for values in spec_values.values() for v in values}))
     frappe.db.commit()
     stats["specifications_created"] = _ensure_specifications(spec_values)
     frappe.db.commit()
-    _ensure_template(spec_values)
+    _ensure_template(template_name, spec_values)
     frappe.db.commit()
 
-    ref = _load_reference()
+    ref = _load_reference(template_name)
     specs = list(ref.keys())
 
     # only items that exist in ERPNext
@@ -241,14 +261,14 @@ def sync_item_specifications(instance: str) -> dict:
         stats["items_scanned"] += 1
         desired = _desired_json(ref, values_by_spec)
         changed = frappe.parse_json(item_row.get("custom_specification_json") or "{}") != frappe.parse_json(desired)
-        wrong_template = item_row.get("custom_specification_template") != TEMPLATE_NAME
+        wrong_template = item_row.get("custom_specification_template") != template_name
         if not changed and not wrong_template:
             continue
         added = _ensure_item_rows(art, specs)
         stats["item_rows_added"] += added
         updates = {"custom_specification_json": desired}
         if wrong_template:
-            updates["custom_specification_template"] = TEMPLATE_NAME
+            updates["custom_specification_template"] = template_name
         frappe.db.set_value("Item", art, updates, update_modified=False)
         stats["items_changed"] += 1
         if stats["items_changed"] % 500 == 0:
@@ -290,7 +310,9 @@ def main():
         if not _source_has_table(instance):
             print("no %s table for %s" % (SOURCE_TABLE, instance)); return
         spec_values, assign = _read_source(instance)
-        ref = _load_reference()
+        template_name = _template_name(instance)
+        ref = _load_reference(template_name)
+        print("template for %s: %s" % (instance, template_name))
         print("specs in source: %d | values: %d | articles: %d" % (
             len(spec_values), sum(len(v) for v in spec_values.values()), len(assign)))
         print("template specs (live): %s" % sorted(ref.keys()))
